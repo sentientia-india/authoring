@@ -22,6 +22,7 @@ env/
 
 # Local MCP/Codex config with secrets
 .codex/config.toml
+.codex/reference-repos/
 
 # Generated artifacts
 output/

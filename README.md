@@ -4,6 +4,12 @@ Production-ready MCP project skeleton for generating e-learning courses, quizzes
 
 This project is designed to run as a **separate Docker instance** from any existing application container. The MCP server exposes only a small allowlisted surface to Codex/AI agents and keeps internal prompts, pipelines, source files, databases, and environment secrets hidden.
 
+## Project rotation
+
+When this project is handed to Codex, a new engineer, or an external contractor, start with [docs/project-rotation.md](docs/project-rotation.md). That checklist is the trigger system for reading current state, choosing work from [docs/task-board.md](docs/task-board.md), reviewing prior changes in [docs/worklog.md](docs/worklog.md), and integrating outside code safely.
+
+New contributors should read [docs/contributor-onboarding.md](docs/contributor-onboarding.md) before coding.
+
 ## What this MCP should beat
 
 Mini Course Generator publicly exposes an MCP experience around planning, generating, and publishing courses from MCP-compatible AI clients. This project goes beyond that by adding:
