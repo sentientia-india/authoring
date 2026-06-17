@@ -49,7 +49,7 @@ Transport = Callable[[Request, float], dict[str, Any]]
 
 
 def _default_transport(request: Request, timeout: float) -> dict[str, Any]:
-    with urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed HTTPS provider URL
+    with urlopen(request, timeout=timeout) as response:  # nosec B310 - fixed HTTPS provider URL
         return json.loads(response.read().decode("utf-8"))
 
 
