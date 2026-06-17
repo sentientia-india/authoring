@@ -114,6 +114,15 @@ jobs:
 
           docker compose up -d --build
           docker compose ps
-          docker compose exec -T course-mcp python -m course_mcp_server.healthcheck
+          for attempt in $(seq 1 20); do
+            if docker compose exec -T course-mcp python -m course_mcp_server.healthcheck; then
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              docker compose logs --tail=100 course-mcp
+              exit 1
+            fi
+            sleep 3
+          done
           docker compose exec -T course-mcp python -m course_mcp_server.smoke
           REMOTE
