@@ -116,6 +116,8 @@ Supported SCORM versions: `1.2`, `2004`.
 
 H5P export returns a bounded `.h5p` package generated from internal activity JSON. It does not accept arbitrary H5P files or filesystem paths.
 
+Default SaaS delivery mode is `download_only`: return package metadata so the customer can download the SCORM/H5P file and upload it to their own LMS. This avoids hosting learner delivery/storage in the first SaaS version.
+
 ## 11. `get_course_generation_status`
 
 Returns tenant-scoped job status only. Unknown jobs and jobs from another tenant return `not_found`.

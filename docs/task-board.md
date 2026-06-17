@@ -26,6 +26,7 @@ This is the project-level source of truth for work status. Update it whenever wo
 | T-010 | Done | Codex | Apply Sprint 4 quality, analytics, and certificate internals. | `src/course_mcp_server/quality.py`, `src/course_mcp_server/analytics.py`, `tests/` | Quality validation checks alignment/source/completeness and analytics/certificate helpers return structured metadata. |
 | T-011 | Done | Codex | Add controlled H5P export and stricter SCORM runtime validation. | `src/course_mcp_server/exporters/`, `src/course_mcp_server/tools.py`, `tests/` | `build_export_package` supports SCORM and H5P, SCORM runtime records interactions/status, and package validators cover required files. |
 | T-012 | Done | Codex | Add production internals for storage, queue, audit, rate limit, and certificates. | `src/course_mcp_server/`, `docker-compose.yml`, `tests/` | Internal Postgres/Redis config exists, JSON fallback is tested, audit persistence/rate limiting run inside server path, artifacts get metadata URIs, certificates render to HTML. |
+| T-013 | Done | Codex | Add download-only export delivery metadata for BYO LMS SaaS model. | `src/course_mcp_server/delivery.py`, `src/course_mcp_server/tools.py`, `tests/` | SCORM/H5P exports include delivery metadata indicating no hosted storage is required and customers should download/upload to their own LMS. |
 
 ## Backlog
 

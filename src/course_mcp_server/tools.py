@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from .activities import build_activity
 from .artifacts import store_artifact_metadata
 from .course_generator import generate_lesson, generate_outline, generate_quiz, generate_roleplay
+from .delivery import build_delivery_metadata
 from .exporters.h5p import build_h5p_package
 from .exporters.scorm import build_scorm_scaffold
 from .ingestion import extract_source
@@ -350,6 +351,11 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
         )
     project["status"] = "exported"
     output["artifact_metadata"] = store_artifact_metadata(
+        project_id=req.project_id,
+        artifact_type=req.export_format,
+        package_path=output["package_path"],
+    )
+    output["delivery"] = build_delivery_metadata(
         project_id=req.project_id,
         artifact_type=req.export_format,
         package_path=output["package_path"],

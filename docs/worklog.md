@@ -84,3 +84,9 @@ Append concise entries here when project state changes. Keep entries factual: wh
 - Added artifact metadata URIs for generated export packages.
 - Added certificate HTML rendering helper.
 - Updated Docker Compose with internal Postgres and Redis services on the private MCP network.
+
+### SaaS Delivery Mode
+
+- Added download-only export delivery metadata for SCORM/H5P outputs.
+- Default delivery model is bring-your-own LMS: customer downloads the generated package and uploads it to Moodle, Canvas, SCORM Cloud, or their LMS.
+- This keeps first SaaS version from needing hosted learner content storage.
