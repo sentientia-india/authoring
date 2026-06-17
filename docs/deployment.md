@@ -17,16 +17,25 @@ Copy/clone the repository here.
 
 ```bash
 cp .env.example .env
+mkdir -p secrets
+printf '%s\n' '<strong-random-token>' > secrets/mcp_api_token.txt
+printf '%s\n' '<openrouter-api-key-or-empty>' > secrets/openrouter_api_key.txt
 nano .env
 ```
 
 Set:
 
 ```bash
-MCP_API_TOKEN=<strong-random-token>
 MCP_HOST=0.0.0.0
 MCP_PORT=8777
 ENVIRONMENT=production
+```
+
+`MCP_API_TOKEN` and `OPENROUTER_API_KEY` should be provided through Compose secret files:
+
+```text
+secrets/mcp_api_token.txt
+secrets/openrouter_api_key.txt
 ```
 
 ## 4. Build and run
@@ -41,6 +50,8 @@ docker compose up -d --build
 docker compose ps
 curl http://localhost:8777/health
 ```
+
+The healthcheck must return HTTP 200 from `/health`; missing routes or connection failures now fail the container healthcheck.
 
 For a local Docker smoke test on Windows PowerShell, run:
 
@@ -72,7 +83,7 @@ Back up only artifact output and metadata DB after those are introduced. Do not 
 
 ## 10. Production hardening
 
-- Use a secrets manager if possible.
+- Use Docker Compose secrets or a dedicated secrets manager for API tokens.
 - Restrict inbound firewall to trusted IPs.
 - Add reverse proxy auth if public.
 - Enable dependency scanning.
@@ -95,7 +106,7 @@ SERVER_PORT=22
 SERVER_USER=<ssh-user>
 SERVER_SSH_KEY=<private-ssh-key-for-that-user>
 DEPLOY_PATH=/opt/samrat-course-mcp
-MCP_API_TOKEN=<strong-random-token>
+MCP_API_TOKEN=<strong-random-token-written-to-secrets/mcp_api_token.txt>
 MCP_PORT=8777
 OPENROUTER_API_KEY=<openrouter-api-key>
 OPENROUTER_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free

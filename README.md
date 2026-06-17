@@ -61,7 +61,10 @@ Mini Course Generator publicly exposes an MCP experience around planning, genera
 
 ```bash
 cp .env.example .env
-# edit .env with your secrets; do not commit it
+mkdir -p secrets
+python -c "import secrets; print(secrets.token_urlsafe(32))" > secrets/mcp_api_token.txt
+: > secrets/openrouter_api_key.txt
+# edit .env and secrets/*; do not commit them
 
 docker compose up -d --build
 curl http://localhost:8777/health
@@ -69,7 +72,7 @@ curl http://localhost:8777/health
 
 ## LLM provider
 
-Generation can use OpenRouter internally. Set `OPENROUTER_API_KEY` in `.env`; the default model is `nvidia/nemotron-3-ultra-550b-a55b:free`. If no key is configured, the server uses deterministic local generation so tests and development still work.
+Generation can use OpenRouter internally. Put the key in `secrets/openrouter_api_key.txt`; the default model is `nvidia/nemotron-3-ultra-550b-a55b:free`. If no key is configured, the server uses deterministic local generation so tests and development still work.
 
 ## Attach to Codex
 

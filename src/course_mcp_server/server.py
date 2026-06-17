@@ -5,8 +5,10 @@ from typing import Any
 
 try:
     from fastmcp import FastMCP
+    from starlette.responses import JSONResponse
 except Exception:  # pragma: no cover - fallback for environments without fastmcp installed
     FastMCP = None  # type: ignore
+    JSONResponse = None  # type: ignore
 
 from .security import RequestContext, validate_token
 from .tools import TOOL_REGISTRY, safe_error
@@ -14,8 +16,9 @@ from .tools import TOOL_REGISTRY, safe_error
 SERVER_INSTRUCTIONS = """
 Samrat Course MCP exposes only safe, allowlisted course-generation tools.
 Do not request shell, filesystem, environment, database, Docker, or prompt-dump access.
-Use tools only for course outline, lesson, quiz, role-play, schema validation, SCORM scaffold,
-and generation status workflows. High-risk publish actions require human approval and are not in MVP.
+Use tools only for project creation, controlled source ingestion, blueprint/module/lesson/activity/
+assessment generation, quality validation, export packaging, status, artifact listing, and publish
+approval workflows. High-risk publish actions require human approval and are not directly exposed.
 """.strip()
 
 
@@ -35,6 +38,10 @@ def create_mcp_server():
     if FastMCP is None:
         raise RuntimeError("fastmcp package is not installed")
     mcp = FastMCP(name="samrat-course-mcp", instructions=SERVER_INSTRUCTIONS)
+
+    @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
+    async def health(_request):  # noqa: ANN001
+        return JSONResponse({"ok": True, "service": "samrat-course-mcp"})
 
     for tool_name, handler in TOOL_REGISTRY.items():
         def make_tool(name: str, fn):

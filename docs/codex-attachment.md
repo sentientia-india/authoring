@@ -11,11 +11,12 @@ Use `.codex/config.example.toml` as the starting point. For trusted projects, cr
 Example:
 
 ```toml
-[mcp_servers.samratCourseMcp]
-url = "http://localhost:8777/mcp"
+[mcp_servers.samrat-course-mcp]
+url = "http://127.0.0.1:8777/mcp"
+transport = "http"
 
-[mcp_servers.samratCourseMcp.env]
-MCP_API_TOKEN = "replace-with-token"
+[mcp_servers.samrat-course-mcp.headers]
+authorization = "Bearer replace-with-token"
 ```
 
 ## 2. Codex working rules
@@ -37,7 +38,7 @@ codex mcp list
 Then ask Codex:
 
 ```text
-Use the Samrat Course MCP to list available tools and generate a course outline for airline safety onboarding.
+Use the Samrat Course MCP to create a course project for airline safety onboarding and generate a course blueprint.
 ```
 
 ## 4. Important security note

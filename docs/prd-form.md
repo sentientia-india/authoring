@@ -49,14 +49,14 @@ Why now?
 
 | Feature | Description | Priority | Status |
 |---|---|---|---|
-| Generate course outline | Topic/source to modules and lessons | P0 | Planned |
-| Generate lessons | Lesson draft with objectives | P0 | Planned |
-| Generate quiz | MCQs and answers | P0 | Planned |
-| Generate role-play | Practical scenario training | P1 | Planned |
-| SCORM scaffold | Export-ready course structure | P1 | Planned |
-| Secure MCP gateway | Allowlisted tools only | P0 | Planned |
-| Docker deployment | Separate container | P0 | Planned |
-| Codex config | Attach MCP to Codex | P0 | Planned |
+| Course project workflow | Project, source, blueprint, modules, lessons, activities, assessment, export | P0 | In progress |
+| Source ingestion | Controlled upload ID, no arbitrary path access | P0 | In progress |
+| Instructional quality validator | Alignment, source grounding, accessibility, compliance checks | P0 | In progress |
+| Role-play simulation | Practical scenario training | P1 | In progress |
+| SCORM export | Export-ready course package | P1 | In progress |
+| Secure MCP gateway | Allowlisted tools only | P0 | In progress |
+| Docker deployment | Separate container with secret files | P0 | In progress |
+| Codex config | Attach MCP to Codex | P0 | In progress |
 
 ## F. Non-goals
 
@@ -72,12 +72,16 @@ Why now?
 
 | Tool | Inputs | Outputs | Risk | Approval needed? |
 |---|---|---|---|---|
-| generate_course_outline | topic, audience, duration, source text | outline JSON | Low | No |
-| generate_lesson_draft | module, objective, audience | lesson JSON | Low | No |
-| generate_quiz_bank | objectives, count, difficulty | quiz JSON | Low | No |
-| generate_roleplay_scenario | role, context, objective | scenario JSON | Low | No |
-| build_scorm_package_scaffold | course JSON | package path/manifest | Medium | No in dev, Yes in prod if publishing |
-| publish_to_lms | course package, LMS target | LMS URL | High | Yes |
+| create_course_project | title, audience, language | project JSON | Low | No |
+| ingest_course_source | project ID, upload ID, source type | source metadata | Medium | No |
+| generate_course_blueprint | project ID, duration, difficulty | blueprint JSON | Low | No |
+| generate_module_pack | project ID, count | module JSON | Low | No |
+| generate_lesson_pack | project ID, module ID | lesson JSON | Low | No |
+| generate_interactive_activity | project ID, activity type, objective | activity JSON | Low | No |
+| generate_assessment_bank | project ID, question count/types | assessment JSON | Low | No |
+| validate_instructional_quality | project ID | quality report | Low | No |
+| build_export_package | project ID, export format | package metadata | Medium | No in dev, Yes before publishing |
+| request_publish_approval | project ID, reviewer | review request | High | Yes |
 
 ## H. Security requirements
 

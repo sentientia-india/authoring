@@ -5,16 +5,23 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 ALLOWED_TOOLS: set[str] = {
-    "generate_course_outline",
-    "generate_lesson_draft",
-    "generate_quiz_bank",
-    "generate_roleplay_scenario",
-    "validate_course_schema",
-    "build_scorm_package_scaffold",
+    "create_course_project",
+    "ingest_course_source",
+    "generate_course_blueprint",
+    "generate_module_pack",
+    "generate_lesson_pack",
+    "generate_interactive_activity",
+    "generate_assessment_bank",
+    "generate_roleplay_simulation",
+    "validate_instructional_quality",
+    "build_export_package",
     "get_course_generation_status",
+    "list_course_artifacts",
+    "request_publish_approval",
 }
 
 DENIED_TOOL_PATTERNS = (
@@ -57,8 +64,18 @@ def assert_tool_allowed(tool_name: str) -> None:
         raise SecurityError(f"Tool name violates denied pattern: {tool_name}")
 
 
+def read_secret(name: str) -> str | None:
+    file_path = os.getenv(f"{name}_FILE")
+    if file_path:
+        try:
+            return Path(file_path).read_text(encoding="utf-8").strip() or None
+        except OSError as exc:
+            raise SecurityError(f"{name}_FILE could not be read") from exc
+    return os.getenv(name) or None
+
+
 def validate_token(token: str | None) -> None:
-    expected = os.getenv("MCP_API_TOKEN")
+    expected = read_secret("MCP_API_TOKEN")
     if not expected:
         raise SecurityError("MCP_API_TOKEN is not configured")
     if not token or token != expected:

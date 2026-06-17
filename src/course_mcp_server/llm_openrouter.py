@@ -8,6 +8,8 @@ from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from .security import read_secret
+
 DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
@@ -30,7 +32,7 @@ class OpenRouterConfig:
     @classmethod
     def from_env(cls) -> "OpenRouterConfig":
         return cls(
-            api_key=os.getenv("OPENROUTER_API_KEY") or None,
+            api_key=read_secret("OPENROUTER_API_KEY"),
             model=os.getenv("OPENROUTER_MODEL", DEFAULT_OPENROUTER_MODEL),
             base_url=os.getenv("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL),
             timeout_seconds=float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "60")),

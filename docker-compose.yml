@@ -4,12 +4,18 @@ services:
     container_name: samrat-course-mcp
     env_file:
       - .env
+    environment:
+      MCP_API_TOKEN_FILE: /run/secrets/mcp_api_token
+      OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_api_key
     ports:
       - "127.0.0.1:8777:8777"
     networks:
       - course-mcp-net
     volumes:
       - course_mcp_output:/app/output
+    secrets:
+      - mcp_api_token
+      - openrouter_api_key
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=128m
@@ -32,3 +38,9 @@ networks:
 
 volumes:
   course_mcp_output:
+
+secrets:
+  mcp_api_token:
+    file: ./secrets/mcp_api_token.txt
+  openrouter_api_key:
+    file: ./secrets/openrouter_api_key.txt

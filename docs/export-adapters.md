@@ -4,7 +4,7 @@ This document captures the safe integration plan for H5P, LiaScript, and LMS exp
 
 ## Current State
 
-- SCORM package scaffold generation exists through `build_scorm_package_scaffold`.
+- SCORM package generation exists through `build_export_package`.
 - Generated SCORM zip packages include `imsmanifest.xml`, `index.html`, module pages, and `scorm_api.js`.
 - Internal validation checks for readable zip structure, required files, manifest root, and SCO resource declaration.
 - No LMS publish/upload tool is exposed.
@@ -50,4 +50,3 @@ Do not expose:
 ## Approval Requirement
 
 Publishing to LMS or sending packages to external systems is high risk. Use `course_mcp_server.approval.require_human_approval` before adding any internal publisher. Do not expose publish tools until `docs/tool-contracts.md` explicitly adds a safe contract.
-

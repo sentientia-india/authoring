@@ -10,11 +10,9 @@ def main() -> int:
     url = f"http://127.0.0.1:{port}/health"
     try:
         with urllib.request.urlopen(url, timeout=3) as response:  # nosec B310 - local healthcheck only
-            return 0 if 200 <= response.status < 500 else 1
+            return 0 if response.status == 200 else 1
     except Exception:
-        # Some MCP transports may not expose /health until an HTTP wrapper is added.
-        # Do not fail the skeleton by default in local development.
-        return 0
+        return 1
 
 
 if __name__ == "__main__":

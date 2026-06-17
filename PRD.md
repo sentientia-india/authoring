@@ -111,11 +111,12 @@ MCP submits a reviewed course package to a connected LMS using a scoped integrat
 - API-token authentication
 - Tool-level permission checks
 - JSON schema validation
-- Course outline generator
-- Lesson generator
-- Quiz generator
+- Course project lifecycle
+- Controlled source ingestion by upload ID
+- Blueprint, module, lesson, activity, and assessment generators
 - Scenario/role-play generator
-- SCORM package scaffold generator
+- Instructional quality validator
+- SCORM export package generator
 - Audit logging
 - Health endpoint
 - Codex project config example
@@ -147,31 +148,43 @@ MCP submits a reviewed course package to a connected LMS using a scoped integrat
 
 ## 11. Functional requirements
 
-### FR-001: Generate outline
+### FR-001: Create course project
+
+The MCP shall create a tenant-scoped course project with review lifecycle status.
+
+### FR-002: Ingest controlled source
+
+The MCP shall ingest source material by controlled upload ID, not arbitrary file path.
+
+### FR-003: Generate blueprint
 
 The MCP shall generate a structured course outline with modules, lessons, learning objectives, prerequisites, assessment points, and estimated duration.
 
-### FR-002: Generate lesson
+### FR-004: Generate lesson
 
 The MCP shall generate lesson content for a specific module and audience.
 
-### FR-003: Generate quiz
+### FR-005: Generate assessment
 
 The MCP shall generate quizzes with answer keys, explanations, difficulty, and mapped learning objectives.
 
-### FR-004: Generate scenario
+### FR-006: Generate scenario
 
 The MCP shall generate practical role-play or case-study scenarios.
 
-### FR-005: Export package scaffold
+### FR-007: Validate instructional quality
 
-The MCP shall create a validated course package folder structure that can later be converted into SCORM/H5P/LMS content.
+The MCP shall score generated courses for objective quality, alignment, source grounding, accessibility, compliance, repetition, and completeness.
 
-### FR-006: Tool allowlist
+### FR-008: Export package
+
+The MCP shall create a validated SCORM package from generated project artifacts.
+
+### FR-009: Tool allowlist
 
 The MCP shall expose only approved course-related tools to Codex.
 
-### FR-007: Audit logging
+### FR-010: Audit logging
 
 The MCP shall log request ID, tenant ID, user ID, tool name, action type, input hash, output hash, and policy decision.
 
@@ -196,13 +209,19 @@ The MCP shall require approval for publishing, overwriting courses, deleting con
 
 MVP tools exposed to Codex:
 
-1. `generate_course_outline`
-2. `generate_lesson_draft`
-3. `generate_quiz_bank`
-4. `generate_roleplay_scenario`
-5. `validate_course_schema`
-6. `build_scorm_package_scaffold`
-7. `get_course_generation_status`
+1. `create_course_project`
+2. `ingest_course_source`
+3. `generate_course_blueprint`
+4. `generate_module_pack`
+5. `generate_lesson_pack`
+6. `generate_interactive_activity`
+7. `generate_assessment_bank`
+8. `generate_roleplay_simulation`
+9. `validate_instructional_quality`
+10. `build_export_package`
+11. `get_course_generation_status`
+12. `list_course_artifacts`
+13. `request_publish_approval`
 
 Tools intentionally not exposed:
 

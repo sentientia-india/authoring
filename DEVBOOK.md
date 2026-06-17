@@ -104,33 +104,24 @@ Do not dynamically discover tools from arbitrary modules. Dynamic discovery can 
 
 ## 6. MCP exposed tools
 
-### `generate_course_outline`
+The current production-facing tools are documented in `docs/tool-contracts.md`.
 
-Creates a structured outline.
+The intended flow is:
 
-### `generate_lesson_draft`
+```text
+create_course_project
+-> ingest_course_source
+-> generate_course_blueprint
+-> generate_module_pack
+-> generate_lesson_pack
+-> generate_interactive_activity
+-> generate_assessment_bank
+-> validate_instructional_quality
+-> build_export_package
+-> request_publish_approval
+```
 
-Creates one lesson draft.
-
-### `generate_quiz_bank`
-
-Creates MCQs and short questions.
-
-### `generate_roleplay_scenario`
-
-Creates practical scenario-based learning.
-
-### `validate_course_schema`
-
-Validates a course JSON payload against the expected schema.
-
-### `build_scorm_package_scaffold`
-
-Creates a safe folder structure and manifest draft for SCORM export.
-
-### `get_course_generation_status`
-
-Returns status for a known job ID only.
+`get_course_generation_status` and `list_course_artifacts` are read-only, tenant-scoped support tools.
 
 ## 7. Tools that must never be exposed
 
@@ -159,7 +150,7 @@ curl http://localhost:8777/health
 1. Create a new folder on the server, separate from the existing application.
 2. Upload or clone this repository.
 3. Copy `.env.example` to `.env`.
-4. Set a strong `MCP_API_TOKEN`.
+4. Write a strong token to `secrets/mcp_api_token.txt` and the OpenRouter key to `secrets/openrouter_api_key.txt` if used.
 5. Build and run:
 
 ```bash

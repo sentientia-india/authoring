@@ -1,7 +1,9 @@
-# Copy to .codex/config.toml in a trusted project after replacing token and endpoint.
+# Example only. Copy to .codex/config.toml after the project is trusted locally.
+# Do not commit .codex/config.toml or real tokens.
 
-[mcp_servers.samratCourseMcp]
-url = "http://localhost:8777/mcp"
+[mcp_servers.samrat-course-mcp]
+url = "http://127.0.0.1:8777/mcp"
+transport = "http"
 
-[mcp_servers.samratCourseMcp.env]
-MCP_API_TOKEN = "replace-with-a-strong-token"
+[mcp_servers.samrat-course-mcp.headers]
+authorization = "Bearer replace-with-local-token"

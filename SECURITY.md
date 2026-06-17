@@ -40,15 +40,7 @@ The MCP server exposes a **capability boundary**. It does not expose the applica
 
 Only explicitly registered course tools are visible to Codex.
 
-Allowed MVP tools:
-
-- `generate_course_outline`
-- `generate_lesson_draft`
-- `generate_quiz_bank`
-- `generate_roleplay_scenario`
-- `validate_course_schema`
-- `build_scorm_package_scaffold`
-- `get_course_generation_status`
+Allowed tools are the lifecycle tools listed in `docs/tool-contracts.md`, including project creation, controlled source ingestion, blueprint/module/lesson/activity/assessment generation, quality validation, export package building, status lookup, artifact listing, and publish approval requests.
 
 Denied tool classes:
 
@@ -105,7 +97,7 @@ Default deployment exposes only localhost port `8777`. Put it behind reverse pro
 
 ### 3.7 Secrets handling
 
-Secrets go only in `.env` or server secret manager. They must never be committed, logged, or returned to MCP clients.
+Production secrets go in Docker Compose secret files or a server secret manager. `.env` may contain non-secret configuration only. Secrets must never be committed, logged, or returned to MCP clients.
 
 ### 3.8 Audit logging
 
@@ -160,6 +152,7 @@ Codex may:
 
 - [ ] Strong API token set
 - [ ] `.env` not committed
+- [ ] Docker secret files configured for API tokens
 - [ ] Docker runs as non-root
 - [ ] No Docker socket mounted
 - [ ] No project source mounted read-write in production

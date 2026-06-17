@@ -1,98 +1,129 @@
 # MCP Tool Contracts
 
-## Tool exposure rule
+## Tool Exposure Rule
 
-Only the tools below should be exposed to Codex in MVP. Any new tool must be added to this document, implemented with a Pydantic schema, tested, and explicitly added to the allowlist.
+Only the tools below are exposed to Codex. Do not expose shell, exec, raw file read/write, environment, database query, Docker, prompt dump, or raw log tools.
 
-## 1. `generate_course_outline`
+Every MCP tool must:
 
-### Purpose
+- have a Pydantic request/response schema in `src/course_mcp_server/schemas.py`
+- be explicitly allowlisted in `src/course_mcp_server/security.py`
+- be registered in `src/course_mcp_server/tools.py`
+- return structured JSON
+- redact secrets and internal paths
+- have tests for exposure and security behavior
 
-Create a structured course outline.
+## Production Course Workflow
 
-### Input
+```text
+create_course_project
+-> ingest_course_source
+-> generate_course_blueprint
+-> generate_module_pack
+-> generate_lesson_pack
+-> generate_interactive_activity
+-> generate_assessment_bank
+-> validate_instructional_quality
+-> build_export_package
+-> request_publish_approval
+```
+
+## Exposed Tools
+
+## 1. `create_course_project`
+
+Creates a tenant-scoped course project with `draft` status.
+
+Input:
 
 ```json
 {
-  "topic": "string",
-  "audience": "string",
-  "duration_minutes": 60,
-  "difficulty": "beginner|intermediate|advanced",
-  "source_text": "optional string",
-  "language": "English"
+  "course_title": "Ramp Safety",
+  "audience": "ramp agents",
+  "language": "English",
+  "compliance_domain": "airline"
 }
 ```
 
-### Output
+## 2. `ingest_course_source`
+
+Imports a controlled uploaded source by `upload_id`. This must never accept arbitrary filesystem paths.
+
+Supported source types: `pdf`, `pptx`, `ppt`, `docx`, `youtube`, `website`, `raw_text`.
+
+## 3. `generate_course_blueprint`
+
+Creates learning objectives, module plan, assessment strategy, and source citation policy.
+
+## 4. `generate_module_pack`
+
+Creates generated module metadata for a course project.
+
+## 5. `generate_lesson_pack`
+
+Creates lesson content for a module and includes source citation placeholders.
+
+## 6. `generate_interactive_activity`
+
+Creates H5P-style activity JSON.
+
+Allowed activity types:
+
+- `flashcards`
+- `accordion`
+- `interactive_video`
+- `drag_and_drop`
+- `matching`
+- `scenario_decision_tree`
+- `hotspot_image`
+- `branching_scenario`
+- `timeline`
+- `fill_in_blanks`
+- `reflection_prompt`
+
+## 7. `generate_assessment_bank`
+
+Creates MCQ, true/false, scenario, matching, fill-blank, case-study, and rubric-capable assessment items.
+
+## 8. `generate_roleplay_simulation`
+
+Creates a role-play simulation using the internal role-play generator.
+
+## 9. `validate_instructional_quality`
+
+Runs instructional quality checks.
+
+Output shape:
 
 ```json
 {
-  "course_title": "string",
-  "audience": "string",
-  "difficulty": "beginner|intermediate|advanced",
-  "language": "string",
-  "learning_objectives": ["string"],
-  "modules": [
-    {
-      "title": "string",
-      "lessons": [
-        {"title": "string", "objective": "string", "duration_minutes": 10}
-      ]
-    }
-  ],
-  "assessment_plan": "string",
-  "source_used": true,
-  "source_risk_flags": ["instruction_injection"],
-  "instructional_design_notes": ["string"]
+  "score": 84,
+  "status": "needs_review",
+  "issues": [],
+  "recommendations": []
 }
 ```
 
-## 2. `generate_lesson_draft`
+Checks should cover objective quality, Bloom level, lesson alignment, quiz alignment, source grounding, tone, accessibility, compliance, repetition, and completeness.
 
-Creates a lesson with explanation, examples, activity, summary, and checks for understanding.
+## 10. `build_export_package`
 
-## 3. `generate_quiz_bank`
+Builds a SCORM export package from generated project artifacts.
 
-Creates a quiz with MCQs, answer keys, explanations, and difficulty labels.
+Supported export format: `scorm`.
 
-## 4. `generate_roleplay_scenario`
+Supported SCORM versions: `1.2`, `2004`.
 
-Creates a scenario, roles, situation setup, dialogue prompts, expected behaviors, and scoring rubric.
+## 11. `get_course_generation_status`
 
-## 5. `validate_course_schema`
+Returns tenant-scoped job status only. Unknown jobs and jobs from another tenant return `not_found`.
 
-Validates a course payload against the expected JSON schema. Does not publish anything.
+## 12. `list_course_artifacts`
 
-## 6. `build_scorm_package_scaffold`
+Lists generated artifact metadata for a course project without exposing raw server paths or source files.
 
-Creates a safe package scaffold. Production publishing still requires approval.
-The generated zip is internally checked for required files, readable zip structure, manifest root, and SCO resource declaration.
+## 13. `request_publish_approval`
 
-### Output
+Moves the project into `needs_review`. It does not publish to an LMS.
 
-```json
-{
-  "course_title": "string",
-  "course_slug": "string",
-  "scorm_version": "1.2|2004",
-  "artifact_path": "string",
-  "package_path": "string",
-  "files": [
-    "imsmanifest.xml",
-    "index.html",
-    "module-1.html",
-    "assets/styles.css",
-    "assets/course.js",
-    "assets/scorm_api.js",
-    "assets/study-map.svg",
-    "assets/prompt-lab.svg"
-  ],
-  "note": "string"
-}
-```
-
-## 7. `get_course_generation_status`
-
-Returns job status for a known job ID. Must not reveal unrelated jobs.
-
-Status lookup is scoped by tenant. Unknown jobs and jobs owned by another tenant return `not_found`.
+Publishing adapters must stay internal until a separate approved `publish_approved_course` tool is deliberately designed and tested.

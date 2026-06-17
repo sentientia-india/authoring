@@ -19,6 +19,7 @@ env/
 .env
 .env.*
 !.env.example
+secrets/
 
 # Local MCP/Codex config with secrets
 .codex/config.toml
