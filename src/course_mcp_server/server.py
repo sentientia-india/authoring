@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover - fallback for environments without fastmc
     JSONResponse = None  # type: ignore
 
 from .security import RequestContext, validate_token
+from .rate_limit import check_rate_limit
 from .tools import TOOL_REGISTRY, safe_error
 
 SERVER_INSTRUCTIONS = """
@@ -26,12 +27,15 @@ def _context_from_payload(payload: dict[str, Any] | None) -> RequestContext:
     payload = payload or {}
     token = payload.pop("mcp_api_token", None) or os.getenv("MCP_API_TOKEN")
     validate_token(token)
-    return RequestContext(
+    context = RequestContext(
         tenant_id=payload.pop("tenant_id", "default"),
         user_id=payload.pop("user_id", "codex"),
         token=token,
         request_id=payload.pop("request_id", None),
     )
+    if not check_rate_limit(tenant_id=context.tenant_id, user_id=context.user_id):
+        raise PermissionError("Rate limit exceeded")
+    return context
 
 
 def create_mcp_server():

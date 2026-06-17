@@ -7,10 +7,15 @@ services:
     environment:
       MCP_API_TOKEN_FILE: /run/secrets/mcp_api_token
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_api_key
+      DATABASE_URL: postgresql://course_mcp:course_mcp@postgres:5432/course_mcp
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "127.0.0.1:8777:8777"
     networks:
       - course-mcp-net
+    depends_on:
+      - postgres
+      - redis
     volumes:
       - course_mcp_output:/app/output
     secrets:
@@ -32,12 +37,37 @@ services:
       retries: 3
       start_period: 20s
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: samrat-course-mcp-postgres
+    environment:
+      POSTGRES_DB: course_mcp
+      POSTGRES_USER: course_mcp
+      POSTGRES_PASSWORD: course_mcp
+    networks:
+      - course-mcp-net
+    volumes:
+      - course_mcp_postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: samrat-course-mcp-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - course-mcp-net
+    volumes:
+      - course_mcp_redis:/data
+    restart: unless-stopped
+
 networks:
   course-mcp-net:
     driver: bridge
 
 volumes:
   course_mcp_output:
+  course_mcp_postgres:
+  course_mcp_redis:
 
 secrets:
   mcp_api_token:

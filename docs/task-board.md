@@ -25,6 +25,7 @@ This is the project-level source of truth for work status. Update it whenever wo
 | T-009 | Done | Codex | Apply Sprint 3 H5P-style activities and LMS adapter internals. | `src/course_mcp_server/activities.py`, `src/course_mcp_server/lms_adapters.py`, `tests/` | Activities return H5P-style schemas and LMS publish plans remain approval-gated/internal. |
 | T-010 | Done | Codex | Apply Sprint 4 quality, analytics, and certificate internals. | `src/course_mcp_server/quality.py`, `src/course_mcp_server/analytics.py`, `tests/` | Quality validation checks alignment/source/completeness and analytics/certificate helpers return structured metadata. |
 | T-011 | Done | Codex | Add controlled H5P export and stricter SCORM runtime validation. | `src/course_mcp_server/exporters/`, `src/course_mcp_server/tools.py`, `tests/` | `build_export_package` supports SCORM and H5P, SCORM runtime records interactions/status, and package validators cover required files. |
+| T-012 | Done | Codex | Add production internals for storage, queue, audit, rate limit, and certificates. | `src/course_mcp_server/`, `docker-compose.yml`, `tests/` | Internal Postgres/Redis config exists, JSON fallback is tested, audit persistence/rate limiting run inside server path, artifacts get metadata URIs, certificates render to HTML. |
 
 ## Backlog
 
@@ -42,6 +43,8 @@ This is the project-level source of truth for work status. Update it whenever wo
 | B-010 | Done | Internal LMS publishing plans | Moodle, Canvas, and custom LMS adapter plans require secret files and human approval. |
 | B-011 | Done | Analytics and certificates | Internal metrics summary and recertification certificate metadata helpers added. |
 | B-012 | Done | H5P package export | Safe `.h5p` zip generation added from internal activity JSON only. |
+| B-013 | Done | Production storage and queue foundation | Compose provisions Postgres/Redis, app includes storage/queue abstractions with safe fallback. |
+| B-014 | Done | Audit, rate limit, and certificate rendering | Audit persistence, per-user rate limit, artifact metadata, and certificate HTML renderer added. |
 
 ## Integration Queue
 

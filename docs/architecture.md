@@ -87,3 +87,11 @@ Course MCP Service
         ├── S3-compatible artifact store
         └── LMS adapters
 ```
+
+## Production Internals Added
+
+- Docker Compose now provisions internal Postgres and Redis services on the private MCP network.
+- The application has JSON fallback storage for local development and test runs.
+- Audit events are persisted as hashed metadata, not raw prompts/source payloads.
+- Per-tenant/user rate limiting runs before tool execution.
+- Exported package responses include artifact metadata URIs instead of exposing arbitrary file browsing.

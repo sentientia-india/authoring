@@ -74,3 +74,13 @@ Append concise entries here when project state changes. Keep entries factual: wh
 - Added controlled H5P `.h5p` package export from internal activity JSON through `build_export_package`.
 - Strengthened SCORM runtime helper to record score bounds, SCORM 2004 success status, and learner interactions.
 - Strengthened SCORM validation to flag missing runtime tracking behavior.
+
+### Production Internals Pass
+
+- Added JSON fallback storage backend for projects, jobs, audit events, and artifact metadata.
+- Added internal queue abstraction with Redis support and inline fallback.
+- Added per-tenant/user rate limiting before MCP tool execution.
+- Added persisted audit-event metadata with explicit persistence status.
+- Added artifact metadata URIs for generated export packages.
+- Added certificate HTML rendering helper.
+- Updated Docker Compose with internal Postgres and Redis services on the private MCP network.

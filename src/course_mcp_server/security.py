@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .audit_store import record_audit_event
+
 ALLOWED_TOOLS: set[str] = {
     "create_course_project",
     "ingest_course_source",
@@ -105,7 +107,7 @@ def hash_payload(payload: Any) -> str:
 
 
 def audit_event(tool_name: str, context: RequestContext, input_payload: Any, output_payload: Any) -> dict[str, Any]:
-    return {
+    event = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "request_id": context.request_id,
         "tenant_id": context.tenant_id,
@@ -115,3 +117,11 @@ def audit_event(tool_name: str, context: RequestContext, input_payload: Any, out
         "input_hash": hash_payload(input_payload),
         "output_hash": hash_payload(output_payload),
     }
+    try:
+        record_audit_event(event)
+    except Exception as exc:
+        event["audit_persisted"] = False
+        event["audit_persist_error"] = exc.__class__.__name__
+    else:
+        event["audit_persisted"] = True
+    return event
