@@ -125,4 +125,6 @@ jobs:
           } > .env
           docker compose up -d --build
           docker compose ps
+          docker compose exec -T course-mcp python -m course_mcp_server.healthcheck
+          docker compose exec -T course-mcp python -m course_mcp_server.smoke
           REMOTE
