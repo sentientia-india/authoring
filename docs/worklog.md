@@ -68,3 +68,9 @@ Append concise entries here when project state changes. Keep entries factual: wh
 - Added instructional quality validation service for measurable objectives, source grounding, lesson/assessment alignment, and content completeness.
 - Added internal analytics and certificate metadata helpers for completion count, attempt count, time spent, score, and recertification due dates.
 - Wired the existing MCP lifecycle tools to the new ingestion, activity, and quality services without expanding the allowlist.
+
+### Export Completion Pass
+
+- Added controlled H5P `.h5p` package export from internal activity JSON through `build_export_package`.
+- Strengthened SCORM runtime helper to record score bounds, SCORM 2004 success status, and learner interactions.
+- Strengthened SCORM validation to flag missing runtime tracking behavior.

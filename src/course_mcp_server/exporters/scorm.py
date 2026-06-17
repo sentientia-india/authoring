@@ -173,11 +173,16 @@ def _runtime_js() -> str:
     if (!api) return false;
     if (api.LMSSetValue) {
       api.LMSSetValue("cmi.core.score.raw", String(score));
+      api.LMSSetValue("cmi.core.score.min", "0");
+      api.LMSSetValue("cmi.core.score.max", "100");
       api.LMSCommit && api.LMSCommit("");
       return true;
     }
     if (api.SetValue) {
       api.SetValue("cmi.score.raw", String(score));
+      api.SetValue("cmi.score.min", "0");
+      api.SetValue("cmi.score.max", "100");
+      api.SetValue("cmi.score.scaled", String(score / 100));
       api.Commit && api.Commit("");
       return true;
     }
@@ -193,6 +198,28 @@ def _runtime_js() -> str:
     }
     if (api.SetValue) {
       api.SetValue("cmi.completion_status", "completed");
+      api.SetValue("cmi.success_status", "passed");
+      api.Commit && api.Commit("");
+      return true;
+    }
+    return false;
+  },
+  recordInteraction: function (index, id, type, response, result) {
+    var api = this.api();
+    if (!api) return false;
+    if (api.LMSSetValue) {
+      api.LMSSetValue("cmi.interactions." + index + ".id", id);
+      api.LMSSetValue("cmi.interactions." + index + ".type", type);
+      api.LMSSetValue("cmi.interactions." + index + ".student_response", response);
+      api.LMSSetValue("cmi.interactions." + index + ".result", result);
+      api.LMSCommit && api.LMSCommit("");
+      return true;
+    }
+    if (api.SetValue) {
+      api.SetValue("cmi.interactions." + index + ".id", id);
+      api.SetValue("cmi.interactions." + index + ".type", type);
+      api.SetValue("cmi.interactions." + index + ".learner_response", response);
+      api.SetValue("cmi.interactions." + index + ".result", result);
       api.Commit && api.Commit("");
       return true;
     }
@@ -253,6 +280,13 @@ def validate_scorm_package(package_path: Path | str, expected_files: list[str]) 
                 errors.append("imsmanifest.xml does not contain a manifest root.")
             if manifest and "adlcp:scormtype=\"sco\"" not in manifest:
                 errors.append("Manifest does not declare a SCO resource.")
+            runtime = package.read("assets/scorm_api.js").decode("utf-8") if "assets/scorm_api.js" in names else ""
+            if runtime and "recordInteraction" not in runtime:
+                errors.append("SCORM runtime does not record interactions.")
+            if runtime and "cmi.core.lesson_status" not in runtime:
+                errors.append("SCORM runtime does not set SCORM 1.2 completion status.")
+            if runtime and "cmi.success_status" not in runtime:
+                errors.append("SCORM runtime does not set SCORM 2004 success status.")
     except Exception:
         errors.append("Package is not a readable zip archive.")
 

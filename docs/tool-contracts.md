@@ -108,11 +108,13 @@ Checks should cover objective quality, Bloom level, lesson alignment, quiz align
 
 ## 10. `build_export_package`
 
-Builds a SCORM export package from generated project artifacts.
+Builds an export package from generated project artifacts.
 
-Supported export format: `scorm`.
+Supported export formats: `scorm`, `h5p`.
 
 Supported SCORM versions: `1.2`, `2004`.
+
+H5P export returns a bounded `.h5p` package generated from internal activity JSON. It does not accept arbitrary H5P files or filesystem paths.
 
 ## 11. `get_course_generation_status`
 

@@ -185,7 +185,7 @@ class QualityValidationResult(BaseModel):
 
 class ExportPackageRequest(BaseModel):
     project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
-    export_format: Literal["scorm"] = "scorm"
+    export_format: Literal["scorm", "h5p"] = "scorm"
     scorm_version: Literal["1.2", "2004"] = "1.2"
 
 

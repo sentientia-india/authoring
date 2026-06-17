@@ -1,5 +1,6 @@
 from course_mcp_server.security import ALLOWED_TOOLS, RequestContext
 from course_mcp_server.tools import (
+    build_export_package,
     create_course_project,
     generate_assessment_bank,
     generate_course_blueprint,
@@ -126,3 +127,28 @@ def test_request_publish_approval_never_publishes(tmp_path, monkeypatch):
 
     assert result["data"]["review_status"] == "needs_review"
     assert result["data"]["published"] is False
+
+
+def test_build_export_package_supports_h5p_without_new_public_tool(tmp_path, monkeypatch):
+    monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
+    monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "output"))
+    context = _ctx()
+    project = create_course_project(
+        {"course_title": "Interactive SOP", "audience": "crew", "language": "English"},
+        context,
+    )
+    project_id = project["data"]["project_id"]
+    generate_interactive_activity(
+        {
+            "project_id": project_id,
+            "activity_type": "matching",
+            "objective": "Match each SOP step to its control.",
+        },
+        context,
+    )
+
+    result = build_export_package({"project_id": project_id, "export_format": "h5p"}, context)
+
+    assert result["ok"] is True
+    assert result["data"]["export_format"] == "h5p"
+    assert result["data"]["package_path"].endswith(".h5p")

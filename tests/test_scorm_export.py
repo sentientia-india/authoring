@@ -79,6 +79,10 @@ def test_scorm_scaffold_uses_polished_responsive_template(tmp_path):
     assert "@media (max-width: 820px)" in css
     assert "function gradeQuiz" in js
     assert "setScore" in scorm_js
+    assert "recordInteraction" in scorm_js
+    assert "cmi.interactions." in scorm_js
+    assert "cmi.core.lesson_status" in scorm_js
+    assert "cmi.success_status" in scorm_js
 
 
 def test_scorm_artifact_path_stays_inside_output_dir(tmp_path):
@@ -104,3 +108,22 @@ def test_validate_scorm_package_reports_missing_manifest(tmp_path):
 
     assert result["valid"] is False
     assert "Missing package file: imsmanifest.xml" in result["errors"]
+
+
+def test_validate_scorm_package_checks_runtime_tracking_files(tmp_path):
+    package_path = tmp_path / "weak.zip"
+    with ZipFile(package_path, "w") as package:
+        package.writestr(
+            "imsmanifest.xml",
+            '<manifest><resource adlcp:scormtype="sco" href="index.html"></resource></manifest>',
+        )
+        package.writestr("index.html", "<html></html>")
+        package.writestr("assets/scorm_api.js", "function setScore() {}")
+
+    result = validate_scorm_package(
+        package_path,
+        ["imsmanifest.xml", "index.html", "assets/scorm_api.js"],
+    )
+
+    assert result["valid"] is False
+    assert "SCORM runtime does not record interactions." in result["errors"]

@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from .activities import build_activity
 from .course_generator import generate_lesson, generate_outline, generate_quiz, generate_roleplay
+from .exporters.h5p import build_h5p_package
 from .exporters.scorm import build_scorm_scaffold
 from .ingestion import extract_source
 from .job_store import get_job_status, record_job
@@ -322,15 +323,30 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
             ],
         }
     ]
-    output = build_scorm_scaffold(
-        ScormPackageRequest(
-            course_title=project["course_title"],
-            course_slug=req.project_id.replace("_", "-"),
-            modules=modules,
-            scorm_version=req.scorm_version,
-        ),
-        os.getenv("OUTPUT_DIR", "/app/output"),
-    )
+    if req.export_format == "h5p":
+        activities = [
+            artifact.get("payload", {})
+            for artifact in project.get("artifacts", [])
+            if artifact.get("artifact_type") == "activity"
+        ]
+        output = build_h5p_package(
+            {
+                "course_title": project["course_title"],
+                "course_slug": req.project_id.replace("_", "-"),
+                "activities": activities,
+            },
+            os.getenv("OUTPUT_DIR", "/app/output"),
+        )
+    else:
+        output = build_scorm_scaffold(
+            ScormPackageRequest(
+                course_title=project["course_title"],
+                course_slug=req.project_id.replace("_", "-"),
+                modules=modules,
+                scorm_version=req.scorm_version,
+            ),
+            os.getenv("OUTPUT_DIR", "/app/output"),
+        )
     project["status"] = "exported"
     add_artifact(project, "export", output)
     _record(context, tool_name, req.project_id, "Export package generated.")

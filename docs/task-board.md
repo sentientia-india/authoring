@@ -24,6 +24,7 @@ This is the project-level source of truth for work status. Update it whenever wo
 | T-008 | Done | Codex | Apply Sprint 2 source ingestion and artifact service hardening. | `src/course_mcp_server/ingestion.py`, `src/course_mcp_server/tools.py`, `tests/` | Controlled uploads extract raw text, DOCX, PPTX/PPT, YouTube transcript text, and basic PDF text with references. |
 | T-009 | Done | Codex | Apply Sprint 3 H5P-style activities and LMS adapter internals. | `src/course_mcp_server/activities.py`, `src/course_mcp_server/lms_adapters.py`, `tests/` | Activities return H5P-style schemas and LMS publish plans remain approval-gated/internal. |
 | T-010 | Done | Codex | Apply Sprint 4 quality, analytics, and certificate internals. | `src/course_mcp_server/quality.py`, `src/course_mcp_server/analytics.py`, `tests/` | Quality validation checks alignment/source/completeness and analytics/certificate helpers return structured metadata. |
+| T-011 | Done | Codex | Add controlled H5P export and stricter SCORM runtime validation. | `src/course_mcp_server/exporters/`, `src/course_mcp_server/tools.py`, `tests/` | `build_export_package` supports SCORM and H5P, SCORM runtime records interactions/status, and package validators cover required files. |
 
 ## Backlog
 
@@ -40,6 +41,7 @@ This is the project-level source of truth for work status. Update it whenever wo
 | B-009 | Done | H5P-style activity library | Activity schema covers flashcards, matching, branching, timeline, fill blanks, reflection, and related patterns. |
 | B-010 | Done | Internal LMS publishing plans | Moodle, Canvas, and custom LMS adapter plans require secret files and human approval. |
 | B-011 | Done | Analytics and certificates | Internal metrics summary and recertification certificate metadata helpers added. |
+| B-012 | Done | H5P package export | Safe `.h5p` zip generation added from internal activity JSON only. |
 
 ## Integration Queue
 
