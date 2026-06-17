@@ -68,6 +68,9 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           MCP_API_TOKEN: ${{ secrets.MCP_API_TOKEN }}
           MCP_PORT: ${{ secrets.MCP_PORT }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+          OPENROUTER_BASE_URL: ${{ secrets.OPENROUTER_BASE_URL }}
         run: |
           test -n "$DEPLOY_PATH"
           test -n "$MCP_API_TOKEN"
@@ -93,6 +96,13 @@ jobs:
             printf 'LOG_LEVEL=INFO\n'
             printf 'OUTPUT_DIR=/app/output\n'
             printf 'ALLOW_PUBLISH_TO_LMS=false\n'
+            if [ -n "${OPENROUTER_API_KEY:-}" ]; then printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY"; fi
+            printf 'OPENROUTER_MODEL=%s\n' "${OPENROUTER_MODEL:-nvidia/nemotron-3-ultra-550b-a55b:free}"
+            printf 'OPENROUTER_BASE_URL=%s\n' "${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
+            printf 'OPENROUTER_TIMEOUT_SECONDS=60\n'
+            printf 'OPENROUTER_MAX_RETRIES=2\n'
+            printf 'OPENROUTER_RETRY_BACKOFF_SECONDS=0.5\n'
+            printf 'OPENROUTER_APP_TITLE=Samrat Course MCP\n'
           } > .env
 
           docker compose up -d --build

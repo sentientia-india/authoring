@@ -97,6 +97,9 @@ SERVER_SSH_KEY=<private-ssh-key-for-that-user>
 DEPLOY_PATH=/opt/samrat-course-mcp
 MCP_API_TOKEN=<strong-random-token>
 MCP_PORT=8777
+OPENROUTER_API_KEY=<openrouter-api-key>
+OPENROUTER_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
 
 The server user must have permission to write to `DEPLOY_PATH` and run `docker compose`. The server does not need GitHub credentials because the workflow uploads the checked-out repository over SSH.
