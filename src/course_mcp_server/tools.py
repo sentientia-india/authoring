@@ -6,10 +6,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from .activities import build_activity
 from .course_generator import generate_lesson, generate_outline, generate_quiz, generate_roleplay
 from .exporters.scorm import build_scorm_scaffold
+from .ingestion import extract_source
 from .job_store import get_job_status, record_job
 from .project_store import add_artifact, create_project, get_project, latest_artifact, save_project
+from .quality import validate_course_quality
 from .schemas import (
     ActivityRequest,
     ActivityResult,
@@ -95,18 +98,8 @@ def _upload_path(upload_id: str) -> Path:
 def _extract_source_text(path: Path, source_type: str) -> tuple[str, list[str], list[str]]:
     if not path.exists():
         return "", [], ["Upload ID was not found in the controlled upload directory."]
-    suffix = path.suffix.lower()
-    if source_type == "raw_text" or suffix in {".txt", ".md", ".csv"}:
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        return text, ["line:1"], []
-    return (
-        path.stem,
-        [],
-        [
-            f"{source_type} ingestion placeholder: controlled upload accepted, "
-            "deep extraction worker not configured yet."
-        ],
-    )
+    extracted = extract_source(path, source_type)
+    return extracted.text, extracted.references, extracted.warnings
 
 
 def ingest_course_source(payload: dict, context: RequestContext) -> dict[str, Any]:
@@ -238,14 +231,13 @@ def generate_interactive_activity(payload: dict, context: RequestContext) -> dic
         {"front": "Key idea", "back": req.objective},
         {"front": "Practice", "back": "Apply the idea to a realistic workplace or study scenario."},
     ]
-    output = ActivityResult(
+    output = build_activity(
         project_id=req.project_id,
-        activity_id="activity_1",
         activity_type=req.activity_type,
-        title=f"{req.activity_type.replace('_', ' ').title()} Practice",
         objective=req.objective,
-        items=items,
-    ).model_dump(mode="json")
+    )
+    output.setdefault("items", items)
+    ActivityResult.model_validate(output)
     project = _project_or_raise(context, req.project_id)
     add_artifact(project, "activity", output)
     _record(context, tool_name, req.project_id, "Interactive activity generated.")
@@ -304,24 +296,7 @@ def validate_instructional_quality(payload: dict, context: RequestContext) -> di
     assert_tool_allowed(tool_name)
     req = QualityValidationRequest.model_validate(payload)
     project = _project_or_raise(context, req.project_id)
-    artifact_types = {artifact["artifact_type"] for artifact in project.get("artifacts", [])}
-    issues: list[dict[str, str]] = []
-    for required in ("blueprint", "modules", "lessons", "assessment"):
-        if required not in artifact_types:
-            issues.append({"check": "completeness", "message": f"Missing {required} artifact."})
-    if not project.get("sources"):
-        issues.append({"check": "source_grounding", "message": "No source document has been ingested."})
-    score = max(0, 100 - len(issues) * 12)
-    status = "passed" if score >= 90 else "needs_review" if score >= 60 else "failed"
-    output = QualityValidationResult(
-        score=score,
-        status=status,
-        issues=issues,
-        recommendations=[
-            "Review measurable objectives, Bloom level, source citations, accessibility, and compliance language.",
-            "Lock approved modules before export or LMS publishing.",
-        ],
-    ).model_dump(mode="json")
+    output = QualityValidationResult.model_validate(validate_course_quality(project)).model_dump(mode="json")
     add_artifact(project, "quality_report", output)
     _record(context, tool_name, req.project_id, "Instructional quality validated.")
     return _safe_return(tool_name, context, req.model_dump(), output)

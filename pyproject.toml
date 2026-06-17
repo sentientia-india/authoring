@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Secure MCP server for e-learning course generation"
 requires-python = ">=3.11"
 dependencies = [
+  "defusedxml>=0.7.1",
   "pydantic>=2.7.0",
   "fastmcp>=2.0.0",
   "python-dotenv>=1.0.1"

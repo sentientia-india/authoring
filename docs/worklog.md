@@ -59,3 +59,12 @@ Append concise entries here when project state changes. Keep entries factual: wh
 - Verification: `python -m pytest` passed with 25 tests and 1 skipped optional live OpenRouter test.
 - Verification: `python -m ruff check .` passed.
 - Verification: `bandit -r src -q` passed.
+
+### Sprint 2-4 Applied
+
+- Added controlled source ingestion extractors for raw text, DOCX, PPT/PPTX, YouTube transcript text, website text files, and basic text-based PDF extraction.
+- Added H5P-style activity generation schemas informed by the local `scorm-h5p-wrapper` reference pattern for xAPI completion/score events.
+- Added internal LMS publish plans for Moodle, Canvas, and custom LMS with human approval required and no public publish tool.
+- Added instructional quality validation service for measurable objectives, source grounding, lesson/assessment alignment, and content completeness.
+- Added internal analytics and certificate metadata helpers for completion count, attempt count, time spent, score, and recertification due dates.
+- Wired the existing MCP lifecycle tools to the new ingestion, activity, and quality services without expanding the allowlist.

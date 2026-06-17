@@ -13,6 +13,11 @@ This document captures the safe integration plan for H5P, LiaScript, and LMS exp
 
 Reference: `.codex/reference-repos/scorm-h5p-wrapper`
 
+Implemented foundation:
+
+- `generate_interactive_activity` now returns H5P-style activity JSON with xAPI-style completion and score event metadata.
+- Activities remain internal JSON templates; the server does not expose arbitrary H5P file upload or filesystem packaging.
+
 Safe implementation shape:
 
 1. Accept already-normalized internal course assets, not arbitrary file paths.
@@ -50,3 +55,5 @@ Do not expose:
 ## Approval Requirement
 
 Publishing to LMS or sending packages to external systems is high risk. Use `course_mcp_server.approval.require_human_approval` before adding any internal publisher. Do not expose publish tools until `docs/tool-contracts.md` explicitly adds a safe contract.
+
+Internal publish plans exist for Moodle, Canvas, and custom LMS targets in `src/course_mcp_server/lms_adapters.py`. They list required secret names and supported actions, but they do not perform network publishing.
