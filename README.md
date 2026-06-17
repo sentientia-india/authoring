@@ -1,4 +1,4 @@
-# Sentientia Course MCP
+# Samrat Course MCP
 
 Production-ready MCP project skeleton for generating e-learning courses, quizzes, role-play scenarios, H5P/SCORM-ready course packages, and LMS publishing workflows.
 

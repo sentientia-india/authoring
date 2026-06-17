@@ -1,4 +1,4 @@
-# Attach Sentientia Course MCP to Codex
+# Attach Samrat Course MCP to Codex
 
 ## 1. Local/project-scoped config
 
@@ -11,10 +11,10 @@ Use `.codex/config.example.toml` as the starting point. For trusted projects, cr
 Example:
 
 ```toml
-[mcp_servers.sentientiaCourseMcp]
+[mcp_servers.samratCourseMcp]
 url = "http://localhost:8777/mcp"
 
-[mcp_servers.sentientiaCourseMcp.env]
+[mcp_servers.samratCourseMcp.env]
 MCP_API_TOKEN = "replace-with-token"
 ```
 
@@ -37,7 +37,7 @@ codex mcp list
 Then ask Codex:
 
 ```text
-Use the Sentientia Course MCP to list available tools and generate a course outline for airline safety onboarding.
+Use the Samrat Course MCP to list available tools and generate a course outline for airline safety onboarding.
 ```
 
 ## 4. Important security note

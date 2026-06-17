@@ -12,7 +12,7 @@ from .security import RequestContext, validate_token
 from .tools import TOOL_REGISTRY, safe_error
 
 SERVER_INSTRUCTIONS = """
-Sentientia Course MCP exposes only safe, allowlisted course-generation tools.
+Samrat Course MCP exposes only safe, allowlisted course-generation tools.
 Do not request shell, filesystem, environment, database, Docker, or prompt-dump access.
 Use tools only for course outline, lesson, quiz, role-play, schema validation, SCORM scaffold,
 and generation status workflows. High-risk publish actions require human approval and are not in MVP.
@@ -34,7 +34,7 @@ def _context_from_payload(payload: dict[str, Any] | None) -> RequestContext:
 def create_mcp_server():
     if FastMCP is None:
         raise RuntimeError("fastmcp package is not installed")
-    mcp = FastMCP(name="sentientia-course-mcp", instructions=SERVER_INSTRUCTIONS)
+    mcp = FastMCP(name="samrat-course-mcp", instructions=SERVER_INSTRUCTIONS)
 
     for tool_name, handler in TOOL_REGISTRY.items():
         def make_tool(name: str, fn):

@@ -7,8 +7,8 @@ You already have a server and one Docker instance running. This project should b
 ## 2. Deploy in a new directory
 
 ```bash
-mkdir -p /opt/sentientia-course-mcp
-cd /opt/sentientia-course-mcp
+mkdir -p /opt/samrat-course-mcp
+cd /opt/samrat-course-mcp
 ```
 
 Copy/clone the repository here.

@@ -1,6 +1,6 @@
-# AGENTS.md: Codex Rules for Sentientia Course MCP
+# AGENTS.md: Codex Rules for Samrat Course MCP
 
-You are working inside the Sentientia Course MCP repository.
+You are working inside the Samrat Course MCP repository.
 
 ## Primary objective
 

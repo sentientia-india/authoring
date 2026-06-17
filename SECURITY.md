@@ -1,4 +1,4 @@
-# Security Model: Sentientia Course MCP
+# Security Model: Samrat Course MCP
 
 ## 1. Security goal
 

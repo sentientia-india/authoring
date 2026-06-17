@@ -1,7 +1,7 @@
 services:
   course-mcp:
     build: .
-    container_name: sentientia-course-mcp
+    container_name: samrat-course-mcp
     env_file:
       - .env
     ports:

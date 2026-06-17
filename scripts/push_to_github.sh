@@ -14,6 +14,6 @@ if ! git branch --show-current | grep -q '^main$'; then
 fi
 
 git add .
-git commit -m "Initial Sentientia Course MCP project"
+git commit -m "Initial Samrat Course MCP project"
 git remote add origin "$REMOTE_URL" 2>/dev/null || git remote set-url origin "$REMOTE_URL"
 git push -u origin main

@@ -1,10 +1,10 @@
-# Architecture: Sentientia Course MCP
+# Architecture: Samrat Course MCP
 
 ## Target architecture
 
 ```text
 +-------------------+       +--------------------------+
-| Codex / MCP Host  | ----> | Sentientia Course MCP    |
+| Codex / MCP Host  | ----> | Samrat Course MCP    |
 +-------------------+       | Docker container         |
                             +------------+-------------+
                                          |

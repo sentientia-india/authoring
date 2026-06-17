@@ -1,4 +1,4 @@
-# Developer Book: Sentientia Course MCP
+# Developer Book: Samrat Course MCP
 
 ## 1. Purpose
 

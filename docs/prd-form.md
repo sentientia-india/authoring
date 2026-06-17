@@ -6,7 +6,7 @@ Use this form before implementation or before giving Codex a large task.
 
 | Field | Answer |
 |---|---|
-| Project name | Sentientia Course MCP |
+| Project name | Samrat Course MCP |
 | Owner |  |
 | Business sponsor |  |
 | Technical owner |  |

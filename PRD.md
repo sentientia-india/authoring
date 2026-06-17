@@ -1,8 +1,8 @@
-# PRD: Sentientia Course MCP
+# PRD: Samrat Course MCP
 
 ## 1. Product name
 
-**Sentientia Course MCP**
+**Samrat Course MCP**
 
 ## 2. One-line description
 
