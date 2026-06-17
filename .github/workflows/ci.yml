@@ -26,4 +26,4 @@ jobs:
       - name: Dependency audit
         run: pip-audit || true
       - name: Docker build
-        run: docker build -t sentientia-course-mcp:ci .
+        run: docker build -t samrat-course-mcp:ci .

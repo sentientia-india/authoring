@@ -72,3 +72,29 @@ Back up only artifact output and metadata DB after those are introduced. Do not 
 - Enable dependency scanning.
 - Monitor audit logs.
 - Use versioned Docker images, not only `latest`.
+
+## 11. GitHub Actions deployment
+
+The repository includes `.github/workflows/deploy.yml`. It runs after the `CI` workflow succeeds on `main`, connects to the server by SSH, pulls the latest `main`, writes a production `.env`, and runs:
+
+```bash
+docker compose up -d --build
+```
+
+Add these GitHub repository secrets before enabling production deployment:
+
+```text
+SERVER_HOST=<server-ip-or-domain>
+SERVER_PORT=22
+SERVER_USER=<ssh-user>
+SERVER_SSH_KEY=<private-ssh-key-for-that-user>
+DEPLOY_PATH=/opt/samrat-course-mcp
+MCP_API_TOKEN=<strong-random-token>
+MCP_PORT=8777
+```
+
+The server user must have permission to run `git` and `docker compose`. The repository is cloned on the server from:
+
+```text
+https://github.com/ratsam93/course_pack_elearning.git
+```
