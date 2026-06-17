@@ -18,6 +18,8 @@ jobs:
     environment: production
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Configure SSH
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
@@ -33,6 +35,32 @@ jobs:
           printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "${SERVER_PORT:-22}" "$SERVER_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload repository to server
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          test -n "$DEPLOY_PATH"
+          DEPLOY_PATH_B64="$(printf '%s' "$DEPLOY_PATH" | base64 -w 0)"
+          ssh -i ~/.ssh/deploy_key -p "${SERVER_PORT:-22}" "$SERVER_USER@$SERVER_HOST" \
+            "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' bash -s" <<'REMOTE'
+          set -euo pipefail
+          DEPLOY_PATH="$(printf '%s' "$DEPLOY_PATH_B64" | base64 -d)"
+          mkdir -p "$DEPLOY_PATH"
+          find "$DEPLOY_PATH" -mindepth 1 \
+            ! -name '.env' \
+            ! -path "$DEPLOY_PATH/.env" \
+            -exec rm -rf {} +
+          REMOTE
+          tar --exclude='.git' --exclude='.env' -czf - . | ssh -i ~/.ssh/deploy_key -p "${SERVER_PORT:-22}" "$SERVER_USER@$SERVER_HOST" \
+            "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' bash -s" <<'REMOTE'
+          set -euo pipefail
+          DEPLOY_PATH="$(printf '%s' "$DEPLOY_PATH_B64" | base64 -d)"
+          tar -xzf - -C "$DEPLOY_PATH"
+          REMOTE
 
       - name: Deploy on server
         env:
@@ -52,20 +80,11 @@ jobs:
             "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' MCP_API_TOKEN_B64='$MCP_API_TOKEN_B64' MCP_PORT_B64='$MCP_PORT_B64' bash -s" <<'REMOTE'
           set -euo pipefail
 
-          REPO_URL="https://github.com/ratsam93/course_pack_elearning.git"
           DEPLOY_PATH="$(printf '%s' "$DEPLOY_PATH_B64" | base64 -d)"
           MCP_API_TOKEN="$(printf '%s' "$MCP_API_TOKEN_B64" | base64 -d)"
           MCP_PORT="$(printf '%s' "$MCP_PORT_B64" | base64 -d)"
 
-          if [ ! -d "$DEPLOY_PATH/.git" ]; then
-            mkdir -p "$DEPLOY_PATH"
-            git clone "$REPO_URL" "$DEPLOY_PATH"
-          fi
-
           cd "$DEPLOY_PATH"
-          git fetch origin main
-          git checkout main
-          git reset --hard origin/main
 
           umask 077
           {

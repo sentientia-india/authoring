@@ -75,7 +75,7 @@ Back up only artifact output and metadata DB after those are introduced. Do not 
 
 ## 11. GitHub Actions deployment
 
-The repository includes `.github/workflows/deploy.yml`. It runs after the `CI` workflow succeeds on `main`, connects to the server by SSH, pulls the latest `main`, writes a production `.env`, and runs:
+The repository includes `.github/workflows/deploy.yml`. It runs after the `CI` workflow succeeds on `main`, connects to the server by SSH, uploads the checked-out repository contents to the deployment path, writes a production `.env`, and runs:
 
 ```bash
 docker compose up -d --build
@@ -93,8 +93,4 @@ MCP_API_TOKEN=<strong-random-token>
 MCP_PORT=8777
 ```
 
-The server user must have permission to run `git` and `docker compose`. The repository is cloned on the server from:
-
-```text
-https://github.com/ratsam93/course_pack_elearning.git
-```
+The server user must have permission to write to `DEPLOY_PATH` and run `docker compose`. The server does not need GitHub credentials because the workflow uploads the checked-out repository over SSH.
