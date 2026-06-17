@@ -77,7 +77,16 @@ The generated zip is internally checked for required files, readable zip structu
   "scorm_version": "1.2|2004",
   "artifact_path": "string",
   "package_path": "string",
-  "files": ["imsmanifest.xml", "index.html", "module-1.html", "scorm_api.js"],
+  "files": [
+    "imsmanifest.xml",
+    "index.html",
+    "module-1.html",
+    "assets/styles.css",
+    "assets/course.js",
+    "assets/scorm_api.js",
+    "assets/study-map.svg",
+    "assets/prompt-lab.svg"
+  ],
   "note": "string"
 }
 ```

@@ -50,3 +50,12 @@ Append concise entries here when project state changes. Keep entries factual: wh
 - Added internal SCORM package validation for zip readability, required files, manifest root, and SCO declaration.
 - Added internal human approval policy for high-risk publish/upload actions without exposing new MCP tools.
 - Added `docs/export-adapters.md` with safe H5P and LiaScript adapter plans.
+
+### Sprint 1 Applied
+
+- Upgraded SCORM exporter from minimal scaffold to repeatable polished template.
+- Generated packages now include responsive CSS, interactive course JavaScript, SCORM score/completion helpers, SVG visuals, module pages, and approved YouTube embed support.
+- Added tests proving generated packages include assets and responsive/interactivity markers.
+- Verification: `python -m pytest` passed with 25 tests and 1 skipped optional live OpenRouter test.
+- Verification: `python -m ruff check .` passed.
+- Verification: `bandit -r src -q` passed.
