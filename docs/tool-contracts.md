@@ -16,7 +16,9 @@ Every MCP tool must:
 ## Production Course Workflow
 
 ```text
-create_course_project
+create_material_ticket
+-> generate_chapter_layout
+-> create_course_project
 -> ingest_course_source
 -> generate_course_blueprint
 -> generate_module_pack
@@ -30,7 +32,40 @@ create_course_project
 
 ## Exposed Tools
 
-## 1. `create_course_project`
+## 1. `create_material_ticket`
+
+Collects the user's initial course brief without touching raw server files. It returns missing fields and questions that the UI/GPT layer should ask before generation continues.
+
+Input:
+
+```json
+{
+  "course_title": "AI for Students",
+  "audience": "college students",
+  "goal": "Use AI safely for study",
+  "duration_minutes": 5,
+  "materials": [{"upload_id": "study-notes.txt", "source_type": "raw_text"}],
+  "media": [{"type": "youtube", "url": "https://www.youtube.com/watch?v=abc123"}],
+  "interactive_preferences": ["matching", "reflection_prompt"]
+}
+```
+
+It accepts controlled upload IDs, approved YouTube URLs, and HTTPS MP4 URLs. It must not accept local paths or arbitrary file browsing.
+
+## 2. `generate_chapter_layout`
+
+Turns a complete material ticket into a confirmable chapter plan. If required information is still missing, it returns `needs_more_information` with follow-up questions instead of generating content.
+
+Output includes:
+
+- `chapters`
+- `media_plan`
+- `interactive_plan`
+- `confirmation_prompt`
+
+The next step should ask the user to add more materials/media or confirm before generating modules, lessons, activities, assessments, and export.
+
+## 3. `create_course_project`
 
 Creates a tenant-scoped course project with `draft` status.
 
@@ -45,25 +80,25 @@ Input:
 }
 ```
 
-## 2. `ingest_course_source`
+## 4. `ingest_course_source`
 
 Imports a controlled uploaded source by `upload_id`. This must never accept arbitrary filesystem paths.
 
 Supported source types: `pdf`, `pptx`, `ppt`, `docx`, `youtube`, `website`, `raw_text`.
 
-## 3. `generate_course_blueprint`
+## 5. `generate_course_blueprint`
 
 Creates learning objectives, module plan, assessment strategy, and source citation policy.
 
-## 4. `generate_module_pack`
+## 6. `generate_module_pack`
 
 Creates generated module metadata for a course project.
 
-## 5. `generate_lesson_pack`
+## 7. `generate_lesson_pack`
 
 Creates lesson content for a module and includes source citation placeholders.
 
-## 6. `generate_interactive_activity`
+## 8. `generate_interactive_activity`
 
 Creates H5P-style activity JSON.
 
@@ -81,15 +116,15 @@ Allowed activity types:
 - `fill_in_blanks`
 - `reflection_prompt`
 
-## 7. `generate_assessment_bank`
+## 9. `generate_assessment_bank`
 
 Creates MCQ, true/false, scenario, matching, fill-blank, case-study, and rubric-capable assessment items.
 
-## 8. `generate_roleplay_simulation`
+## 10. `generate_roleplay_simulation`
 
 Creates a role-play simulation using the internal role-play generator.
 
-## 9. `validate_instructional_quality`
+## 11. `validate_instructional_quality`
 
 Runs instructional quality checks.
 
@@ -106,7 +141,7 @@ Output shape:
 
 Checks should cover objective quality, Bloom level, lesson alignment, quiz alignment, source grounding, tone, accessibility, compliance, repetition, and completeness.
 
-## 10. `build_export_package`
+## 12. `build_export_package`
 
 Builds an export package from generated project artifacts.
 
@@ -114,19 +149,21 @@ Supported export formats: `scorm`, `h5p`.
 
 Supported SCORM versions: `1.2`, `2004`.
 
-H5P export returns a bounded `.h5p` package generated from internal activity JSON. It does not accept arbitrary H5P files or filesystem paths.
+SCORM export returns one downloadable zip that contains lesson pages, media references, SCORM runtime files, and embedded H5P-style activity JSON when generated activities exist.
+
+H5P export remains available as an optional separate bounded `.h5p` package generated from internal activity JSON. It does not accept arbitrary H5P files or filesystem paths.
 
 Default SaaS delivery mode is `download_only`: return package metadata so the customer can download the SCORM/H5P file and upload it to their own LMS. This avoids hosting learner delivery/storage in the first SaaS version.
 
-## 11. `get_course_generation_status`
+## 13. `get_course_generation_status`
 
 Returns tenant-scoped job status only. Unknown jobs and jobs from another tenant return `not_found`.
 
-## 12. `list_course_artifacts`
+## 14. `list_course_artifacts`
 
 Lists generated artifact metadata for a course project without exposing raw server paths or source files.
 
-## 13. `request_publish_approval`
+## 15. `request_publish_approval`
 
 Moves the project into `needs_review`. It does not publish to an LMS.
 

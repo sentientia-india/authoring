@@ -1,7 +1,9 @@
 from course_mcp_server.security import ALLOWED_TOOLS, RequestContext
 from course_mcp_server.tools import (
     build_export_package,
+    create_material_ticket,
     create_course_project,
+    generate_chapter_layout,
     generate_assessment_bank,
     generate_course_blueprint,
     generate_interactive_activity,
@@ -20,6 +22,8 @@ def _ctx() -> RequestContext:
 
 def test_production_tool_surface_is_narrow_and_safe():
     assert ALLOWED_TOOLS == {
+        "create_material_ticket",
+        "generate_chapter_layout",
         "create_course_project",
         "ingest_course_source",
         "generate_course_blueprint",
@@ -152,3 +156,48 @@ def test_build_export_package_supports_h5p_without_new_public_tool(tmp_path, mon
     assert result["ok"] is True
     assert result["data"]["export_format"] == "h5p"
     assert result["data"]["package_path"].endswith(".h5p")
+
+
+def test_build_scorm_export_embeds_generated_activities(tmp_path, monkeypatch):
+    monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
+    monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "output"))
+    context = _ctx()
+    project = create_course_project(
+        {"course_title": "Interactive SOP", "audience": "crew", "language": "English"},
+        context,
+    )
+    project_id = project["data"]["project_id"]
+    generate_lesson_pack({"project_id": project_id, "module_id": "module_1"}, context)
+    generate_interactive_activity(
+        {
+            "project_id": project_id,
+            "activity_type": "matching",
+            "objective": "Match each SOP step to its control.",
+        },
+        context,
+    )
+
+    result = build_export_package({"project_id": project_id, "export_format": "scorm"}, context)
+
+    assert result["ok"] is True
+    assert "activities/content.json" in result["data"]["files"]
+
+
+def test_create_material_ticket_and_generate_chapter_layout_tools():
+    ticket = create_material_ticket({"course_title": "AI for Students"}, _ctx())
+    assert ticket["data"]["status"] == "needs_information"
+    assert ticket["data"]["questions"]
+
+    layout = generate_chapter_layout(
+        {
+            "course_title": "AI for Students",
+            "audience": "students",
+            "goal": "Use AI safely",
+            "duration_minutes": 5,
+            "materials": [{"upload_id": "notes.txt", "source_type": "raw_text"}],
+            "interactive_preferences": ["matching"],
+        },
+        _ctx(),
+    )
+    assert layout["data"]["status"] == "ready_for_generation"
+    assert layout["data"]["chapters"]

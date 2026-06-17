@@ -11,6 +11,8 @@ from typing import Any
 from .audit_store import record_audit_event
 
 ALLOWED_TOOLS: set[str] = {
+    "create_material_ticket",
+    "generate_chapter_layout",
     "create_course_project",
     "ingest_course_source",
     "generate_course_blueprint",

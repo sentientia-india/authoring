@@ -13,6 +13,7 @@ from .delivery import build_delivery_metadata
 from .exporters.h5p import build_h5p_package
 from .exporters.scorm import build_scorm_scaffold
 from .ingestion import extract_source
+from .intake import create_ticket, generate_layout
 from .job_store import get_job_status, record_job
 from .project_store import add_artifact, create_project, get_project, latest_artifact, save_project
 from .quality import validate_course_quality
@@ -27,6 +28,8 @@ from .schemas import (
     CourseProjectRequest,
     CourseProjectResult,
     ExportPackageRequest,
+    ChapterLayoutResult,
+    MaterialTicketResult,
     JobStatusRequest,
     LessonDraftRequest,
     LessonPackRequest,
@@ -89,6 +92,22 @@ def create_course_project(payload: dict, context: RequestContext) -> dict[str, A
     output = CourseProjectResult.model_validate(project).model_dump(mode="json")
     _record(context, tool_name, output["project_id"], "Course project created.")
     return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def create_material_ticket(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "create_material_ticket"
+    assert_tool_allowed(tool_name)
+    output = MaterialTicketResult.model_validate(create_ticket(payload)).model_dump(mode="json")
+    _record(context, tool_name, output["ticket_id"], "Material ticket prepared.")
+    return _safe_return(tool_name, context, payload, output)
+
+
+def generate_chapter_layout(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "generate_chapter_layout"
+    assert_tool_allowed(tool_name)
+    output = ChapterLayoutResult.model_validate(generate_layout(payload)).model_dump(mode="json")
+    _record(context, tool_name, context.request_id or "layout", "Chapter layout generated.")
+    return _safe_return(tool_name, context, payload, output)
 
 
 def _upload_path(upload_id: str) -> Path:
@@ -312,6 +331,11 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
     project = _project_or_raise(context, req.project_id)
     lessons_artifact = latest_artifact(project, "lessons")
     lesson_payload = (lessons_artifact or {}).get("payload", {})
+    activities = [
+        artifact.get("payload", {})
+        for artifact in project.get("artifacts", [])
+        if artifact.get("artifact_type") == "activity"
+    ]
     modules = [
         {
             "title": project["course_title"],
@@ -323,14 +347,10 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
                 }
                 for lesson in lesson_payload.get("lessons", [])
             ],
+            "activities": activities,
         }
     ]
     if req.export_format == "h5p":
-        activities = [
-            artifact.get("payload", {})
-            for artifact in project.get("artifacts", [])
-            if artifact.get("artifact_type") == "activity"
-        ]
         output = build_h5p_package(
             {
                 "course_title": project["course_title"],
@@ -414,6 +434,8 @@ def request_publish_approval(payload: dict, context: RequestContext) -> dict[str
 
 
 TOOL_REGISTRY = {
+    "create_material_ticket": create_material_ticket,
+    "generate_chapter_layout": generate_chapter_layout,
     "create_course_project": create_course_project,
     "ingest_course_source": ingest_course_source,
     "generate_course_blueprint": generate_course_blueprint,

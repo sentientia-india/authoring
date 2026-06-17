@@ -57,6 +57,69 @@ class ScormPackageRequest(BaseModel):
     scorm_version: Literal["1.2", "2004"] = "1.2"
 
 
+class CourseMaterial(BaseModel):
+    upload_id: str | None = Field(default=None, max_length=120)
+    source_type: Literal["pdf", "pptx", "ppt", "docx", "youtube", "website", "raw_text"] | None = None
+    title: str | None = Field(default=None, max_length=200)
+    summary: str | None = Field(default=None, max_length=1000)
+
+
+class CourseMedia(BaseModel):
+    type: Literal["youtube", "mp4", "link"]
+    url: str = Field(min_length=8, max_length=1000)
+    title: str | None = Field(default=None, max_length=200)
+    duration_seconds: int | None = Field(default=None, ge=1, le=7200)
+
+
+class MaterialTicketRequest(BaseModel):
+    course_title: str | None = Field(default=None, min_length=3, max_length=300)
+    audience: str | None = Field(default=None, min_length=2, max_length=200)
+    goal: str | None = Field(default=None, min_length=3, max_length=500)
+    duration_minutes: int | None = Field(default=None, ge=3, le=480)
+    difficulty: Difficulty | None = None
+    language: str = Field(default="English", max_length=60)
+    materials: list[CourseMaterial] = Field(default_factory=list, max_length=20)
+    media: list[CourseMedia] = Field(default_factory=list, max_length=20)
+    interactive_preferences: list[
+        Literal[
+            "flashcards",
+            "accordion",
+            "interactive_video",
+            "drag_and_drop",
+            "matching",
+            "scenario_decision_tree",
+            "hotspot_image",
+            "branching_scenario",
+            "timeline",
+            "fill_in_blanks",
+            "reflection_prompt",
+        ]
+    ] = Field(default_factory=list, max_length=10)
+
+
+class MaterialTicketResult(BaseModel):
+    ticket_id: str
+    status: Literal["needs_information", "ready_for_layout"]
+    missing_fields: list[str]
+    questions: list[str]
+    warnings: list[str] = Field(default_factory=list)
+    normalized_ticket: dict
+
+
+class ChapterLayoutRequest(MaterialTicketRequest):
+    answers: dict[str, str] = Field(default_factory=dict, max_length=20)
+
+
+class ChapterLayoutResult(BaseModel):
+    status: Literal["needs_more_information", "ready_for_generation"]
+    missing_fields: list[str]
+    next_questions: list[str]
+    chapters: list[dict]
+    media_plan: list[dict]
+    interactive_plan: list[dict]
+    confirmation_prompt: str
+
+
 class JobStatusRequest(BaseModel):
     job_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{6,80}$")
 

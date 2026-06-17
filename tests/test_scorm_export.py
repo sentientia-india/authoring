@@ -35,6 +35,7 @@ def test_scorm_scaffold_creates_zip_with_manifest_and_module_pages(tmp_path):
         "module-1.html",
         "assets/styles.css",
         "assets/course.js",
+        "assets/h5p_bridge.js",
         "assets/scorm_api.js",
         "assets/study-map.svg",
         "assets/prompt-lab.svg",
@@ -44,6 +45,43 @@ def test_scorm_scaffold_creates_zip_with_manifest_and_module_pages(tmp_path):
         names = sorted(package.namelist())
         assert names == sorted(result["files"])
         assert "module-1.html" in package.read("imsmanifest.xml").decode("utf-8")
+
+
+def test_scorm_scaffold_embeds_h5p_style_activity_content(tmp_path):
+    result = build_scorm_scaffold(
+        ScormPackageRequest(
+            course_title="AI for Students",
+            course_slug="ai-for-students",
+            modules=[
+                {
+                    "title": "Prompt practice",
+                    "lessons": [{"title": "Write a prompt", "objective": "Create clear prompts"}],
+                    "activities": [
+                        {
+                            "activity_id": "activity_1",
+                            "activity_type": "matching",
+                            "title": "Match prompt parts",
+                            "objective": "Match each prompt part to its purpose.",
+                            "items": [{"left": "Audience", "right": "Who the answer is for"}],
+                        }
+                    ],
+                }
+            ],
+        ),
+        str(tmp_path),
+    )
+
+    assert "activities/content.json" in result["files"]
+    assert "assets/h5p_bridge.js" in result["files"]
+
+    with ZipFile(result["package_path"]) as package:
+        manifest = package.read("imsmanifest.xml").decode("utf-8")
+        index = package.read("index.html").decode("utf-8")
+        activities = package.read("activities/content.json").decode("utf-8")
+
+    assert "activities/content.json" in manifest
+    assert "h5p_bridge.js" in index
+    assert "Match prompt parts" in activities
 
 
 def test_scorm_scaffold_uses_polished_responsive_template(tmp_path):
