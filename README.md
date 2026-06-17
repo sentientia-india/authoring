@@ -67,6 +67,10 @@ docker compose up -d --build
 curl http://localhost:8777/health
 ```
 
+## LLM provider
+
+Generation can use OpenRouter internally. Set `OPENROUTER_API_KEY` in `.env`; the default model is `nvidia/nemotron-3-ultra-550b-a55b:free`. If no key is configured, the server uses deterministic local generation so tests and development still work.
+
 ## Attach to Codex
 
 Use `.codex/config.example.toml` as your project-scoped MCP example. Copy it into `.codex/config.toml` only after replacing the token and endpoint.

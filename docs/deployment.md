@@ -42,6 +42,12 @@ docker compose ps
 curl http://localhost:8777/health
 ```
 
+For a local Docker smoke test on Windows PowerShell, run:
+
+```powershell
+.\scripts\docker_smoke.ps1
+```
+
 ## 6. Logs
 
 ```bash

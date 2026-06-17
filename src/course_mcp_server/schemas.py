@@ -59,3 +59,97 @@ class ScormPackageRequest(BaseModel):
 
 class JobStatusRequest(BaseModel):
     job_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{6,80}$")
+
+
+class LessonOutline(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    objective: str = Field(min_length=1, max_length=500)
+    duration_minutes: int = Field(ge=1, le=480)
+
+
+class CourseModule(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    lessons: list[LessonOutline] = Field(default_factory=list)
+
+
+class CourseOutline(BaseModel):
+    course_title: str = Field(min_length=1, max_length=300)
+    audience: str = Field(min_length=1, max_length=200)
+    difficulty: Difficulty
+    language: str = Field(min_length=1, max_length=60)
+    learning_objectives: list[str] = Field(min_length=1, max_length=20)
+    modules: list[CourseModule] = Field(min_length=1, max_length=20)
+    assessment_plan: str = Field(min_length=1, max_length=1000)
+    source_used: bool = False
+    source_risk_flags: list[str] = Field(default_factory=list, max_length=20)
+    instructional_design_notes: list[str] = Field(default_factory=list, max_length=20)
+    generation_provider: str = Field(default="deterministic", max_length=80)
+
+
+class ContentBlock(BaseModel):
+    type: str = Field(min_length=1, max_length=60)
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class LessonDraft(BaseModel):
+    course_title: str = Field(min_length=1, max_length=300)
+    module_title: str = Field(min_length=1, max_length=300)
+    lesson_title: str = Field(min_length=1, max_length=300)
+    objective: str = Field(min_length=1, max_length=500)
+    audience: str = Field(min_length=1, max_length=200)
+    content_blocks: list[ContentBlock] = Field(min_length=1, max_length=20)
+
+
+class QuizQuestion(BaseModel):
+    id: str = Field(pattern=r"^q[0-9]+$")
+    type: Literal["mcq", "true_false", "scenario"]
+    difficulty: Difficulty
+    objective: str = Field(min_length=1, max_length=500)
+    question: str = Field(min_length=1, max_length=1000)
+    options: list[str] = Field(min_length=2, max_length=6)
+    answer: str = Field(min_length=1, max_length=500)
+    explanation: str = Field(min_length=1, max_length=1000)
+
+
+class QuizBank(BaseModel):
+    course_title: str = Field(min_length=1, max_length=300)
+    questions: list[QuizQuestion] = Field(min_length=1, max_length=50)
+
+
+class RubricCriterion(BaseModel):
+    criterion: str = Field(min_length=1, max_length=200)
+    points: int = Field(ge=0, le=100)
+
+
+class RoleplayScenario(BaseModel):
+    course_title: str = Field(min_length=1, max_length=300)
+    role: str = Field(min_length=1, max_length=120)
+    situation: str = Field(min_length=1, max_length=1000)
+    objective: str = Field(min_length=1, max_length=500)
+    difficulty: Difficulty
+    roles: list[str] = Field(min_length=2, max_length=10)
+    setup: str = Field(min_length=1, max_length=1500)
+    expected_behaviors: list[str] = Field(min_length=1, max_length=20)
+    rubric: list[RubricCriterion] = Field(min_length=1, max_length=10)
+
+
+class CourseValidationResult(BaseModel):
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
+
+
+class ScormPackageResult(BaseModel):
+    course_title: str
+    course_slug: str
+    scorm_version: Literal["1.2", "2004"]
+    artifact_path: str
+    package_path: str
+    files: list[str]
+    note: str
+
+
+class JobStatus(BaseModel):
+    job_id: str
+    status: Literal["queued", "running", "completed", "failed", "not_found"]
+    tool_name: str | None = None
+    message: str

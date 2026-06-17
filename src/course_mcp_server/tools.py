@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from .course_generator import generate_lesson, generate_outline, generate_quiz, generate_roleplay
 from .exporters.scorm import build_scorm_scaffold
+from .job_store import get_job_status, record_job
 from .schemas import (
     CourseOutlineRequest,
     JobStatusRequest,
@@ -33,6 +34,14 @@ def generate_course_outline(payload: dict, context: RequestContext) -> dict[str,
     assert_tool_allowed(tool_name)
     req = CourseOutlineRequest.model_validate(payload)
     output = generate_outline(req)
+    record_job(
+        job_id=f"outline_{context.request_id or 'latest'}",
+        tenant_id=context.tenant_id,
+        user_id=context.user_id,
+        tool_name=tool_name,
+        status="completed",
+        message="Course outline generated.",
+    )
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
@@ -41,6 +50,14 @@ def generate_lesson_draft(payload: dict, context: RequestContext) -> dict[str, A
     assert_tool_allowed(tool_name)
     req = LessonDraftRequest.model_validate(payload)
     output = generate_lesson(req)
+    record_job(
+        job_id=f"lesson_{context.request_id or 'latest'}",
+        tenant_id=context.tenant_id,
+        user_id=context.user_id,
+        tool_name=tool_name,
+        status="completed",
+        message="Lesson draft generated.",
+    )
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
@@ -49,6 +66,14 @@ def generate_quiz_bank(payload: dict, context: RequestContext) -> dict[str, Any]
     assert_tool_allowed(tool_name)
     req = QuizBankRequest.model_validate(payload)
     output = generate_quiz(req)
+    record_job(
+        job_id=f"quiz_{context.request_id or 'latest'}",
+        tenant_id=context.tenant_id,
+        user_id=context.user_id,
+        tool_name=tool_name,
+        status="completed",
+        message="Quiz bank generated.",
+    )
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
@@ -57,6 +82,14 @@ def generate_roleplay_scenario(payload: dict, context: RequestContext) -> dict[s
     assert_tool_allowed(tool_name)
     req = RoleplayScenarioRequest.model_validate(payload)
     output = generate_roleplay(req)
+    record_job(
+        job_id=f"roleplay_{context.request_id or 'latest'}",
+        tenant_id=context.tenant_id,
+        user_id=context.user_id,
+        tool_name=tool_name,
+        status="completed",
+        message="Role-play scenario generated.",
+    )
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
@@ -79,6 +112,14 @@ def build_scorm_package_scaffold(payload: dict, context: RequestContext) -> dict
     req = ScormPackageRequest.model_validate(payload)
     output_dir = os.getenv("OUTPUT_DIR", "/app/output")
     output = build_scorm_scaffold(req, output_dir)
+    record_job(
+        job_id=f"scorm_{context.request_id or req.course_slug}",
+        tenant_id=context.tenant_id,
+        user_id=context.user_id,
+        tool_name=tool_name,
+        status="completed",
+        message="SCORM package scaffold generated.",
+    )
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
@@ -86,7 +127,7 @@ def get_course_generation_status(payload: dict, context: RequestContext) -> dict
     tool_name = "get_course_generation_status"
     assert_tool_allowed(tool_name)
     req = JobStatusRequest.model_validate(payload)
-    output = {"job_id": req.job_id, "status": "not_found", "message": "Persistent job queue not enabled in MVP skeleton."}
+    output = get_job_status(job_id=req.job_id, tenant_id=context.tenant_id)
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 

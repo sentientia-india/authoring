@@ -22,3 +22,31 @@ Append concise entries here when project state changes. Keep entries factual: wh
 - Updated `README.md` to point new contributors to the rotation system.
 - Ignored `.codex/reference-repos/` so cloned external repos do not become product source.
 
+### MVP Implementation Pass
+
+- Added Pydantic response schemas for outline, lesson, quiz, role-play, validation, SCORM package, and job status outputs.
+- Updated internal generators to return schema-validated structured data.
+- Added source-text risk flags for instruction-injection and secret-like source content.
+- Replaced the SCORM placeholder with manifest, index page, module pages, a small runtime shim, and zip package creation.
+- Added path containment checks for SCORM artifact output.
+- Added a minimal internal JSON job store and tenant-scoped status lookup.
+- Added tests for generation output schemas, SCORM packaging, and job status scoping.
+- Verification: `python -m pytest` passed with 12 tests.
+- Verification: `python -m ruff check .` passed.
+
+### OpenRouter Adapter
+
+- Added internal OpenRouter chat-completions adapter using the OpenAI-compatible endpoint.
+- Default model is `nvidia/nemotron-3-ultra-550b-a55b:free`.
+- Added `.env.example` settings for `OPENROUTER_API_KEY`, model, base URL, timeout, and app title.
+- Wired outline, lesson, quiz, and role-play generation through OpenRouter when `OPENROUTER_API_KEY` is configured.
+- Kept deterministic fallback when the key is missing or provider output is invalid.
+- Provider errors are converted to safe internal messages and raw response bodies are not exposed to MCP clients.
+
+### Completion Pass
+
+- Added OpenRouter retry/backoff settings and tests for transient network and 5xx failures.
+- Added optional live OpenRouter smoke test that runs only when `OPENROUTER_API_KEY` is present.
+- Added internal SCORM package validation for zip readability, required files, manifest root, and SCO declaration.
+- Added internal human approval policy for high-risk publish/upload actions without exposing new MCP tools.
+- Added `docs/export-adapters.md` with safe H5P and LiaScript adapter plans.
