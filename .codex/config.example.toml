@@ -1,0 +1,7 @@
+# Copy to .codex/config.toml in a trusted project after replacing token and endpoint.
+
+[mcp_servers.sentientiaCourseMcp]
+url = "http://localhost:8777/mcp"
+
+[mcp_servers.sentientiaCourseMcp.env]
+MCP_API_TOKEN = "replace-with-a-strong-token"

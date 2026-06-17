@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import hashlib
+import os
+import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any
+
+ALLOWED_TOOLS: set[str] = {
+    "generate_course_outline",
+    "generate_lesson_draft",
+    "generate_quiz_bank",
+    "generate_roleplay_scenario",
+    "validate_course_schema",
+    "build_scorm_package_scaffold",
+    "get_course_generation_status",
+}
+
+DENIED_TOOL_PATTERNS = (
+    "shell",
+    "exec",
+    "read_file",
+    "write_file",
+    "env",
+    "database",
+    "query",
+    "docker",
+    "prompt_dump",
+    "logs_dump",
+)
+
+SECRET_PATTERNS = [
+    re.compile(r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+"),
+    re.compile(r"sk-[A-Za-z0-9_\-]{12,}"),
+    re.compile(r"/app/(src|secrets|config)[^\s,;]*"),
+]
+
+
+class SecurityError(PermissionError):
+    """Raised when an MCP operation violates security policy."""
+
+
+@dataclass(frozen=True)
+class RequestContext:
+    tenant_id: str
+    user_id: str
+    token: str | None = None
+    request_id: str | None = None
+
+
+def assert_tool_allowed(tool_name: str) -> None:
+    lowered = tool_name.lower()
+    if tool_name not in ALLOWED_TOOLS:
+        raise SecurityError(f"Tool is not allowlisted: {tool_name}")
+    if any(pattern in lowered for pattern in DENIED_TOOL_PATTERNS):
+        raise SecurityError(f"Tool name violates denied pattern: {tool_name}")
+
+
+def validate_token(token: str | None) -> None:
+    expected = os.getenv("MCP_API_TOKEN")
+    if not expected:
+        raise SecurityError("MCP_API_TOKEN is not configured")
+    if not token or token != expected:
+        raise SecurityError("Invalid MCP token")
+
+
+def redact_text(value: str) -> str:
+    redacted = value
+    for pattern in SECRET_PATTERNS:
+        redacted = pattern.sub("[REDACTED]", redacted)
+    return redacted
+
+
+def redact_output(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_text(value)
+    if isinstance(value, list):
+        return [redact_output(item) for item in value]
+    if isinstance(value, dict):
+        return {key: redact_output(item) for key, item in value.items()}
+    return value
+
+
+def hash_payload(payload: Any) -> str:
+    raw = repr(payload).encode("utf-8", errors="ignore")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def audit_event(tool_name: str, context: RequestContext, input_payload: Any, output_payload: Any) -> dict[str, Any]:
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "request_id": context.request_id,
+        "tenant_id": context.tenant_id,
+        "user_id": context.user_id,
+        "tool_name": tool_name,
+        "decision": "allowed",
+        "input_hash": hash_payload(input_payload),
+        "output_hash": hash_payload(output_payload),
+    }

@@ -1,0 +1,34 @@
+services:
+  course-mcp:
+    build: .
+    container_name: sentientia-course-mcp
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8777:8777"
+    networks:
+      - course-mcp-net
+    volumes:
+      - course_mcp_output:/app/output
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "10001:10001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-m", "course_mcp_server.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  course-mcp-net:
+    driver: bridge
+
+volumes:
+  course_mcp_output:
