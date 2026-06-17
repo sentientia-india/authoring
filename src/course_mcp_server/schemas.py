@@ -241,15 +241,20 @@ class QualityValidationRequest(BaseModel):
 
 class QualityValidationResult(BaseModel):
     score: int = Field(ge=0, le=100)
-    status: Literal["passed", "needs_review", "failed"]
+    status: Literal["approved", "passed", "needs_review", "failed"]
     issues: list[dict] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
+    metrics: dict = Field(default_factory=dict)
 
 
 class ExportPackageRequest(BaseModel):
     project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
     export_format: Literal["scorm", "h5p"] = "scorm"
     scorm_version: Literal["1.2", "2004"] = "1.2"
+
+
+class StorylineHandoffRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
 
 
 class ListArtifactsRequest(BaseModel):

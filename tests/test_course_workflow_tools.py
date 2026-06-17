@@ -1,5 +1,6 @@
 from course_mcp_server.security import ALLOWED_TOOLS, RequestContext
 from course_mcp_server.tools import (
+    build_storyline_handoff_package,
     build_export_package,
     create_material_ticket,
     create_course_project,
@@ -34,6 +35,7 @@ def test_production_tool_surface_is_narrow_and_safe():
         "generate_roleplay_simulation",
         "validate_instructional_quality",
         "build_export_package",
+        "build_storyline_handoff_package",
         "get_course_generation_status",
         "list_course_artifacts",
         "request_publish_approval",
@@ -111,8 +113,8 @@ def test_generate_blueprint_module_lesson_activity_assessment_and_quality(tmp_pa
     assert lessons["data"]["lessons"][0]["citations"]
     assert activity["data"]["activity_type"] == "flashcards"
     assert {q["type"] for q in assessment["data"]["questions"]} >= {"mcq", "scenario", "matching"}
-    assert set(quality["data"]) == {"score", "status", "issues", "recommendations"}
-    assert quality["data"]["status"] in {"passed", "needs_review", "failed"}
+    assert set(quality["data"]) == {"score", "status", "issues", "recommendations", "metrics"}
+    assert quality["data"]["status"] in {"approved", "passed", "needs_review", "failed"}
     assert "blueprint" in artifacts["data"]["artifact_types"]
 
 
@@ -201,3 +203,34 @@ def test_create_material_ticket_and_generate_chapter_layout_tools():
     )
     assert layout["data"]["status"] == "ready_for_generation"
     assert layout["data"]["chapters"]
+
+
+def test_build_storyline_handoff_package_tool(tmp_path, monkeypatch):
+    monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
+    monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "output"))
+    context = _ctx()
+    project = create_course_project(
+        {"course_title": "Emergency Evacuation", "audience": "cabin crew", "language": "English"},
+        context,
+    )
+    project_id = project["data"]["project_id"]
+    generate_lesson_pack({"project_id": project_id, "module_id": "module_1"}, context)
+    generate_interactive_activity(
+        {
+            "project_id": project_id,
+            "activity_type": "scenario_decision_tree",
+            "objective": "Choose safe evacuation actions.",
+        },
+        context,
+    )
+    generate_assessment_bank(
+        {"project_id": project_id, "question_count": 5, "question_types": ["scenario", "mcq"]},
+        context,
+    )
+
+    result = build_storyline_handoff_package({"project_id": project_id}, context)
+
+    assert result["ok"] is True
+    assert result["data"]["package_path"].endswith(".zip")
+    assert result["data"]["native_story_file_generated"] is False
+    assert "storyboard.md" in result["data"]["files"]

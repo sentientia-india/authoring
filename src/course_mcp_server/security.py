@@ -23,6 +23,7 @@ ALLOWED_TOOLS: set[str] = {
     "generate_roleplay_simulation",
     "validate_instructional_quality",
     "build_export_package",
+    "build_storyline_handoff_package",
     "get_course_generation_status",
     "list_course_artifacts",
     "request_publish_approval",

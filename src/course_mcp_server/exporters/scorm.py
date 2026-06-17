@@ -54,8 +54,46 @@ body {
   font-family: Arial, Helvetica, sans-serif;
   line-height: 1.5;
 }
+.course-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+}
+.course-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 24px 20px;
+  color: #e5e7eb;
+  background: #172033;
+  overflow: auto;
+}
+.course-sidebar h1 { margin: 0 0 14px; font-size: 26px; line-height: 1.1; }
+.course-sidebar a { color: #dbeafe; text-decoration: none; }
+.progress-ring {
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  margin: 22px 0;
+  border-radius: 999px;
+  background: conic-gradient(#38bdf8 0 35%, #334155 35% 100%);
+}
+.progress-ring span {
+  display: grid;
+  place-items: center;
+  width: 82px;
+  height: 82px;
+  border-radius: 999px;
+  background: #172033;
+  font-size: 24px;
+  font-weight: 700;
+}
+.module-nav { display: grid; gap: 8px; padding: 0; list-style: none; }
+.module-nav li { padding: 10px 12px; border: 1px solid #334155; border-radius: 8px; background: rgba(255,255,255,.04); }
+.lesson-workspace { min-width: 0; }
 .hero {
-  min-height: 72vh;
+  min-height: 58vh;
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(260px, 460px);
   gap: 32px;
@@ -69,6 +107,9 @@ body {
 .lede { max-width: 680px; color: var(--muted); font-size: 20px; }
 .hero img, .module img { width: 100%; max-height: 360px; }
 main { max-width: 1120px; margin: 0 auto; padding: 28px 20px 48px; }
+.lesson-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.lesson-card { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.lesson-card h3 { margin: 0 0 8px; }
 .module, .interactive, .quiz {
   margin: 24px 0;
   padding: 24px;
@@ -103,7 +144,10 @@ fieldset label { display: block; margin: 8px 0; }
 .feedback { min-height: 28px; font-weight: 700; }
 footer { padding: 24px min(6vw, 72px); background: #172033; color: #e5e7eb; }
 @media (max-width: 820px) {
+  .course-shell { grid-template-columns: 1fr; }
+  .course-sidebar { position: static; height: auto; }
   .hero, .module, .module.alt, .prompt-builder { grid-template-columns: 1fr; }
+  .lesson-grid { grid-template-columns: 1fr; }
   .hero h1 { font-size: 40px; }
   .method-grid { grid-template-columns: 1fr; }
   .habit { grid-template-columns: 1fr; }
@@ -200,68 +244,21 @@ def _embedded_activities(modules: list[dict]) -> list[dict]:
     return activities
 
 
+def _course_payload(req: ScormPackageRequest) -> dict:
+    for module in req.modules:
+        payload = module.get("course_payload")
+        if isinstance(payload, dict):
+            return payload
+    return {
+        "course_title": req.course_title,
+        "course_slug": req.course_slug,
+        "modules": req.modules,
+    }
+
+
 def _runtime_js() -> str:
-    return """window.CourseScorm = {
-  api: function () { return window.API || window.API_1484_11 || null; },
-  setScore: function (score) {
-    var api = this.api();
-    if (!api) return false;
-    if (api.LMSSetValue) {
-      api.LMSSetValue("cmi.core.score.raw", String(score));
-      api.LMSSetValue("cmi.core.score.min", "0");
-      api.LMSSetValue("cmi.core.score.max", "100");
-      api.LMSCommit && api.LMSCommit("");
-      return true;
-    }
-    if (api.SetValue) {
-      api.SetValue("cmi.score.raw", String(score));
-      api.SetValue("cmi.score.min", "0");
-      api.SetValue("cmi.score.max", "100");
-      api.SetValue("cmi.score.scaled", String(score / 100));
-      api.Commit && api.Commit("");
-      return true;
-    }
-    return false;
-  },
-  markComplete: function () {
-    var api = this.api();
-    if (!api) return false;
-    if (api.LMSSetValue) {
-      api.LMSSetValue("cmi.core.lesson_status", "completed");
-      api.LMSCommit && api.LMSCommit("");
-      return true;
-    }
-    if (api.SetValue) {
-      api.SetValue("cmi.completion_status", "completed");
-      api.SetValue("cmi.success_status", "passed");
-      api.Commit && api.Commit("");
-      return true;
-    }
-    return false;
-  },
-  recordInteraction: function (index, id, type, response, result) {
-    var api = this.api();
-    if (!api) return false;
-    if (api.LMSSetValue) {
-      api.LMSSetValue("cmi.interactions." + index + ".id", id);
-      api.LMSSetValue("cmi.interactions." + index + ".type", type);
-      api.LMSSetValue("cmi.interactions." + index + ".student_response", response);
-      api.LMSSetValue("cmi.interactions." + index + ".result", result);
-      api.LMSCommit && api.LMSCommit("");
-      return true;
-    }
-    if (api.SetValue) {
-      api.SetValue("cmi.interactions." + index + ".id", id);
-      api.SetValue("cmi.interactions." + index + ".type", type);
-      api.SetValue("cmi.interactions." + index + ".learner_response", response);
-      api.SetValue("cmi.interactions." + index + ".result", result);
-      api.Commit && api.Commit("");
-      return true;
-    }
-    return false;
-  }
-};
-"""
+    runtime_path = Path(__file__).with_name("scorm_runtime_v2.js")
+    return runtime_path.read_text(encoding="utf-8")
 
 
 def _study_map_svg() -> str:
@@ -337,8 +334,11 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
     assets.mkdir(exist_ok=True)
     activities_dir = base / "activities"
     activities_dir.mkdir(exist_ok=True)
+    data_dir = base / "data"
+    data_dir.mkdir(exist_ok=True)
     module_files = [_module_page_name(i) for i, _module in enumerate(req.modules, start=1)]
     activities = _embedded_activities(req.modules)
+    course_payload = _course_payload(req)
     asset_files = [
         "assets/styles.css",
         "assets/course.js",
@@ -348,7 +348,8 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
         "assets/prompt-lab.svg",
     ]
     activity_files = ["activities/content.json"] if activities else []
-    files = ["imsmanifest.xml", "index.html", *module_files, *asset_files, *activity_files]
+    data_files = ["data/course.json"]
+    files = ["imsmanifest.xml", "index.html", *module_files, *asset_files, *activity_files, *data_files]
 
     manifest = f'''<?xml version="1.0" encoding="UTF-8"?>
 <manifest identifier="{escape(req.course_slug)}" version="1.0"
@@ -372,6 +373,7 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
 {chr(10).join(f'      <file href="{escape(file_name)}" />' for file_name in module_files)}
 {chr(10).join(f'      <file href="{escape(file_name)}" />' for file_name in asset_files)}
 {chr(10).join(f'      <file href="{escape(file_name)}" />' for file_name in activity_files)}
+{chr(10).join(f'      <file href="{escape(file_name)}" />' for file_name in data_files)}
     </resource>
   </resources>
 </manifest>
@@ -379,6 +381,15 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
     navigation = "\n".join(
         f'<li><a href="{escape(file_name)}">{escape(module.get("title", f"Module {i}"))}</a></li>'
         for i, (file_name, module) in enumerate(zip(module_files, req.modules, strict=True), start=1)
+    )
+    lesson_cards = "\n".join(
+        f'''<article class="lesson-card">
+          <h3>{escape(str(lesson.get("title", "Lesson")))}</h3>
+          <p>{escape(str(lesson.get("objective", "Complete the lesson objective.")))}</p>
+          <button class="primary" type="button" onclick="CourseScorm.setLocation('module-{module_index}-lesson-{lesson_index}'); CourseScorm.setSuspendData({{location: 'module-{module_index}-lesson-{lesson_index}'}})">Save progress</button>
+        </article>'''
+        for module_index, module in enumerate(req.modules, start=1)
+        for lesson_index, lesson in enumerate(module.get("lessons", []), start=1)
     )
     first_video = next((_safe_video_url(module) for module in req.modules if _safe_video_url(module)), None)
     video_block = (
@@ -398,85 +409,95 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
   <script src="assets/scorm_api.js"></script>
 </head>
 <body>
-  <header class="hero">
-    <div>
-      <p class="eyebrow">Interactive SCORM course</p>
+  <div class="course-shell">
+    <aside class="course-sidebar">
+      <p class="eyebrow">SCORM course player</p>
       <h1>{escape(req.course_title)}</h1>
-      <p class="lede">A guided micro-course with lesson content, media, interactive practice, quiz scoring, and SCORM completion tracking.</p>
-    </div>
-    <img src="assets/study-map.svg" alt="Course study map">
-  </header>
-  <main>
-    <section class="module">
-      <div class="module-text">
-        <h2>How to use this course</h2>
-        <p>Move through each module, complete the interactive checks, and submit the final quiz. Your LMS can capture score and completion when SCORM APIs are available.</p>
-        <ul class="checks">{navigation}</ul>
-      </div>
-      {video_block}
-    </section>
-    <section class="module alt">
-      <img src="assets/prompt-lab.svg" alt="Interactive prompt lab">
-      <div class="module-text">
-        <h2>Practice method</h2>
-        <p>Use the activity below to classify habits, build a useful prompt, and complete a short knowledge check.</p>
-        <div class="method-grid">
-          <div><span>Learn</span><p>Read the module objective.</p></div>
-          <div><span>Practice</span><p>Try an interactive activity.</p></div>
-          <div><span>Prove</span><p>Submit the quiz and mark complete.</p></div>
+      <div class="progress-ring" aria-label="Course progress"><span>35%</span></div>
+      <ul class="module-nav">{navigation}</ul>
+    </aside>
+    <div class="lesson-workspace">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Interactive lesson path</p>
+          <h1>{escape(req.course_title)}</h1>
+          <p class="lede">A structured course package with generated lessons, source-aware activity data, quiz scoring, suspend/resume data, and LMS completion tracking.</p>
         </div>
-      </div>
-    </section>
-    <section class="interactive">
-      <h2>Embedded interactive content</h2>
-      <p>H5P-style activity data is packaged inside this SCORM file so the course can be delivered as one download.</p>
-      <div id="embedded-activities"></div>
-    </section>
-    <section class="interactive">
-      <h2>Interactive 1: Sort the habits</h2>
-      <p>Choose whether each behavior is a smart use or risky use.</p>
-      <div id="sort-activity" class="activity-list"></div>
-      <button class="primary" type="button" onclick="checkSort()">Check habits</button>
-      <p id="sort-feedback" class="feedback" role="status"></p>
-    </section>
-    <section class="interactive">
-      <h2>Interactive 2: Prompt builder</h2>
-      <p>Fill the boxes, then generate a stronger learning prompt.</p>
-      <div class="prompt-builder">
-        <label>Topic <input id="topic" value="{escape(req.course_title)}"></label>
-        <label>Level <input id="level" value="beginner"></label>
-        <label>Task <input id="task" value="explain simply with examples"></label>
-      </div>
-      <button class="primary" type="button" onclick="buildPrompt()">Build prompt</button>
-      <div id="prompt-output" class="prompt-output"></div>
-    </section>
-    <section class="quiz">
-      <h2>Final quiz</h2>
-      <form id="quiz-form">
-        <fieldset>
-          <legend>1. What is the best way to use learning content?</legend>
-          <label><input type="radio" name="q1" value="correct"> Read, practice, and check understanding</label>
-          <label><input type="radio" name="q1" value="wrong"> Skip directly to completion</label>
-        </fieldset>
-        <fieldset>
-          <legend>2. What should you do after an AI-generated answer?</legend>
-          <label><input type="radio" name="q2" value="correct"> Check it and explain it in your own words</label>
-          <label><input type="radio" name="q2" value="wrong"> Submit it without reading</label>
-        </fieldset>
-        <fieldset>
-          <legend>3. What makes a good prompt?</legend>
-          <label><input type="radio" name="q3" value="correct"> Topic, level, task, and examples requested</label>
-          <label><input type="radio" name="q3" value="wrong"> A vague instruction with no context</label>
-        </fieldset>
-      </form>
-      <button class="primary" type="button" onclick="gradeQuiz()">Submit quiz</button>
-      <p id="quiz-feedback" class="feedback" role="status"></p>
-    </section>
-  </main>
-  <footer>
-    <button class="complete" type="button" onclick="markCourseComplete()">Mark course complete</button>
-    <p>Generated by Samrat Course MCP.</p>
-  </footer>
+        <img src="assets/study-map.svg" alt="Course study map">
+      </header>
+      <main>
+        <section class="module">
+          <div class="module-text">
+            <h2>How to use this course</h2>
+            <p>Move through each lesson, save progress, complete the interactions, and submit the final quiz. The LMS can capture score, location, suspend data, interactions, and completion.</p>
+            <div class="lesson-grid">{lesson_cards}</div>
+          </div>
+          {video_block}
+        </section>
+        <section class="module alt">
+          <img src="assets/prompt-lab.svg" alt="Interactive prompt lab">
+          <div class="module-text">
+            <h2>Practice method</h2>
+            <p>Each generated course should combine explanation, example, learner practice, scenario feedback, and assessment evidence.</p>
+            <div class="method-grid">
+              <div><span>Learn</span><p>Read the module objective.</p></div>
+              <div><span>Practice</span><p>Try an interactive activity.</p></div>
+              <div><span>Prove</span><p>Submit the quiz and mark complete.</p></div>
+            </div>
+          </div>
+        </section>
+        <section class="interactive">
+          <h2>Embedded interactive content</h2>
+          <p>H5P-style activity data is packaged inside this SCORM file so the course can be delivered as one download.</p>
+          <div id="embedded-activities"></div>
+        </section>
+        <section class="interactive">
+          <h2>Interactive 1: Sort the habits</h2>
+          <p>Choose whether each behavior is a smart use or risky use.</p>
+          <div id="sort-activity" class="activity-list"></div>
+          <button class="primary" type="button" onclick="checkSort()">Check habits</button>
+          <p id="sort-feedback" class="feedback" role="status"></p>
+        </section>
+        <section class="interactive">
+          <h2>Interactive 2: Prompt builder</h2>
+          <p>Fill the boxes, then generate a stronger learning prompt.</p>
+          <div class="prompt-builder">
+            <label>Topic <input id="topic" value="{escape(req.course_title)}"></label>
+            <label>Level <input id="level" value="beginner"></label>
+            <label>Task <input id="task" value="explain simply with examples"></label>
+          </div>
+          <button class="primary" type="button" onclick="buildPrompt()">Build prompt</button>
+          <div id="prompt-output" class="prompt-output"></div>
+        </section>
+        <section class="quiz">
+          <h2>Final quiz</h2>
+          <form id="quiz-form">
+            <fieldset>
+              <legend>1. What is the best way to use learning content?</legend>
+              <label><input type="radio" name="q1" value="correct"> Read, practice, and check understanding</label>
+              <label><input type="radio" name="q1" value="wrong"> Skip directly to completion</label>
+            </fieldset>
+            <fieldset>
+              <legend>2. What should you do after an AI-generated answer?</legend>
+              <label><input type="radio" name="q2" value="correct"> Check it and explain it in your own words</label>
+              <label><input type="radio" name="q2" value="wrong"> Submit it without reading</label>
+            </fieldset>
+            <fieldset>
+              <legend>3. What makes a good prompt?</legend>
+              <label><input type="radio" name="q3" value="correct"> Topic, level, task, and examples requested</label>
+              <label><input type="radio" name="q3" value="wrong"> A vague instruction with no context</label>
+            </fieldset>
+          </form>
+          <button class="primary" type="button" onclick="gradeQuiz()">Submit quiz</button>
+          <p id="quiz-feedback" class="feedback" role="status"></p>
+        </section>
+      </main>
+      <footer>
+        <button class="complete" type="button" onclick="markCourseComplete()">Mark course complete</button>
+        <p>Generated by Samrat Course MCP.</p>
+      </footer>
+    </div>
+  </div>
   <script src="assets/course.js"></script>
   <script src="assets/h5p_bridge.js"></script>
 </body>
@@ -496,6 +517,7 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
             json.dumps({"format": "h5p-style", "activities": activities}, indent=2),
             encoding="utf-8",
         )
+    (data_dir / "course.json").write_text(json.dumps(course_payload, indent=2), encoding="utf-8")
     for i, (file_name, module) in enumerate(zip(module_files, req.modules, strict=True), start=1):
         lessons = module.get("lessons", [])
         lesson_items = "\n".join(

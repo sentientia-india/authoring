@@ -27,6 +27,7 @@ create_material_ticket
 -> generate_assessment_bank
 -> validate_instructional_quality
 -> build_export_package
+-> build_storyline_handoff_package
 -> request_publish_approval
 ```
 
@@ -135,7 +136,8 @@ Output shape:
   "score": 84,
   "status": "needs_review",
   "issues": [],
-  "recommendations": []
+  "recommendations": [],
+  "metrics": {}
 }
 ```
 
@@ -155,15 +157,28 @@ H5P export remains available as an optional separate bounded `.h5p` package gene
 
 Default SaaS delivery mode is `download_only`: return package metadata so the customer can download the SCORM/H5P file and upload it to their own LMS. This avoids hosting learner delivery/storage in the first SaaS version.
 
-## 13. `get_course_generation_status`
+## 13. `build_storyline_handoff_package`
+
+Builds a Storyline developer handoff ZIP. It does not generate native `.story` files.
+
+Package contents:
+
+- `storyboard.md`
+- `storyline_build_spec.json`
+- `quiz_import.csv`
+- `interaction_blueprint.json`
+- `voiceover_script.md`
+- `assets/README.md`
+
+## 14. `get_course_generation_status`
 
 Returns tenant-scoped job status only. Unknown jobs and jobs from another tenant return `not_found`.
 
-## 14. `list_course_artifacts`
+## 15. `list_course_artifacts`
 
 Lists generated artifact metadata for a course project without exposing raw server paths or source files.
 
-## 15. `request_publish_approval`
+## 16. `request_publish_approval`
 
 Moves the project into `needs_review`. It does not publish to an LMS.
 

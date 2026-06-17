@@ -39,12 +39,14 @@ def test_scorm_scaffold_creates_zip_with_manifest_and_module_pages(tmp_path):
         "assets/scorm_api.js",
         "assets/study-map.svg",
         "assets/prompt-lab.svg",
+        "data/course.json",
     ]
 
     with ZipFile(package_path) as package:
         names = sorted(package.namelist())
         assert names == sorted(result["files"])
         assert "module-1.html" in package.read("imsmanifest.xml").decode("utf-8")
+        assert "Ramp Safety" in package.read("data/course.json").decode("utf-8")
 
 
 def test_scorm_scaffold_embeds_h5p_style_activity_content(tmp_path):
@@ -117,6 +119,9 @@ def test_scorm_scaffold_uses_polished_responsive_template(tmp_path):
     assert "@media (max-width: 820px)" in css
     assert "function gradeQuiz" in js
     assert "setScore" in scorm_js
+    assert "findApi(window.opener" in scorm_js
+    assert "setSuspendData" in scorm_js
+    assert "setLocation" in scorm_js
     assert "recordInteraction" in scorm_js
     assert "cmi.interactions." in scorm_js
     assert "cmi.core.lesson_status" in scorm_js
@@ -165,3 +170,34 @@ def test_validate_scorm_package_checks_runtime_tracking_files(tmp_path):
 
     assert result["valid"] is False
     assert "SCORM runtime does not record interactions." in result["errors"]
+
+
+def test_scorm_shell_uses_course_player_layout(tmp_path):
+    result = build_scorm_scaffold(
+        ScormPackageRequest(
+            course_title="Emergency Evacuation",
+            course_slug="emergency-evacuation",
+            modules=[
+                {
+                    "title": "Assess Conditions",
+                    "lessons": [
+                        {
+                            "title": "Cabin readiness",
+                            "objective": "Evaluate passenger readiness.",
+                            "duration_minutes": 8,
+                        }
+                    ],
+                }
+            ],
+        ),
+        str(tmp_path),
+    )
+
+    with ZipFile(result["package_path"]) as package:
+        index = package.read("index.html").decode("utf-8")
+        css = package.read("assets/styles.css").decode("utf-8")
+
+    assert "course-shell" in index
+    assert "progress-ring" in index
+    assert "lesson-workspace" in index
+    assert ".course-shell" in css

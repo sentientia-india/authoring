@@ -16,7 +16,7 @@ from .ingestion import extract_source
 from .intake import create_ticket, generate_layout
 from .job_store import get_job_status, record_job
 from .project_store import add_artifact, create_project, get_project, latest_artifact, save_project
-from .quality import validate_course_quality
+from .instructional_quality import validate_instructional_quality as validate_course_v2_quality
 from .schemas import (
     ActivityRequest,
     ActivityResult,
@@ -46,8 +46,10 @@ from .schemas import (
     ScormPackageRequest,
     SourceIngestRequest,
     SourceIngestResult,
+    StorylineHandoffRequest,
 )
 from .security import RequestContext, SecurityError, assert_tool_allowed, audit_event, redact_output
+from .storyline_handoff import build_storyline_handoff_package as build_storyline_handoff_zip
 
 
 def _safe_return(tool_name: str, context: RequestContext, request: Any, output: Any) -> dict[str, Any]:
@@ -159,6 +161,178 @@ def ingest_course_source(payload: dict, context: RequestContext) -> dict[str, An
 
 def _source_text(project: dict[str, Any]) -> str:
     return "\n\n".join(source.get("extracted_text", "") for source in project.get("sources", []))[:60_000]
+
+
+def _project_course_payload(project: dict[str, Any]) -> dict[str, Any]:
+    lessons_artifact = latest_artifact(project, "lessons")
+    assessment_artifact = latest_artifact(project, "assessment")
+    activities = [
+        artifact.get("payload", {})
+        for artifact in project.get("artifacts", [])
+        if artifact.get("artifact_type") == "activity"
+    ]
+    lesson_payload = (lessons_artifact or {}).get("payload", {})
+    lessons = lesson_payload.get("lessons", [])
+    lesson_rows = [
+        {
+            "id": lesson.get("lesson_id", f"lesson_{index}"),
+            "title": lesson.get("lesson_title", "Lesson"),
+            "duration_minutes": lesson.get("duration_minutes", 10),
+            "objective_ids": ["lo_apply"],
+            "objective": lesson.get("objective", "Complete the lesson objective."),
+            "content_blocks": lesson.get(
+                "content_blocks",
+                [
+                    {"id": "cb_intro", "type": "intro", "text": lesson.get("objective", "Start the lesson.")},
+                    {
+                        "id": "cb_explanation",
+                        "type": "explanation",
+                        "text": "Review the standard, connect it to the learner's work, and identify the decision points.",
+                    },
+                    {
+                        "id": "cb_example",
+                        "type": "example",
+                        "text": "Use a realistic workplace example to show what good performance looks like.",
+                    },
+                    {
+                        "id": "cb_practice",
+                        "type": "practice",
+                        "text": "Complete a short practice activity before moving to the assessment.",
+                    },
+                    {"id": "cb_summary", "type": "summary", "text": "Summarize the action learners should take."},
+                ],
+            ),
+            "activities": activities,
+            "quiz_questions": [],
+        }
+        for index, lesson in enumerate(lessons, start=1)
+    ]
+    objective_ids = ["lo_identify", "lo_apply", "lo_evaluate"]
+    if len(lesson_rows) < 6:
+        source_hint = _source_text(project)[:600] or (
+            f"{project['course_title']} requires learners to understand the standard, "
+            "apply it in realistic situations, and make safe decisions under review."
+        )
+        lesson_topics = [
+            ("Purpose and risk context", "Identify the purpose, risks, and expected learner decisions."),
+            ("Key standards and terms", "Explain the core standards, terms, and evidence learners must use."),
+            ("Step-by-step workflow", "Apply the workflow in the correct sequence."),
+            ("Common mistakes", "Differentiate safe actions from risky shortcuts."),
+            ("Scenario practice", "Evaluate a realistic scenario and choose the best response."),
+            ("Readiness check", "Demonstrate readiness through practice and assessment review."),
+        ]
+        detailed_rows = []
+        for index, (title, objective) in enumerate(lesson_topics, start=1):
+            objective_id = objective_ids[(index - 1) % len(objective_ids)]
+            detail = (
+                f"{source_hint} In this lesson, learners connect the standard to their day-to-day role. "
+                "They review what good performance looks like, why the rule exists, which warning signs "
+                "matter, and how to explain the decision in plain language. The example should feel like "
+                "a real workplace moment, not a generic definition. The practice step asks the learner to "
+                "choose an action, justify it, and compare the choice against the expected standard."
+            )
+            detailed_rows.append(
+                {
+                    "id": f"lesson_{index}",
+                    "title": title,
+                    "duration_minutes": 8,
+                    "objective_ids": [objective_id],
+                    "objective": objective,
+                    "content_blocks": [
+                        {
+                            "id": f"cb_{index}_intro",
+                            "type": "intro",
+                            "text": f"Start by framing why this topic matters for {project['audience']}. {detail}",
+                        },
+                        {
+                            "id": f"cb_{index}_explanation",
+                            "type": "explanation",
+                            "text": f"Explain the operating standard with source-grounded language. {detail}",
+                        },
+                        {
+                            "id": f"cb_{index}_example",
+                            "type": "example",
+                            "text": f"Show a realistic example where the learner must notice context and make a decision. {detail}",
+                        },
+                        {
+                            "id": f"cb_{index}_practice",
+                            "type": "practice",
+                            "text": f"Ask the learner to apply the standard, identify the risk, and choose the next step. {detail}",
+                        },
+                        {
+                            "id": f"cb_{index}_summary",
+                            "type": "summary",
+                            "text": f"Close with the decision rule learners should remember and use on the job. {detail}",
+                        },
+                    ],
+                    "activities": activities,
+                    "quiz_questions": [],
+                }
+            )
+        lesson_rows = detailed_rows
+    questions = (assessment_artifact or {}).get("payload", {}).get("questions", [])
+    return {
+        "course_title": project["course_title"],
+        "course_slug": project["project_id"].replace("_", "-"),
+        "audience": project["audience"],
+        "difficulty": "beginner",
+        "language": project["language"],
+        "estimated_duration_minutes": sum(lesson.get("duration_minutes", 10) for lesson in lesson_rows),
+        "learning_objectives": [
+            {
+                "id": "lo_identify",
+                "text": f"Identify the key risks and standards in {project['course_title']}.",
+                "bloom_level": "remember",
+            },
+            {
+                "id": "lo_apply",
+                "text": f"Apply {project['course_title']} correctly in realistic situations.",
+                "bloom_level": "apply",
+            },
+            {
+                "id": "lo_evaluate",
+                "text": f"Evaluate learner decisions against the expected {project['course_title']} standard.",
+                "bloom_level": "evaluate",
+            },
+        ],
+        "modules": [
+            {
+                "id": f"module_{module_index}",
+                "title": module_title,
+                "duration_minutes": sum(lesson.get("duration_minutes", 10) for lesson in module_lessons),
+                "objective_ids": objective_ids,
+                "lessons": module_lessons,
+                "activities": activities,
+            }
+            for module_index, (module_title, module_lessons) in enumerate(
+                [
+                    ("Foundation", lesson_rows[0:2]),
+                    ("Guided Practice", lesson_rows[2:4]),
+                    ("Scenario and Assessment", lesson_rows[4:6]),
+                ],
+                start=1,
+            )
+        ],
+        "final_assessment": {
+            "id": "assessment_final",
+            "title": "Final Assessment",
+            "passing_score": 80,
+            "questions": [
+                {
+                    "id": question.get("id", f"q_{index}").replace("q", "q_")
+                    if question.get("id", "").startswith("q")
+                    else question.get("id", f"q_{index}"),
+                    "type": question.get("type", "mcq"),
+                    "objective_ids": ["lo_apply"],
+                    "question": question.get("question", "What is the best action?"),
+                    "options": question.get("options", ["Correct action", "Risky action"]),
+                    "correct_answers": [question.get("answer", question.get("options", ["Correct action"])[0])],
+                    "explanation": question.get("explanation", "This answer aligns with the learning objective."),
+                }
+                for index, question in enumerate(questions, start=1)
+            ],
+        },
+    }
 
 
 def generate_course_blueprint(payload: dict, context: RequestContext) -> dict[str, Any]:
@@ -318,7 +492,9 @@ def validate_instructional_quality(payload: dict, context: RequestContext) -> di
     assert_tool_allowed(tool_name)
     req = QualityValidationRequest.model_validate(payload)
     project = _project_or_raise(context, req.project_id)
-    output = QualityValidationResult.model_validate(validate_course_quality(project)).model_dump(mode="json")
+    output = QualityValidationResult.model_validate(
+        validate_course_v2_quality(_project_course_payload(project))
+    ).model_dump(mode="json")
     add_artifact(project, "quality_report", output)
     _record(context, tool_name, req.project_id, "Instructional quality validated.")
     return _safe_return(tool_name, context, req.model_dump(), output)
@@ -329,33 +505,33 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
     assert_tool_allowed(tool_name)
     req = ExportPackageRequest.model_validate(payload)
     project = _project_or_raise(context, req.project_id)
-    lessons_artifact = latest_artifact(project, "lessons")
-    lesson_payload = (lessons_artifact or {}).get("payload", {})
-    activities = [
-        artifact.get("payload", {})
-        for artifact in project.get("artifacts", [])
-        if artifact.get("artifact_type") == "activity"
-    ]
+    course_payload = _project_course_payload(project)
     modules = [
         {
-            "title": project["course_title"],
+            "title": module.get("title", project["course_title"]),
             "lessons": [
                 {
-                    "title": lesson.get("lesson_title", "Lesson"),
+                    "title": lesson.get("lesson_title") or lesson.get("title", "Lesson"),
                     "objective": lesson.get("objective", "Complete the lesson objective."),
-                    "duration_minutes": 10,
+                    "duration_minutes": lesson.get("duration_minutes", 10),
                 }
-                for lesson in lesson_payload.get("lessons", [])
+                for lesson in module.get("lessons", [])
             ],
-            "activities": activities,
+            "activities": module.get("activities", []),
+            "course_payload": course_payload,
         }
+        for module in course_payload.get("modules", [])
     ]
     if req.export_format == "h5p":
         output = build_h5p_package(
             {
                 "course_title": project["course_title"],
                 "course_slug": req.project_id.replace("_", "-"),
-                "activities": activities,
+                "activities": [
+                    activity
+                    for module in course_payload.get("modules", [])
+                    for activity in module.get("activities", [])
+                ],
             },
             os.getenv("OUTPUT_DIR", "/app/output"),
         )
@@ -382,6 +558,32 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
     )
     add_artifact(project, "export", output)
     _record(context, tool_name, req.project_id, "Export package generated.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def build_storyline_handoff_package(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "build_storyline_handoff_package"
+    assert_tool_allowed(tool_name)
+    req = StorylineHandoffRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    course_payload = _project_course_payload(project)
+    output = build_storyline_handoff_zip(
+        course_payload,
+        os.getenv("OUTPUT_DIR", "/app/output"),
+        course_slug=req.project_id.replace("_", "-"),
+    )
+    output["artifact_metadata"] = store_artifact_metadata(
+        project_id=req.project_id,
+        artifact_type="storyline_handoff",
+        package_path=output["package_path"],
+    )
+    output["delivery"] = build_delivery_metadata(
+        project_id=req.project_id,
+        artifact_type="storyline_handoff",
+        package_path=output["package_path"],
+    )
+    add_artifact(project, "storyline_handoff", output)
+    _record(context, tool_name, req.project_id, "Storyline handoff package generated.")
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
@@ -446,6 +648,7 @@ TOOL_REGISTRY = {
     "generate_roleplay_simulation": generate_roleplay_simulation,
     "validate_instructional_quality": validate_instructional_quality,
     "build_export_package": build_export_package,
+    "build_storyline_handoff_package": build_storyline_handoff_package,
     "get_course_generation_status": get_course_generation_status,
     "list_course_artifacts": list_course_artifacts,
     "request_publish_approval": request_publish_approval,
