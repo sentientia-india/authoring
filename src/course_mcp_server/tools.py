@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
+from zipfile import ZipFile, ZIP_DEFLATED
 from typing import Any
 
 from pydantic import ValidationError
 
+from .advanced_quality_gates import evaluate_superior_quality
 from .activities import build_activity
 from .artifacts import store_artifact_metadata
 from .course_generator import generate_lesson, generate_outline, generate_quiz, generate_roleplay
+from .course_templates import TemplateRegistry
 from .delivery import build_delivery_metadata
 from .exporters.h5p import build_h5p_package
 from .exporters.scorm import build_scorm_package
+from .html_video_engine import HtmlVideoRenderer, build_video_project_from_course
 from .ingestion import extract_source
 from .intake import create_ticket, generate_layout
 from .job_store import get_job_status, record_job
@@ -29,6 +34,8 @@ from .schemas import (
     CourseProjectResult,
     ExportPackageRequest,
     ChapterLayoutResult,
+    InteractiveVideoRequest,
+    InteractiveVideoResult,
     MaterialTicketResult,
     JobStatusRequest,
     LessonDraftRequest,
@@ -41,11 +48,15 @@ from .schemas import (
     PublishApprovalResult,
     QualityValidationRequest,
     QualityValidationResult,
+    SuperiorQualityValidationRequest,
+    SuperiorQualityValidationResult,
     QuizBankRequest,
     RoleplayScenarioRequest,
     ScormPackageRequest,
     SourceIngestRequest,
     SourceIngestResult,
+    TemplateSelectionRequest,
+    TemplateSelectionResult,
     StorylineHandoffRequest,
 )
 from .security import RequestContext, SecurityError, assert_tool_allowed, audit_event, redact_output
@@ -61,11 +72,45 @@ def _safe_return(tool_name: str, context: RequestContext, request: Any, output: 
     }
 
 
+def _error_return(tool_name: str, context: RequestContext, request: Any, error: str, output: Any) -> dict[str, Any]:
+    safe_output = redact_output(output)
+    return {
+        "ok": False,
+        "error": error,
+        "data": safe_output,
+        "audit": audit_event(tool_name, context, request, safe_output),
+    }
+
+
 def _project_or_raise(context: RequestContext, project_id: str) -> dict[str, Any]:
     project = get_project(tenant_id=context.tenant_id, project_id=project_id)
     if not project:
         raise SecurityError("Course project not found.")
     return project
+
+
+def _template_registry() -> TemplateRegistry:
+    return TemplateRegistry().load()
+
+
+def _project_template(project: dict[str, Any]):
+    template_id = project.get("template_id")
+    registry = _template_registry()
+    if template_id:
+        try:
+            return registry.get(template_id)
+        except KeyError:
+            pass
+    match = registry.select_template(
+        topic=project.get("course_title", ""),
+        audience=project.get("audience", ""),
+        industry=project.get("compliance_domain") or project.get("audience") or None,
+        delivery_mode=project.get("delivery_mode") or None,
+    )
+    project["template_id"] = match.template.template_id
+    project["template_name"] = match.template.name
+    save_project(project)
+    return match.template
 
 
 def _record(context: RequestContext, tool_name: str, project_id: str, message: str) -> None:
@@ -110,6 +155,28 @@ def generate_chapter_layout(payload: dict, context: RequestContext) -> dict[str,
     output = ChapterLayoutResult.model_validate(generate_layout(payload)).model_dump(mode="json")
     _record(context, tool_name, context.request_id or "layout", "Chapter layout generated.")
     return _safe_return(tool_name, context, payload, output)
+
+
+def select_course_template(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "select_course_template"
+    assert_tool_allowed(tool_name)
+    req = TemplateSelectionRequest.model_validate(payload)
+    match = _template_registry().select_template(
+        topic=req.topic,
+        audience=req.audience,
+        industry=req.industry,
+        delivery_mode=req.delivery_mode,  # type: ignore[arg-type]
+    )
+    output = TemplateSelectionResult(
+        template_id=match.template.template_id,
+        name=match.template.name,
+        recommended_interactions=list(match.template.recommended_interactions),
+        quality_rules=match.template.quality_rules,
+        theme=match.template.theme.model_dump(mode="json"),
+        reason="; ".join(match.reasons),
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.topic.replace(" ", "_")[:20], "Course template selected.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
 
 
 def _upload_path(upload_id: str) -> Path:
@@ -163,6 +230,27 @@ def _source_text(project: dict[str, Any]) -> str:
     return "\n\n".join(source.get("extracted_text", "") for source in project.get("sources", []))[:60_000]
 
 
+def _source_refs_for_project(project: dict[str, Any]) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    for source in project.get("sources", []):
+        source_id = str(source.get("source_id", "source_1"))
+        for reference in (source.get("page_references") or ["line:1"])[:3]:
+            refs.append({"source_id": source_id, "reference": str(reference)})
+    return refs
+
+
+def _inject_source_refs(blocks: list[dict[str, Any]], source_refs: list[dict[str, str]]) -> list[dict[str, Any]]:
+    if not source_refs:
+        return blocks
+    first_ref = source_refs[0]
+    enriched = []
+    for block in blocks:
+        copy = dict(block)
+        copy.setdefault("source_refs", [first_ref])
+        enriched.append(copy)
+    return enriched
+
+
 def _project_course_payload(project: dict[str, Any]) -> dict[str, Any]:
     lessons_artifact = latest_artifact(project, "lessons")
     assessment_artifact = latest_artifact(project, "assessment")
@@ -173,6 +261,7 @@ def _project_course_payload(project: dict[str, Any]) -> dict[str, Any]:
     ]
     lesson_payload = (lessons_artifact or {}).get("payload", {})
     lessons = lesson_payload.get("lessons", [])
+    source_refs = _source_refs_for_project(project)
     lesson_rows = [
         {
             "id": lesson.get("lesson_id", f"lesson_{index}"),
@@ -180,27 +269,30 @@ def _project_course_payload(project: dict[str, Any]) -> dict[str, Any]:
             "duration_minutes": lesson.get("duration_minutes", 10),
             "objective_ids": ["lo_apply"],
             "objective": lesson.get("objective", "Complete the lesson objective."),
-            "content_blocks": lesson.get(
-                "content_blocks",
-                [
-                    {"id": "cb_intro", "type": "intro", "text": lesson.get("objective", "Start the lesson.")},
-                    {
-                        "id": "cb_explanation",
-                        "type": "explanation",
-                        "text": "Review the standard, connect it to the learner's work, and identify the decision points.",
-                    },
-                    {
-                        "id": "cb_example",
-                        "type": "example",
-                        "text": "Use a realistic workplace example to show what good performance looks like.",
-                    },
-                    {
-                        "id": "cb_practice",
-                        "type": "practice",
-                        "text": "Complete a short practice activity before moving to the assessment.",
-                    },
-                    {"id": "cb_summary", "type": "summary", "text": "Summarize the action learners should take."},
-                ],
+            "content_blocks": _inject_source_refs(
+                lesson.get(
+                    "content_blocks",
+                    [
+                        {"id": "cb_intro", "type": "intro", "text": lesson.get("objective", "Start the lesson.")},
+                        {
+                            "id": "cb_explanation",
+                            "type": "explanation",
+                            "text": "Review the standard, connect it to the learner's work, and identify the decision points.",
+                        },
+                        {
+                            "id": "cb_example",
+                            "type": "example",
+                            "text": "Use a realistic workplace example to show what good performance looks like.",
+                        },
+                        {
+                            "id": "cb_practice",
+                            "type": "practice",
+                            "text": "Complete a short practice activity before moving to the assessment.",
+                        },
+                        {"id": "cb_summary", "type": "summary", "text": "Summarize the action learners should take."},
+                    ],
+                ),
+                source_refs,
             ),
             "activities": activities,
             "quiz_questions": [],
@@ -213,62 +305,104 @@ def _project_course_payload(project: dict[str, Any]) -> dict[str, Any]:
             f"{project['course_title']} requires learners to understand the standard, "
             "apply it in realistic situations, and make safe decisions under review."
         )
-        lesson_topics = [
-            ("Purpose and risk context", "Identify the purpose, risks, and expected learner decisions."),
-            ("Key standards and terms", "Explain the core standards, terms, and evidence learners must use."),
-            ("Step-by-step workflow", "Apply the workflow in the correct sequence."),
-            ("Common mistakes", "Differentiate safe actions from risky shortcuts."),
-            ("Scenario practice", "Evaluate a realistic scenario and choose the best response."),
-            ("Readiness check", "Demonstrate readiness through practice and assessment review."),
+        lesson_specs = [
+            {
+                "title": "Purpose and risk context",
+                "objective": "Identify the purpose, risks, and expected learner decisions.",
+                "intro": f"Use the source to explain why this topic matters in the learner's job. {source_hint}",
+                "explanation": "Map the business, safety, or compliance risk to the learner action that prevents it.",
+                "example": "A minor shortcut creates a larger operational problem if no one verifies the standard first.",
+                "practice": "Ask the learner to name the risk and the consequence before choosing an action.",
+                "summary": "The learner should leave knowing why the rule exists and when it matters.",
+            },
+            {
+                "title": "Key standards and terms",
+                "objective": "Explain the core standards, terms, and evidence learners must use.",
+                "intro": "Define the critical terms in plain language and tie each one to the source evidence.",
+                "explanation": "Separate required evidence from optional context so the learner knows what to look for.",
+                "example": "Show how a document, checklist, or system record proves the standard was followed.",
+                "practice": "Have the learner match each term to the correct evidence artifact.",
+                "summary": "The learner should be able to recognize the exact terms used in the source.",
+            },
+            {
+                "title": "Step-by-step workflow",
+                "objective": "Apply the workflow in the correct sequence.",
+                "intro": "Break the task into ordered steps that can be followed under pressure.",
+                "explanation": "Highlight the first, second, and final action so the learner does not improvise the sequence.",
+                "example": "A step is skipped, the process drifts, and the output no longer meets the standard.",
+                "practice": "Ask the learner to reorder the workflow and explain why each step happens in that order.",
+                "summary": "The learner should remember the sequence and the reason behind it.",
+            },
+            {
+                "title": "Common mistakes",
+                "objective": "Differentiate safe actions from risky shortcuts.",
+                "intro": "Focus on the most likely errors and why they happen in day-to-day work.",
+                "explanation": "Show the difference between a safe correction and a shortcut that creates hidden risk.",
+                "example": "A rushed worker ignores a verification step and creates an avoidable incident.",
+                "practice": "Present a wrong action and ask the learner to correct it using the standard.",
+                "summary": "The learner should be able to spot unsafe shortcuts before they spread.",
+            },
+            {
+                "title": "Scenario practice",
+                "objective": "Evaluate a realistic scenario and choose the best response.",
+                "intro": "Place the learner in a realistic situation with competing pressures and incomplete information.",
+                "explanation": "Require the learner to choose, justify, and defend the response using the source.",
+                "example": "A customer, passenger, or colleague wants a faster answer that conflicts with the rule.",
+                "practice": "Ask the learner to choose the best response and explain the tradeoff.",
+                "summary": "The learner should be ready to act in a real-world scenario.",
+            },
+            {
+                "title": "Readiness check",
+                "objective": "Demonstrate readiness through practice and assessment review.",
+                "intro": "Use a short checkpoint to confirm the learner can explain and apply the standard independently.",
+                "explanation": "Review the strongest signals that the learner is ready to proceed.",
+                "example": "The learner compares a correct answer against a near miss and explains the difference.",
+                "practice": "Ask for a final decision, a reason, and a short confidence statement.",
+                "summary": "The learner should finish with a concise readiness checklist and a next step.",
+            },
         ]
         detailed_rows = []
-        for index, (title, objective) in enumerate(lesson_topics, start=1):
+        for index, spec in enumerate(lesson_specs, start=1):
             objective_id = objective_ids[(index - 1) % len(objective_ids)]
-            detail = (
-                f"{source_hint} In this lesson, learners connect the standard to their day-to-day role. "
-                "They review what good performance looks like, why the rule exists, which warning signs "
-                "matter, and how to explain the decision in plain language. The example should feel like "
-                "a real workplace moment, not a generic definition. The practice step asks the learner to "
-                "choose an action, justify it, and compare the choice against the expected standard."
-            )
             detailed_rows.append(
                 {
                     "id": f"lesson_{index}",
-                    "title": title,
+                    "title": spec["title"],
                     "duration_minutes": 8,
                     "objective_ids": [objective_id],
-                    "objective": objective,
+                    "objective": spec["objective"],
                     "content_blocks": [
                         {
                             "id": f"cb_{index}_intro",
                             "type": "intro",
-                            "text": f"Start by framing why this topic matters for {project['audience']}. {detail}",
+                            "text": spec["intro"],
                         },
                         {
                             "id": f"cb_{index}_explanation",
                             "type": "explanation",
-                            "text": f"Explain the operating standard with source-grounded language. {detail}",
+                            "text": spec["explanation"],
                         },
                         {
                             "id": f"cb_{index}_example",
                             "type": "example",
-                            "text": f"Show a realistic example where the learner must notice context and make a decision. {detail}",
+                            "text": spec["example"],
                         },
                         {
                             "id": f"cb_{index}_practice",
                             "type": "practice",
-                            "text": f"Ask the learner to apply the standard, identify the risk, and choose the next step. {detail}",
+                            "text": spec["practice"],
                         },
                         {
                             "id": f"cb_{index}_summary",
                             "type": "summary",
-                            "text": f"Close with the decision rule learners should remember and use on the job. {detail}",
+                            "text": spec["summary"],
                         },
                     ],
                     "activities": activities,
                     "quiz_questions": [],
                 }
             )
+            detailed_rows[-1]["content_blocks"] = _inject_source_refs(detailed_rows[-1]["content_blocks"], source_refs)
         lesson_rows = detailed_rows
     questions = (assessment_artifact or {}).get("payload", {}).get("questions", [])
     return {
@@ -323,7 +457,7 @@ def _project_course_payload(project: dict[str, Any]) -> dict[str, Any]:
                     if question.get("id", "").startswith("q")
                     else question.get("id", f"q_{index}"),
                     "type": question.get("type", "mcq"),
-                    "objective_ids": ["lo_apply"],
+                    "objective_ids": question.get("objective_ids", ["lo_apply"]),
                     "question": question.get("question", "What is the best action?"),
                     "options": question.get("options", ["Correct action", "Risky action"]),
                     "correct_answers": [question.get("answer", question.get("options", ["Correct action"])[0])],
@@ -340,6 +474,7 @@ def generate_course_blueprint(payload: dict, context: RequestContext) -> dict[st
     assert_tool_allowed(tool_name)
     req = BlueprintRequest.model_validate(payload)
     project = _project_or_raise(context, req.project_id)
+    template = _project_template(project)
     outline = generate_outline(
         CourseOutlineRequest(
             topic=project["course_title"],
@@ -352,10 +487,14 @@ def generate_course_blueprint(payload: dict, context: RequestContext) -> dict[st
     )
     output = {
         "project_id": req.project_id,
+        "template_id": template.template_id,
+        "template_name": template.name,
         "learning_objectives": outline["learning_objectives"],
         "modules": [module for module in outline["modules"]],
         "assessment_strategy": outline["assessment_plan"],
         "source_citation_policy": "Every lesson should cite source_id and page/line references when available.",
+        "recommended_interactions": list(template.recommended_interactions),
+        "quality_rules": template.quality_rules,
     }
     add_artifact(project, "blueprint", output)
     _record(context, tool_name, req.project_id, "Course blueprint generated.")
@@ -367,6 +506,7 @@ def generate_module_pack(payload: dict, context: RequestContext) -> dict[str, An
     assert_tool_allowed(tool_name)
     req = ModulePackRequest.model_validate(payload)
     project = _project_or_raise(context, req.project_id)
+    template = _project_template(project)
     blueprint = latest_artifact(project, "blueprint")
     source_modules = (blueprint or {}).get("payload", {}).get("modules", [])
     modules = []
@@ -376,6 +516,7 @@ def generate_module_pack(payload: dict, context: RequestContext) -> dict[str, An
             {
                 "module_id": f"module_{index + 1}",
                 "title": source.get("title", f"Module {index + 1}: {project['course_title']}"),
+                "template_id": template.template_id,
                 "status": "generated",
                 "review_status": "draft",
                 "estimated_minutes": 10,
@@ -392,6 +533,7 @@ def generate_lesson_pack(payload: dict, context: RequestContext) -> dict[str, An
     assert_tool_allowed(tool_name)
     req = LessonPackRequest.model_validate(payload)
     project = _project_or_raise(context, req.project_id)
+    template = _project_template(project)
     module_title = f"{project['course_title']} {req.module_id.replace('_', ' ').title()}"
     lesson = generate_lesson(
         LessonDraftRequest(
@@ -406,6 +548,7 @@ def generate_lesson_pack(payload: dict, context: RequestContext) -> dict[str, An
         {
             **lesson,
             "lesson_id": "lesson_1",
+            "template_id": template.template_id,
             "citations": [{"source_id": "source_1", "reference": "line:1"}],
             "review_status": "draft",
         }
@@ -422,7 +565,8 @@ def generate_interactive_activity(payload: dict, context: RequestContext) -> dic
     tool_name = "generate_interactive_activity"
     assert_tool_allowed(tool_name)
     req = ActivityRequest.model_validate(payload)
-    _project_or_raise(context, req.project_id)
+    project = _project_or_raise(context, req.project_id)
+    template = _project_template(project)
     items = [
         {"front": "Key idea", "back": req.objective},
         {"front": "Practice", "back": "Apply the idea to a realistic workplace or study scenario."},
@@ -433,6 +577,7 @@ def generate_interactive_activity(payload: dict, context: RequestContext) -> dic
         objective=req.objective,
     )
     output.setdefault("items", items)
+    output["template_id"] = template.template_id
     ActivityResult.model_validate(output)
     project = _project_or_raise(context, req.project_id)
     add_artifact(project, "activity", output)
@@ -455,6 +600,7 @@ def generate_assessment_bank(payload: dict, context: RequestContext) -> dict[str
         )
     )
     questions = []
+    objective_ids = ["lo_identify", "lo_apply", "lo_evaluate"]
     for index in range(req.question_count):
         question_type = req.question_types[index % len(req.question_types)]
         base = quiz["questions"][index]
@@ -463,6 +609,7 @@ def generate_assessment_bank(payload: dict, context: RequestContext) -> dict[str
                 **base,
                 "type": question_type,
                 "difficulty": base.get("difficulty", "beginner"),
+                "objective_ids": [objective_ids[index % len(objective_ids)]],
                 "passing_score": req.passing_score,
                 "rubric": [{"criterion": "Objective alignment", "points": 50}],
             }
@@ -500,12 +647,103 @@ def validate_instructional_quality(payload: dict, context: RequestContext) -> di
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
+def validate_superior_course_quality(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "validate_superior_course_quality"
+    assert_tool_allowed(tool_name)
+    req = SuperiorQualityValidationRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    template = _project_template(project)
+    report = evaluate_superior_quality(
+        _project_course_payload(project),
+        domain=template.domain,
+        min_source_coverage=float(template.quality_rules.get("min_source_coverage", 0.7)),
+    )
+    output = SuperiorQualityValidationResult.model_validate(report).model_dump(mode="json")
+    add_artifact(project, "superior_quality_report", output)
+    _record(context, tool_name, req.project_id, "Superior course quality validated.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def _write_interactive_video_package(project_payload: dict[str, Any], output_dir: Path) -> tuple[Path, list[str]]:
+    project = build_video_project_from_course(project_payload)
+    renderer = HtmlVideoRenderer()
+    package_dir = output_dir / project.video_id
+    package_dir.mkdir(parents=True, exist_ok=True)
+    rendered = renderer.write_package(project, package_dir)
+    static_dir = Path(__file__).with_name("exporters") / "static"
+    assets_dir = package_dir / "assets"
+    assets_dir.mkdir(exist_ok=True)
+    for file_name in ("sentientia_video_engine.js", "sentientia_video_engine.css", "gamification_engine.js"):
+        source = static_dir / file_name
+        if source.exists():
+            shutil.copy2(source, assets_dir / file_name)
+    zip_path = package_dir.with_suffix(".zip")
+    with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as zf:
+        for file_path in [package_dir / "interactive-video.html", package_dir / "captions.vtt", package_dir / "video-project.json"]:
+            zf.write(file_path, file_path.name)
+        for asset_name in ("sentientia_video_engine.js", "sentientia_video_engine.css", "gamification_engine.js"):
+            asset_path = assets_dir / asset_name
+            if asset_path.exists():
+                zf.write(asset_path, f"assets/{asset_name}")
+    return zip_path, list(rendered.values()) + [str(assets_dir / name) for name in ("sentientia_video_engine.js", "sentientia_video_engine.css", "gamification_engine.js") if (assets_dir / name).exists()]
+
+
+def generate_interactive_video(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "generate_interactive_video"
+    assert_tool_allowed(tool_name)
+    req = InteractiveVideoRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    if req.template_id:
+        project["template_id"] = req.template_id
+        save_project(project)
+    course_payload = _project_course_payload(project)
+    if req.module_id:
+        course_payload = {
+            **course_payload,
+            "modules": [module for module in course_payload.get("modules", []) if module.get("id") == req.module_id or module.get("module_id") == req.module_id],
+        } or course_payload
+    output_dir = Path(os.getenv("OUTPUT_DIR", "/app/output")).resolve()
+    zip_path, file_list = _write_interactive_video_package(course_payload, output_dir)
+    output = InteractiveVideoResult(
+        project_id=req.project_id,
+        video_id=build_video_project_from_course(course_payload).video_id,
+        package_path=str(zip_path),
+        files=[Path(path).name if Path(path).is_file() else path for path in file_list],
+        note="Interactive HTML video package created.",
+    ).model_dump(mode="json")
+    output["artifact_metadata"] = store_artifact_metadata(
+        project_id=req.project_id,
+        artifact_type="interactive_video",
+        package_path=output["package_path"],
+    )
+    output["delivery"] = build_delivery_metadata(
+        project_id=req.project_id,
+        artifact_type="interactive_video",
+        package_path=output["package_path"],
+    )
+    add_artifact(project, "interactive_video", output)
+    _record(context, tool_name, req.project_id, "Interactive video package generated.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
 def build_export_package(payload: dict, context: RequestContext) -> dict[str, Any]:
     tool_name = "build_export_package"
     assert_tool_allowed(tool_name)
     req = ExportPackageRequest.model_validate(payload)
     project = _project_or_raise(context, req.project_id)
+    template = _project_template(project)
     course_payload = _project_course_payload(project)
+    quality_report = evaluate_superior_quality(
+        course_payload,
+        domain=template.domain,
+        min_source_coverage=float(template.quality_rules.get("min_source_coverage", 0.7)),
+    )
+    if quality_report["status"] == "fail":
+        project["status"] = "quality_failed"
+        save_project(project)
+        add_artifact(project, "quality_report", quality_report)
+        _record(context, tool_name, req.project_id, "Export blocked by superior quality gate.")
+        return _error_return(tool_name, context, req.model_dump(), "quality_failed", quality_report)
     modules = [
         {
             "title": module.get("title", project["course_title"]),
@@ -546,6 +784,7 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
             os.getenv("OUTPUT_DIR", "/app/output"),
         )
     project["status"] = "exported"
+    output["quality_report"] = quality_report
     output["artifact_metadata"] = store_artifact_metadata(
         project_id=req.project_id,
         artifact_type=req.export_format,
@@ -639,14 +878,17 @@ TOOL_REGISTRY = {
     "create_material_ticket": create_material_ticket,
     "generate_chapter_layout": generate_chapter_layout,
     "create_course_project": create_course_project,
+    "select_course_template": select_course_template,
     "ingest_course_source": ingest_course_source,
     "generate_course_blueprint": generate_course_blueprint,
     "generate_module_pack": generate_module_pack,
     "generate_lesson_pack": generate_lesson_pack,
     "generate_interactive_activity": generate_interactive_activity,
+    "generate_interactive_video": generate_interactive_video,
     "generate_assessment_bank": generate_assessment_bank,
     "generate_roleplay_simulation": generate_roleplay_simulation,
     "validate_instructional_quality": validate_instructional_quality,
+    "validate_superior_course_quality": validate_superior_course_quality,
     "build_export_package": build_export_package,
     "build_storyline_handoff_package": build_storyline_handoff_package,
     "get_course_generation_status": get_course_generation_status,

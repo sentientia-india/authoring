@@ -8,8 +8,8 @@ The server runs as a separate Docker service and exposes only an allowlisted too
 
 - Material ticket intake and chapter layout planning
 - Controlled source ingestion for uploaded PDF, DOCX, PPTX, TXT, MD, YouTube transcript, and website text inputs
-- Course project creation, blueprint generation, module packs, lesson packs, activities, assessments, and role-play simulations
-- Instructional quality validation
+- Course project creation, template selection, blueprint generation, module packs, lesson packs, activities, assessments, role-play simulations, and interactive video packages
+- Instructional quality validation and superior export quality gates
 - SCORM and H5P export packaging
 - Storyline handoff export for manual rebuilds
 - Approval-gated publish flow and audit logging

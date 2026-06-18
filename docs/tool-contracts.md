@@ -19,13 +19,16 @@ Every MCP tool must:
 create_material_ticket
 -> generate_chapter_layout
 -> create_course_project
+-> select_course_template
 -> ingest_course_source
 -> generate_course_blueprint
 -> generate_module_pack
 -> generate_lesson_pack
 -> generate_interactive_activity
+-> generate_interactive_video
 -> generate_assessment_bank
 -> validate_instructional_quality
+-> validate_superior_course_quality
 -> build_export_package
 -> build_storyline_handoff_package
 -> request_publish_approval
@@ -87,19 +90,23 @@ Imports a controlled uploaded source by `upload_id`. This must never accept arbi
 
 Supported source types: `pdf`, `pptx`, `ppt`, `docx`, `youtube`, `website`, `raw_text`.
 
-## 5. `generate_course_blueprint`
+## 5. `select_course_template`
+
+Selects the best template for the requested topic, audience, industry, and delivery mode. Returns template metadata only, not file paths.
+
+## 6. `generate_course_blueprint`
 
 Creates learning objectives, module plan, assessment strategy, and source citation policy.
 
-## 6. `generate_module_pack`
+## 7. `generate_module_pack`
 
 Creates generated module metadata for a course project.
 
-## 7. `generate_lesson_pack`
+## 8. `generate_lesson_pack`
 
 Creates lesson content for a module and includes source citation placeholders.
 
-## 8. `generate_interactive_activity`
+## 9. `generate_interactive_activity`
 
 Creates H5P-style activity JSON.
 
@@ -117,15 +124,15 @@ Allowed activity types:
 - `fill_in_blanks`
 - `reflection_prompt`
 
-## 9. `generate_assessment_bank`
+## 10. `generate_assessment_bank`
 
 Creates MCQ, true/false, scenario, matching, fill-blank, case-study, and rubric-capable assessment items.
 
-## 10. `generate_roleplay_simulation`
+## 11. `generate_roleplay_simulation`
 
 Creates a role-play simulation using the internal role-play generator.
 
-## 11. `validate_instructional_quality`
+## 12. `validate_instructional_quality`
 
 Runs instructional quality checks.
 
@@ -157,7 +164,15 @@ H5P export remains available as an optional separate bounded `.h5p` package gene
 
 Default SaaS delivery mode is `download_only`: return package metadata so the customer can download the SCORM/H5P file and upload it to their own LMS. This avoids hosting learner delivery/storage in the first SaaS version.
 
-## 13. `build_storyline_handoff_package`
+## 13. `validate_superior_course_quality`
+
+Runs the stronger quality gate that checks lesson similarity, source coverage, scenario specificity, assessment alignment, and interaction variety. Export should be blocked if this reports `fail`.
+
+## 14. `generate_interactive_video`
+
+Builds a browser-native interactive training video package from the course project. The package contains HTML, captions, transcript, and the video-engine static assets.
+
+## 15. `build_storyline_handoff_package`
 
 Builds a Storyline developer handoff ZIP. It does not generate native `.story` files.
 
@@ -170,15 +185,15 @@ Package contents:
 - `voiceover_script.md`
 - `assets/README.md`
 
-## 14. `get_course_generation_status`
+## 16. `get_course_generation_status`
 
 Returns tenant-scoped job status only. Unknown jobs and jobs from another tenant return `not_found`.
 
-## 15. `list_course_artifacts`
+## 17. `list_course_artifacts`
 
 Lists generated artifact metadata for a course project without exposing raw server paths or source files.
 
-## 16. `request_publish_approval`
+## 18. `request_publish_approval`
 
 Moves the project into `needs_review`. It does not publish to an LMS.
 

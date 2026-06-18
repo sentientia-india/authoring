@@ -1,0 +1,28 @@
+{
+  "template_id": "software_onboarding_simulator",
+  "name": "Software Onboarding Simulator",
+  "domain": "software onboarding workflow product training",
+  "use_when": ["software", "product onboarding", "tool walkthrough", "app training"],
+  "avoid_when": ["safety drill"],
+  "default_difficulty": "beginner",
+  "supported_delivery_modes": ["standard", "simulation", "microlearning"],
+  "recommended_interactions": ["interactive_video", "tabs", "hotspot", "branching_scenario", "simulation_stepper"],
+  "layout": {"navigation": "top_tabs", "lesson_shell": "slides", "card_density": "comfortable", "mobile_pattern": "stepper"},
+  "theme": {
+    "primary": "#0F766E",
+    "secondary": "#14B8A6",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text": "#0F172A",
+    "danger": "#B42318",
+    "success": "#067647",
+    "font_family": "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+  },
+  "assessment_mix": {"mcq": 25, "multi_select": 10, "scenario": 35, "matching": 10, "short_answer": 20},
+  "gamification": {"enabled": true, "xp_per_lesson": 45, "xp_per_activity": 60, "xp_per_correct_answer": 20, "streak_bonus": 20, "mastery_badge_threshold": 80, "unlock_mode": "score_gated", "leaderboard": "off"},
+  "lesson_blueprint": ["UI context", "Action rule", "Walkthrough example", "Common mistake", "Decision checkpoint", "Practice", "Summary"],
+  "video_scene_blueprint": ["title", "narration", "process_stepper", "quiz_checkpoint", "summary"],
+  "quality_rules": {"min_source_coverage": 0.7, "min_scenario_specificity": 0.55, "min_interaction_variety": 0.5},
+  "prompt_rules": ["Use product-specific language.", "Show the learner what to click and why.", "Include a recovery path for mistakes."]
+}

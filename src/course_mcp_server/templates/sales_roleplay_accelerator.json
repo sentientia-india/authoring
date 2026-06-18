@@ -1,0 +1,28 @@
+{
+  "template_id": "sales_roleplay_accelerator",
+  "name": "Sales Roleplay Accelerator",
+  "domain": "sales roleplay negotiation objection handling",
+  "use_when": ["sales", "objection", "negotiation", "account planning", "customer conversation"],
+  "avoid_when": ["safety training"],
+  "default_difficulty": "intermediate",
+  "supported_delivery_modes": ["standard", "simulation", "refresher"],
+  "recommended_interactions": ["roleplay", "decision_tree", "matching", "reflection", "interactive_video"],
+  "layout": {"navigation": "mission_map", "lesson_shell": "scenario", "card_density": "immersive", "mobile_pattern": "stepper"},
+  "theme": {
+    "primary": "#6D28D9",
+    "secondary": "#7C3AED",
+    "accent": "#F97316",
+    "background": "#FAF7FF",
+    "surface": "#FFFFFF",
+    "text": "#1F2937",
+    "danger": "#B42318",
+    "success": "#067647",
+    "font_family": "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+  },
+  "assessment_mix": {"mcq": 20, "multi_select": 10, "scenario": 40, "matching": 15, "short_answer": 15},
+  "gamification": {"enabled": true, "xp_per_lesson": 55, "xp_per_activity": 80, "xp_per_correct_answer": 20, "streak_bonus": 30, "mastery_badge_threshold": 85, "unlock_mode": "mission_map", "leaderboard": "team"},
+  "lesson_blueprint": ["Discovery", "Value", "Objection", "Reframe", "Decision", "Practice", "Summary"],
+  "video_scene_blueprint": ["title", "narration", "decision_pause", "roleplay", "summary"],
+  "quality_rules": {"min_source_coverage": 0.75, "min_scenario_specificity": 0.6, "min_interaction_variety": 0.5},
+  "prompt_rules": ["Use buyer language and stakeholder pressure.", "Each lesson should end in a roleplay or decision.", "Avoid generic sales platitudes."]
+}

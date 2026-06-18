@@ -767,6 +767,9 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
         "assets/course.js",
         "assets/player.js",
         "assets/h5p_bridge.js",
+        "assets/gamification_engine.js",
+        "assets/sentientia_video_engine.js",
+        "assets/sentientia_video_engine.css",
         "assets/scorm_api.js",
         "assets/study-map.svg",
         "assets/prompt-lab.svg",
@@ -899,6 +902,11 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
     (assets / "course.js").write_text(_course_js(), encoding="utf-8")
     (assets / "player.js").write_text(_player_js(), encoding="utf-8")
     (assets / "h5p_bridge.js").write_text(_h5p_bridge_js(), encoding="utf-8")
+    static_dir = Path(__file__).with_name("static")
+    for asset_name in ("gamification_engine.js", "sentientia_video_engine.js", "sentientia_video_engine.css"):
+        source = static_dir / asset_name
+        if source.exists():
+            (assets / asset_name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     (assets / "scorm_api.js").write_text(_runtime_js(), encoding="utf-8")
     (assets / "study-map.svg").write_text(_study_map_svg(), encoding="utf-8")
     (assets / "prompt-lab.svg").write_text(_prompt_lab_svg(), encoding="utf-8")

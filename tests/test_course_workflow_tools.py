@@ -27,13 +27,16 @@ def test_production_tool_surface_is_narrow_and_safe():
         "generate_chapter_layout",
         "create_course_project",
         "ingest_course_source",
+        "select_course_template",
         "generate_course_blueprint",
         "generate_module_pack",
         "generate_lesson_pack",
         "generate_interactive_activity",
+        "generate_interactive_video",
         "generate_assessment_bank",
         "generate_roleplay_simulation",
         "validate_instructional_quality",
+        "validate_superior_course_quality",
         "build_export_package",
         "build_storyline_handoff_package",
         "get_course_generation_status",
@@ -138,18 +141,32 @@ def test_request_publish_approval_never_publishes(tmp_path, monkeypatch):
 def test_build_export_package_supports_h5p_without_new_public_tool(tmp_path, monkeypatch):
     monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
     monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "output"))
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+    (upload_dir / "source.txt").write_text("Ramp safety source text with procedures and controls.", encoding="utf-8")
+    monkeypatch.setenv("UPLOAD_DIR", str(upload_dir))
     context = _ctx()
     project = create_course_project(
         {"course_title": "Interactive SOP", "audience": "crew", "language": "English"},
         context,
     )
     project_id = project["data"]["project_id"]
+    ingest_course_source(
+        {"project_id": project_id, "upload_id": "source.txt", "source_type": "raw_text"},
+        context,
+    )
+    generate_course_blueprint({"project_id": project_id, "duration_minutes": 20}, context)
+    generate_lesson_pack({"project_id": project_id, "module_id": "module_1"}, context)
     generate_interactive_activity(
         {
             "project_id": project_id,
             "activity_type": "matching",
             "objective": "Match each SOP step to its control.",
         },
+        context,
+    )
+    generate_assessment_bank(
+        {"project_id": project_id, "question_count": 4, "question_types": ["mcq", "matching"]},
         context,
     )
 
@@ -163,12 +180,21 @@ def test_build_export_package_supports_h5p_without_new_public_tool(tmp_path, mon
 def test_build_scorm_export_embeds_generated_activities(tmp_path, monkeypatch):
     monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
     monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "output"))
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+    (upload_dir / "source.txt").write_text("Interactive SOP source text with procedures and controls.", encoding="utf-8")
+    monkeypatch.setenv("UPLOAD_DIR", str(upload_dir))
     context = _ctx()
     project = create_course_project(
         {"course_title": "Interactive SOP", "audience": "crew", "language": "English"},
         context,
     )
     project_id = project["data"]["project_id"]
+    ingest_course_source(
+        {"project_id": project_id, "upload_id": "source.txt", "source_type": "raw_text"},
+        context,
+    )
+    generate_course_blueprint({"project_id": project_id, "duration_minutes": 20}, context)
     generate_lesson_pack({"project_id": project_id, "module_id": "module_1"}, context)
     generate_interactive_activity(
         {
@@ -176,6 +202,10 @@ def test_build_scorm_export_embeds_generated_activities(tmp_path, monkeypatch):
             "activity_type": "matching",
             "objective": "Match each SOP step to its control.",
         },
+        context,
+    )
+    generate_assessment_bank(
+        {"project_id": project_id, "question_count": 4, "question_types": ["mcq", "matching"]},
         context,
     )
 

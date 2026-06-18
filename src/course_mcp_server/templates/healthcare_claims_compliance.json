@@ -1,0 +1,28 @@
+{
+  "template_id": "healthcare_claims_compliance",
+  "name": "Healthcare Claims Compliance",
+  "domain": "healthcare claims compliance patient records audit",
+  "use_when": ["healthcare", "claims", "audit", "patient record", "medical compliance"],
+  "avoid_when": ["sales roleplay"],
+  "default_difficulty": "intermediate",
+  "supported_delivery_modes": ["standard", "refresher", "assessment_first"],
+  "recommended_interactions": ["accordion", "matching", "decision_tree", "reflection", "interactive_video"],
+  "layout": {"navigation": "side_rail", "lesson_shell": "article", "card_density": "comfortable", "mobile_pattern": "accordion"},
+  "theme": {
+    "primary": "#155E75",
+    "secondary": "#0891B2",
+    "accent": "#84CC16",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text": "#0F172A",
+    "danger": "#B42318",
+    "success": "#067647",
+    "font_family": "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+  },
+  "assessment_mix": {"mcq": 30, "multi_select": 10, "scenario": 30, "matching": 15, "short_answer": 15},
+  "gamification": {"enabled": true, "xp_per_lesson": 45, "xp_per_activity": 65, "xp_per_correct_answer": 20, "streak_bonus": 25, "mastery_badge_threshold": 85, "unlock_mode": "linear", "leaderboard": "off"},
+  "lesson_blueprint": ["Regulation", "Claim rule", "Example", "Violation", "Decision", "Audit check", "Summary"],
+  "video_scene_blueprint": ["title", "narration", "quiz_checkpoint", "summary"],
+  "quality_rules": {"min_source_coverage": 0.8, "min_scenario_specificity": 0.6, "min_interaction_variety": 0.45},
+  "prompt_rules": ["Use audit-friendly language.", "Make the consequences explicit.", "Keep patient data handling central."]
+}

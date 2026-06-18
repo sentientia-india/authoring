@@ -1,0 +1,50 @@
+:root {
+  --sv-bg: #07111f;
+  --sv-card: #101f33;
+  --sv-text: #f7fbff;
+  --sv-muted: #a9b8cc;
+  --sv-accent: #51b4ff;
+  --sv-good: #28c76f;
+  --sv-bad: #ff5c5c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif; background: var(--sv-bg); color: var(--sv-text); }
+.sv-shell { max-width: 1180px; margin: 0 auto; padding: 20px; }
+.sv-player { position: relative; margin: 0 auto; background: linear-gradient(135deg, #0a1628, #122849); border: 1px solid rgba(255,255,255,.14); border-radius: 24px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.35); }
+.aspect-16-9 { aspect-ratio: 16/9; }
+.aspect-9-16 { aspect-ratio: 9/16; max-width: 480px; }
+.aspect-4-3 { aspect-ratio: 4/3; }
+.sv-stage { position: absolute; inset: 0 0 80px 0; display: grid; place-items: center; padding: 42px; }
+.sv-scene { width: min(900px, 100%); min-height: 70%; border-radius: 28px; padding: 32px; background: rgba(16, 31, 51, .84); backdrop-filter: blur(12px); animation: sv-enter .45s ease both; }
+.sv-scene-meta { color: var(--sv-muted); font-size: 14px; margin-bottom: 10px; }
+.sv-scene h1 { margin: 0 0 20px; font-size: clamp(28px, 5vw, 58px); line-height: 1.02; }
+.sv-visual { display: grid; grid-template-columns: 120px 1fr; gap: 20px; align-items: center; min-height: 160px; }
+.sv-orb { width: 100px; height: 100px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #fff, var(--sv-accent) 45%, #2461ff); animation: sv-pulse 2.6s ease-in-out infinite; }
+.sv-path { height: 6px; border-radius: 20px; background: linear-gradient(90deg, var(--sv-accent), transparent); animation: sv-sweep 3.5s linear infinite; }
+.sv-visual p { grid-column: 1 / -1; color: var(--sv-muted); font-size: 16px; }
+.sv-onscreen { display: flex; gap: 10px; flex-wrap: wrap; padding: 0; margin: 18px 0 0; list-style: none; }
+.sv-onscreen li { padding: 8px 12px; border-radius: 999px; background: rgba(81,180,255,.14); border: 1px solid rgba(81,180,255,.28); }
+.sv-caption { position: absolute; left: 24px; right: 24px; bottom: 84px; min-height: 36px; text-align: center; padding: 8px 14px; color: #fff; background: rgba(0,0,0,.42); border-radius: 12px; }
+.sv-controls { position: absolute; left: 0; right: 0; bottom: 0; min-height: 80px; display: flex; gap: 10px; align-items: center; padding: 16px 22px; background: rgba(0,0,0,.24); }
+.sv-controls button, .sv-interaction button { border: 0; border-radius: 14px; padding: 10px 16px; font-weight: 700; cursor: pointer; color: #08111f; background: #eef7ff; }
+.sv-controls button:hover, .sv-interaction button:hover { transform: translateY(-1px); }
+.sv-controls progress { flex: 1; height: 14px; }
+.sv-interaction { position: absolute; inset: auto 34px 110px 34px; padding: 20px; background: #fff; color: #08111f; border-radius: 20px; box-shadow: 0 24px 60px rgba(0,0,0,.35); animation: sv-enter .35s ease both; }
+.sv-interaction h2 { margin-top: 0; }
+.sv-interaction button { display: block; width: 100%; margin: 8px 0; text-align: left; background: #eef3f8; }
+.sv-interaction button.is-correct { background: var(--sv-good); color: #fff; }
+.sv-interaction button.is-wrong { background: var(--sv-bad); color: #fff; }
+.sv-transcript { margin: 20px 0; padding: 20px; border-radius: 18px; background: #fff; color: #0b1828; }
+.sv-transcript pre { white-space: pre-wrap; font-family: inherit; color: #23344c; }
+@keyframes sv-enter { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes sv-pulse { 0%,100% { transform: scale(1); filter: saturate(1); } 50% { transform: scale(1.08); filter: saturate(1.6); } }
+@keyframes sv-sweep { from { transform: scaleX(.2); transform-origin: left; } to { transform: scaleX(1); transform-origin: left; } }
+@media (max-width: 720px) {
+  .sv-shell { padding: 10px; }
+  .sv-stage { padding: 18px; inset-bottom: 88px; }
+  .sv-scene { padding: 20px; }
+  .sv-visual { grid-template-columns: 1fr; }
+  .sv-orb { width: 72px; height: 72px; }
+  .sv-controls { flex-wrap: wrap; }
+  .sv-controls progress { flex-basis: 100%; }
+}

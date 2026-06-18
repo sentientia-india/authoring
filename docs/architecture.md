@@ -34,10 +34,14 @@ Codex is trusted to request work, not trusted to inspect internals.
 
 Codex can call:
 
-- course outline generation
-- lesson generation
-- quiz generation
-- schema validation
+- material ticket intake
+- chapter layout planning
+- course project creation
+- template selection
+- source ingestion
+- blueprint, module, lesson, activity, and assessment generation
+- interactive video generation
+- instructional and superior quality validation
 - export package generation
 
 Codex cannot call:

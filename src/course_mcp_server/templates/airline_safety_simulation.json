@@ -1,0 +1,71 @@
+{
+  "template_id": "airline_safety_simulation",
+  "name": "Airline Safety Simulation",
+  "domain": "airline cabin crew safety emergency evacuation aviation SOP",
+  "use_when": ["airline", "cabin crew", "evacuation", "safety drill", "avionics"],
+  "avoid_when": ["generic corporate onboarding"],
+  "default_difficulty": "intermediate",
+  "supported_delivery_modes": ["standard", "simulation", "microlearning"],
+  "recommended_interactions": ["interactive_video", "decision_tree", "hotspot", "matching", "roleplay"],
+  "layout": {
+    "navigation": "mission_map",
+    "lesson_shell": "scenario",
+    "card_density": "comfortable",
+    "mobile_pattern": "stepper"
+  },
+  "theme": {
+    "primary": "#0B4A6F",
+    "secondary": "#0A7EA4",
+    "accent": "#FFB000",
+    "background": "#F6FAFC",
+    "surface": "#FFFFFF",
+    "text": "#102033",
+    "danger": "#B42318",
+    "success": "#067647",
+    "font_family": "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+  },
+  "assessment_mix": {
+    "mcq": 20,
+    "multi_select": 10,
+    "scenario": 40,
+    "matching": 10,
+    "short_answer": 20
+  },
+  "gamification": {
+    "enabled": true,
+    "xp_per_lesson": 50,
+    "xp_per_activity": 75,
+    "xp_per_correct_answer": 20,
+    "streak_bonus": 30,
+    "mastery_badge_threshold": 85,
+    "unlock_mode": "mission_map",
+    "leaderboard": "off"
+  },
+  "lesson_blueprint": [
+    "Operational context",
+    "SOP rule",
+    "Cabin example",
+    "Common mistake",
+    "Decision scenario",
+    "Checklist practice",
+    "Remediation feedback"
+  ],
+  "video_scene_blueprint": [
+    "title",
+    "narration",
+    "decision_pause",
+    "quiz_checkpoint",
+    "summary"
+  ],
+  "quality_rules": {
+    "min_source_coverage": 0.8,
+    "min_scenario_specificity": 0.65,
+    "min_interaction_variety": 0.5
+  },
+  "prompt_rules": [
+    "Use operational language and crew command language.",
+    "Every lesson must include a realistic cabin context.",
+    "Do not reuse the same intro/explanation pattern across lessons.",
+    "Every scenario must include time pressure and consequence."
+  ]
+}

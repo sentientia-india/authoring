@@ -1,0 +1,48 @@
+{
+  "template_id": "corporate_compliance_mastery",
+  "name": "Corporate Compliance Mastery",
+  "domain": "corporate compliance ethics policy training",
+  "use_when": ["compliance", "policy", "ethics", "mandatory training"],
+  "avoid_when": ["flight operations"],
+  "default_difficulty": "beginner",
+  "supported_delivery_modes": ["standard", "microlearning", "refresher"],
+  "recommended_interactions": ["flashcards", "accordion", "matching", "decision_tree", "reflection"],
+  "layout": {
+    "navigation": "side_rail",
+    "lesson_shell": "article",
+    "card_density": "compact",
+    "mobile_pattern": "accordion"
+  },
+  "theme": {
+    "primary": "#123A5A",
+    "secondary": "#2F6B8A",
+    "accent": "#78A6C8",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text": "#111827",
+    "danger": "#B42318",
+    "success": "#067647",
+    "font_family": "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+  },
+  "assessment_mix": {
+    "mcq": 30,
+    "multi_select": 10,
+    "scenario": 25,
+    "matching": 15,
+    "short_answer": 20
+  },
+  "gamification": {
+    "enabled": true,
+    "xp_per_lesson": 40,
+    "xp_per_activity": 50,
+    "xp_per_correct_answer": 15,
+    "streak_bonus": 25,
+    "mastery_badge_threshold": 80,
+    "unlock_mode": "linear",
+    "leaderboard": "anonymous"
+  },
+  "lesson_blueprint": ["Policy context", "Rule", "Example", "Violation", "Decision", "Check your understanding", "Summary"],
+  "video_scene_blueprint": ["title", "narration", "quiz_checkpoint", "summary"],
+  "quality_rules": {"min_source_coverage": 0.75, "min_scenario_specificity": 0.5, "min_interaction_variety": 0.4},
+  "prompt_rules": ["Use policy and controls language.", "Use examples from day-to-day work.", "Include a consequence for each violation."]
+}

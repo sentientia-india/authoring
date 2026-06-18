@@ -137,7 +137,7 @@ class CourseProjectResult(BaseModel):
     audience: str
     language: str
     compliance_domain: str | None = None
-    status: Literal["draft", "generated", "needs_review", "approved", "exported", "published", "archived"]
+    status: Literal["draft", "generated", "quality_failed", "needs_review", "approved", "exported", "published", "archived"]
 
 
 class SourceIngestRequest(BaseModel):
@@ -278,6 +278,50 @@ class PublishApprovalResult(BaseModel):
     review_status: Literal["needs_review"]
     published: bool
     next_action: str
+
+
+class TemplateSelectionRequest(BaseModel):
+    topic: str = Field(min_length=3, max_length=300)
+    audience: str = Field(min_length=2, max_length=200)
+    industry: str | None = Field(default=None, max_length=120)
+    delivery_mode: str | None = Field(default=None, max_length=40)
+
+
+class TemplateSelectionResult(BaseModel):
+    template_id: str
+    name: str
+    recommended_interactions: list[str]
+    quality_rules: dict
+    theme: dict
+    reason: str | None = None
+
+
+class SuperiorQualityValidationRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+
+
+class SuperiorQualityValidationResult(BaseModel):
+    score: int = Field(ge=0, le=100)
+    status: Literal["pass", "needs_review", "fail"]
+    component_scores: dict
+    issues: list[dict] = Field(default_factory=list)
+    similarity_matrix: list[dict] = Field(default_factory=list)
+    repeated_phrases: dict[str, int] = Field(default_factory=dict)
+
+
+class InteractiveVideoRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    module_id: str | None = Field(default=None, pattern=r"^module_[0-9]{1,2}$")
+    lesson_id: str | None = Field(default=None, pattern=r"^lesson_[A-Za-z0-9_\-]{1,60}$")
+    template_id: str | None = Field(default=None, max_length=80)
+
+
+class InteractiveVideoResult(BaseModel):
+    project_id: str
+    video_id: str
+    package_path: str
+    files: list[str]
+    note: str
 
 
 class LessonOutline(BaseModel):
