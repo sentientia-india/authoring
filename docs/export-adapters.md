@@ -11,8 +11,6 @@ This document captures the safe integration plan for H5P, LiaScript, and LMS exp
 
 ## H5P Adapter Plan
 
-Reference: `.codex/reference-repos/scorm-h5p-wrapper`
-
 Implemented foundation:
 
 - `generate_interactive_activity` now returns H5P-style activity JSON with xAPI-style completion and score event metadata.
@@ -35,8 +33,6 @@ Do not expose:
 - LMS credentials or upload logs
 
 ## LiaScript Adapter Plan
-
-Reference: `.codex/reference-repos/LiaScript-Exporter`
 
 Safe implementation shape:
 

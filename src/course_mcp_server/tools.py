@@ -11,7 +11,7 @@ from .artifacts import store_artifact_metadata
 from .course_generator import generate_lesson, generate_outline, generate_quiz, generate_roleplay
 from .delivery import build_delivery_metadata
 from .exporters.h5p import build_h5p_package
-from .exporters.scorm import build_scorm_scaffold
+from .exporters.scorm import build_scorm_package
 from .ingestion import extract_source
 from .intake import create_ticket, generate_layout
 from .job_store import get_job_status, record_job
@@ -536,7 +536,7 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
             os.getenv("OUTPUT_DIR", "/app/output"),
         )
     else:
-        output = build_scorm_scaffold(
+        output = build_scorm_package(
             ScormPackageRequest(
                 course_title=project["course_title"],
                 course_slug=req.project_id.replace("_", "-"),

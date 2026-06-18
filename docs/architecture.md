@@ -4,7 +4,7 @@
 
 ```text
 +-------------------+       +--------------------------+
-| Codex / MCP Host  | ----> | Samrat Course MCP    |
+| Codex / MCP Host  | ----> | Samrat Course MCP        |
 +-------------------+       | Docker container         |
                             +------------+-------------+
                                          |
@@ -20,7 +20,7 @@
               |                          |                          |
 +-------------v-------------+ +----------v----------+ +-------------v-------------+
 | Course Generation Service | | Export Service      | | LMS Adapter Service       |
-| private prompts/pipeline  | | SCORM/H5P scaffold  | | Moodle/Canvas/custom LMS  |
+| internal generation logic  | | SCORM/H5P runtime   | | Moodle/Canvas/custom LMS  |
 +---------------------------+ +---------------------+ +---------------------------+
 ```
 
@@ -38,7 +38,7 @@ Codex can call:
 - lesson generation
 - quiz generation
 - schema validation
-- export scaffold generation
+- export package generation
 
 Codex cannot call:
 
@@ -75,22 +75,22 @@ public app port               localhost/private MCP port
 
 ```text
 Reverse Proxy / TLS
-        │
-        ▼
+        |
+        v
 MCP Gateway / Auth
-        │
-        ▼
+        |
+        v
 Course MCP Service
-        │
-        ├── Redis queue
-        ├── Postgres metadata DB
-        ├── S3-compatible artifact store
-        └── LMS adapters
+        |
+        |-- Redis queue
+        |-- Postgres metadata DB
+        |-- S3-compatible artifact store
+        `-- LMS adapters
 ```
 
 ## Production Internals Added
 
-- Docker Compose now provisions internal Postgres and Redis services on the private MCP network.
+- Docker Compose provisions internal Postgres and Redis services on the private MCP network.
 - The application has JSON fallback storage for local development and test runs.
 - Audit events are persisted as hashed metadata, not raw prompts/source payloads.
 - Per-tenant/user rate limiting runs before tool execution.

@@ -27,8 +27,6 @@ python -m pytest
 python -m ruff check src tests
 ```
 
-If the full `python -m ruff check .` command fails because of `.codex/reference-repos`, do not fix those external repos. Use `python -m ruff check src tests` for product code unless `.codex/reference-repos` has been removed or excluded elsewhere.
-
 ## Security Gate
 
 Before accepting or integrating any code, confirm:
@@ -53,12 +51,6 @@ Before accepting or integrating any code, confirm:
 5. Record the integration result in `docs/worklog.md`.
 6. Update `docs/task-board.md` status and next action.
 
-## Reference Repo Rule
-
-Reference repos live locally in `.codex/reference-repos/` and are intentionally not product source. They are used for patterns and research only. Do not copy broad code from them into `src/`; extract narrow ideas and rewrite to this project's secure architecture.
-
-See `docs/reference-repos.md` for the current reference list.
-
 ## Done Definition
 
 A task is done only when:
@@ -68,4 +60,3 @@ A task is done only when:
 - `python -m ruff check src tests` passes
 - docs are updated when contracts or workflow change
 - no AGENTS.md security rule is violated
-

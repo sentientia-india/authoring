@@ -746,7 +746,7 @@ def validate_scorm_package(package_path: Path | str, expected_files: list[str]) 
     return {"valid": not errors, "errors": errors}
 
 
-def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
+def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
     root = Path(output_dir).resolve()
     base = root / req.course_slug
     _ensure_inside(root, base)
@@ -977,8 +977,8 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
         package_path=str(package_path),
         files=files,
         note=(
-            "SCORM package scaffold created and internally validated."
+            "SCORM package created and internally validated."
             if validation["valid"]
-            else "SCORM package scaffold created but validation reported issues."
+            else "SCORM package created but validation reported issues."
         ),
     ).model_dump(mode="json")

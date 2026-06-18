@@ -1,12 +1,12 @@
 from pathlib import Path
 from zipfile import ZipFile
 
-from course_mcp_server.exporters.scorm import build_scorm_scaffold, validate_scorm_package
+from course_mcp_server.exporters.scorm import build_scorm_package, validate_scorm_package
 from course_mcp_server.schemas import ScormPackageRequest
 
 
-def test_scorm_scaffold_creates_zip_with_manifest_and_module_pages(tmp_path):
-    result = build_scorm_scaffold(
+def test_scorm_package_creates_zip_with_manifest_and_module_pages(tmp_path):
+    result = build_scorm_package(
         ScormPackageRequest(
             course_title="Ramp Safety",
             course_slug="ramp-safety",
@@ -51,8 +51,8 @@ def test_scorm_scaffold_creates_zip_with_manifest_and_module_pages(tmp_path):
         assert "theme" in package.read("data/course.json").decode("utf-8")
 
 
-def test_scorm_scaffold_embeds_h5p_style_activity_content(tmp_path):
-    result = build_scorm_scaffold(
+def test_scorm_package_embeds_h5p_style_activity_content(tmp_path):
+    result = build_scorm_package(
         ScormPackageRequest(
             course_title="AI for Students",
             course_slug="ai-for-students",
@@ -88,8 +88,8 @@ def test_scorm_scaffold_embeds_h5p_style_activity_content(tmp_path):
     assert "Match prompt parts" in activities
 
 
-def test_scorm_scaffold_uses_polished_responsive_template(tmp_path):
-    result = build_scorm_scaffold(
+def test_scorm_package_uses_polished_responsive_template(tmp_path):
+    result = build_scorm_package(
         ScormPackageRequest(
             course_title="AI for Students",
             course_slug="ai-for-students",
@@ -134,7 +134,7 @@ def test_scorm_scaffold_uses_polished_responsive_template(tmp_path):
 
 
 def test_scorm_artifact_path_stays_inside_output_dir(tmp_path):
-    result = build_scorm_scaffold(
+    result = build_scorm_package(
         ScormPackageRequest(
             course_title="Safe Course",
             course_slug="safe-course",
@@ -178,7 +178,7 @@ def test_validate_scorm_package_checks_runtime_tracking_files(tmp_path):
 
 
 def test_scorm_shell_uses_course_player_layout(tmp_path):
-    result = build_scorm_scaffold(
+    result = build_scorm_package(
         ScormPackageRequest(
             course_title="Emergency Evacuation",
             course_slug="emergency-evacuation",
@@ -213,8 +213,8 @@ def test_scorm_shell_uses_course_player_layout(tmp_path):
     assert "renderLessonDeck" in player_js
 
 
-def test_scorm_scaffold_assigns_a_themed_player_for_compliance_courses(tmp_path):
-    result = build_scorm_scaffold(
+def test_scorm_package_assigns_a_themed_player_for_compliance_courses(tmp_path):
+    result = build_scorm_package(
         ScormPackageRequest(
             course_title="Emergency Evacuation for Cabin Crew",
             course_slug="emergency-evacuation",

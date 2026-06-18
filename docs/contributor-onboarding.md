@@ -24,8 +24,6 @@ python -m pytest
 python -m ruff check src tests
 ```
 
-Do not run or modify `.codex/reference-repos` as part of normal product work.
-
 ## Important Files
 
 - `src/course_mcp_server/server.py`: MCP server setup and tool registration wrapper.
@@ -62,4 +60,3 @@ Tests added:
 Commands run:
 Known gaps:
 ```
-
