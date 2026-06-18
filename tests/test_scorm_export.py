@@ -35,6 +35,7 @@ def test_scorm_scaffold_creates_zip_with_manifest_and_module_pages(tmp_path):
         "module-1.html",
         "assets/styles.css",
         "assets/course.js",
+        "assets/player.js",
         "assets/h5p_bridge.js",
         "assets/scorm_api.js",
         "assets/study-map.svg",
@@ -47,6 +48,7 @@ def test_scorm_scaffold_creates_zip_with_manifest_and_module_pages(tmp_path):
         assert names == sorted(result["files"])
         assert "module-1.html" in package.read("imsmanifest.xml").decode("utf-8")
         assert "Ramp Safety" in package.read("data/course.json").decode("utf-8")
+        assert "theme" in package.read("data/course.json").decode("utf-8")
 
 
 def test_scorm_scaffold_embeds_h5p_style_activity_content(tmp_path):
@@ -112,12 +114,15 @@ def test_scorm_scaffold_uses_polished_responsive_template(tmp_path):
         index = package.read("index.html").decode("utf-8")
         css = package.read("assets/styles.css").decode("utf-8")
         js = package.read("assets/course.js").decode("utf-8")
+        player_js = package.read("assets/player.js").decode("utf-8")
         scorm_js = package.read("assets/scorm_api.js").decode("utf-8")
 
     assert "How to use this course" in index
     assert "youtube-nocookie.com/embed/128rGos_q9w" in index
     assert "@media (max-width: 820px)" in css
     assert "function gradeQuiz" in js
+    assert "renderCoursePlayer" in player_js
+    assert "renderAssessment" in player_js
     assert "setScore" in scorm_js
     assert "findApi(window.opener" in scorm_js
     assert "setSuspendData" in scorm_js
@@ -196,8 +201,36 @@ def test_scorm_shell_uses_course_player_layout(tmp_path):
     with ZipFile(result["package_path"]) as package:
         index = package.read("index.html").decode("utf-8")
         css = package.read("assets/styles.css").decode("utf-8")
+        player_js = package.read("assets/player.js").decode("utf-8")
 
     assert "course-shell" in index
     assert "progress-ring" in index
     assert "lesson-workspace" in index
+    assert "data-course-player" in index
+    assert 'id="course-data"' in index
     assert ".course-shell" in css
+    assert "renderModuleNav" in player_js
+    assert "renderLessonDeck" in player_js
+
+
+def test_scorm_scaffold_assigns_a_themed_player_for_compliance_courses(tmp_path):
+    result = build_scorm_scaffold(
+        ScormPackageRequest(
+            course_title="Emergency Evacuation for Cabin Crew",
+            course_slug="emergency-evacuation",
+            modules=[
+                {
+                    "title": "Foundation",
+                    "lessons": [{"title": "Readiness", "objective": "Identify readiness", "duration_minutes": 8}],
+                }
+            ],
+        ),
+        str(tmp_path),
+    )
+
+    with ZipFile(result["package_path"]) as package:
+        course_json = package.read("data/course.json").decode("utf-8")
+        index = package.read("index.html").decode("utf-8")
+
+    assert '"theme": "compliance"' in course_json
+    assert 'data-theme="compliance"' in index

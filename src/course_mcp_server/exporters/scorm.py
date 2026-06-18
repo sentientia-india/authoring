@@ -45,6 +45,10 @@ def _styles_css() -> str:
   --green: #12805c;
   --orange: #d97706;
   --line: #d8deea;
+  --sidebar: #172033;
+  --hero-start: #eef6ff;
+  --hero-mid: #f8fbff;
+  --hero-end: #fff7ed;
 }
 * { box-sizing: border-box; }
 body {
@@ -53,6 +57,39 @@ body {
   background: var(--bg);
   font-family: Arial, Helvetica, sans-serif;
   line-height: 1.5;
+}
+body[data-theme="compliance"] {
+  --blue: #1d4ed8;
+  --green: #0f766e;
+  --orange: #d97706;
+  --bg: #f4f7fb;
+  --panel: #ffffff;
+  --sidebar: #0f172a;
+  --hero-start: #e8f1ff;
+  --hero-mid: #f7fbff;
+  --hero-end: #fff6ea;
+}
+body[data-theme="academy"] {
+  --blue: #7c3aed;
+  --green: #0f766e;
+  --orange: #ca8a04;
+  --bg: #fbf7ff;
+  --panel: #ffffff;
+  --sidebar: #24153f;
+  --hero-start: #f2ebff;
+  --hero-mid: #faf8ff;
+  --hero-end: #fff4e9;
+}
+body[data-theme="studio"] {
+  --blue: #0f766e;
+  --green: #2563eb;
+  --orange: #ea580c;
+  --bg: #f3faf8;
+  --panel: #ffffff;
+  --sidebar: #072329;
+  --hero-start: #e3faf4;
+  --hero-mid: #f7fffc;
+  --hero-end: #fff4e8;
 }
 .course-shell {
   min-height: 100vh;
@@ -65,7 +102,7 @@ body {
   height: 100vh;
   padding: 24px 20px;
   color: #e5e7eb;
-  background: #172033;
+  background: var(--sidebar);
   overflow: auto;
 }
 .course-sidebar h1 { margin: 0 0 14px; font-size: 26px; line-height: 1.1; }
@@ -91,6 +128,16 @@ body {
 }
 .module-nav { display: grid; gap: 8px; padding: 0; list-style: none; }
 .module-nav li { padding: 10px 12px; border: 1px solid #334155; border-radius: 8px; background: rgba(255,255,255,.04); }
+.module-nav-button {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
 .lesson-workspace { min-width: 0; }
 .hero {
   min-height: 58vh;
@@ -99,7 +146,7 @@ body {
   gap: 32px;
   align-items: center;
   padding: 40px min(6vw, 72px);
-  background: linear-gradient(120deg, #eef6ff, #f8fbff 48%, #fff7ed);
+  background: linear-gradient(120deg, var(--hero-start), var(--hero-mid) 48%, var(--hero-end));
   border-bottom: 1px solid var(--line);
 }
 .hero h1 { margin: 0; max-width: 760px; font-size: 54px; line-height: 1.02; }
@@ -107,9 +154,27 @@ body {
 .lede { max-width: 680px; color: var(--muted); font-size: 20px; }
 .hero img, .module img { width: 100%; max-height: 360px; }
 main { max-width: 1120px; margin: 0 auto; padding: 28px 20px 48px; }
+.course-panel {
+  display: grid;
+  gap: 18px;
+}
+.course-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.course-panel-title { margin: 0; font-size: 24px; }
+.course-panel-subtitle { margin: 4px 0 0; color: var(--muted); }
 .lesson-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.lesson-card { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.lesson-card { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .lesson-card h3 { margin: 0 0 8px; }
+.lesson-card .lesson-meta { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+.lesson-card.active { border-color: var(--blue); box-shadow: 0 10px 30px rgba(37, 99, 235, .12); }
+.lesson-card button { align-self: start; }
+.lesson-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.secondary { min-height: 40px; border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; font-weight: 700; cursor: pointer; background: #edf2f7; color: var(--ink); }
 .module, .interactive, .quiz {
   margin: 24px 0;
   padding: 24px;
@@ -129,6 +194,11 @@ h2 { margin-top: 0; font-size: 28px; }
 .embedded-activity { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: #f8fafc; }
 .embedded-activity h3 { margin: 0 0 6px; }
 .embedded-activity span { display: inline-block; color: var(--green); font-weight: 700; }
+.activity-shell { display: grid; gap: 12px; }
+.activity-card { padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fff; display: grid; gap: 10px; }
+.activity-card h3 { margin: 0; }
+.activity-card .activity-type { color: var(--green); font-weight: 700; text-transform: uppercase; font-size: 12px; }
+.activity-card .activity-feedback { min-height: 24px; color: var(--muted); }
 .habit { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--line); border-radius: 6px; }
 .habit button, .primary, .complete { min-height: 40px; border: 0; border-radius: 6px; padding: 10px 14px; font-weight: 700; cursor: pointer; }
 .habit button { background: #e8eefc; color: var(--blue); }
@@ -244,6 +314,15 @@ def _embedded_activities(modules: list[dict]) -> list[dict]:
     return activities
 
 
+def _theme_for_course(course_title: str, audience: str) -> str:
+    text = f"{course_title} {audience}".lower()
+    if any(keyword in text for keyword in ("safety", "sop", "evac", "crew", "compliance", "policy", "airline")):
+        return "compliance"
+    if any(keyword in text for keyword in ("student", "academy", "study", "training", "learn")):
+        return "academy"
+    return "studio"
+
+
 def _course_payload(req: ScormPackageRequest) -> dict:
     for module in req.modules:
         payload = module.get("course_payload")
@@ -254,6 +333,348 @@ def _course_payload(req: ScormPackageRequest) -> dict:
         "course_slug": req.course_slug,
         "modules": req.modules,
     }
+
+
+def _player_js() -> str:
+    return r"""const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;"
+}[ch]));
+
+function flattenActivities(course) {
+  return (course.modules || []).flatMap((module, moduleIndex) =>
+    (module.activities || []).map((activity, activityIndex) => ({
+      ...activity,
+      moduleIndex,
+      activityIndex,
+      moduleTitle: module.title || `Module ${moduleIndex + 1}`,
+    }))
+  );
+}
+
+function flattenLessons(course) {
+  return (course.modules || []).flatMap((module, moduleIndex) =>
+    (module.lessons || []).map((lesson, lessonIndex) => ({
+      ...lesson,
+      moduleIndex,
+      lessonIndex,
+      moduleTitle: module.title || `Module ${moduleIndex + 1}`,
+    }))
+  );
+}
+
+function loadState(course) {
+  try {
+    const raw = CourseScorm.getSuspendData();
+    if (raw && typeof raw === "object") return raw;
+  } catch (_error) {}
+  const fallback = localStorage.getItem(`course-state:${course.course_slug}`);
+  try { return fallback ? JSON.parse(fallback) : {}; } catch (_error) { return {}; }
+}
+
+function getEmbeddedCourseData() {
+  const node = document.getElementById("course-data");
+  if (!node || !node.textContent.trim()) return null;
+  try {
+    return JSON.parse(node.textContent);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function saveState(course, state) {
+  try { CourseScorm.setSuspendData(state); } catch (_error) {}
+  localStorage.setItem(`course-state:${course.course_slug}`, JSON.stringify(state));
+}
+
+function renderModuleNav(course, state) {
+  const nav = document.getElementById("module-nav");
+  if (!nav) return;
+  nav.innerHTML = (course.modules || []).map((module, index) => `
+    <li>
+      <button class="module-nav-button" type="button" data-target="module-${index + 1}">
+        ${escapeHtml(module.title || `Module ${index + 1}`)}
+      </button>
+    </li>
+  `).join("");
+  nav.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = document.getElementById(button.dataset.target);
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      CourseScorm.setLocation(button.dataset.target);
+      saveState(course, { ...state, activeModule: button.dataset.target });
+    });
+  });
+}
+
+function renderHero(course) {
+  const title = document.getElementById("course-title");
+  const lede = document.getElementById("course-lede");
+  const progress = document.getElementById("progress-value");
+  if (title) title.textContent = course.course_title || "Course";
+  if (lede) {
+    lede.textContent = `A structured course package with ${course.modules.length} modules, ${flattenLessons(course).length} lessons, generated activities, and LMS completion tracking.`;
+  }
+  if (progress) progress.textContent = "0%";
+}
+
+function renderLessonDeck(course, state) {
+  const deck = document.getElementById("lesson-deck");
+  if (!deck) return;
+  const lessons = flattenLessons(course);
+  deck.innerHTML = (course.modules || []).map((module, moduleIndex) => `
+    <section class="course-panel" id="module-${moduleIndex + 1}">
+      <div class="course-panel-header">
+        <div>
+          <h2 class="course-panel-title">${escapeHtml(module.title || `Module ${moduleIndex + 1}`)}</h2>
+          <p class="course-panel-subtitle">${escapeHtml(`Module ${moduleIndex + 1} of ${course.modules.length}`)}</p>
+        </div>
+        <span class="lesson-meta">${(module.lessons || []).length} lessons</span>
+      </div>
+      <div class="lesson-grid">
+        ${(module.lessons || []).map((lesson, lessonIndex) => {
+          const lessonId = `module-${moduleIndex + 1}-lesson-${lessonIndex + 1}`;
+          const completed = (state.completedLessons || []).includes(lessonId);
+          const current = state.activeLesson === lessonId;
+          return `
+            <article class="lesson-card ${completed ? "completed" : ""} ${current ? "active" : ""}" data-lesson-id="${lessonId}">
+              <h3>${escapeHtml(lesson.title || `Lesson ${lessonIndex + 1}`)}</h3>
+              <p>${escapeHtml(lesson.objective || "Complete the lesson objective.")}</p>
+              <div class="lesson-meta">
+                <span>${lesson.duration_minutes || 8} min</span>
+                <span>${escapeHtml((lesson.objective_ids || []).join(", ") || "objective aligned")}</span>
+              </div>
+              <div class="lesson-actions">
+                <button class="primary" type="button" data-action="open">Open</button>
+                <button class="secondary" type="button" data-action="done">${completed ? "Completed" : "Mark done"}</button>
+              </div>
+            </article>`;
+        }).join("")}
+      </div>
+    </section>
+  `).join("");
+
+  deck.querySelectorAll("[data-lesson-id]").forEach((card) => {
+    const lessonId = card.dataset.lessonId;
+    const open = card.querySelector('[data-action="open"]');
+    const done = card.querySelector('[data-action="done"]');
+    if (open) {
+      open.addEventListener("click", () => {
+        CourseScorm.setLocation(lessonId);
+        saveState(course, { ...state, activeLesson: lessonId });
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+    if (done) {
+      done.addEventListener("click", () => {
+        const completedLessons = new Set(state.completedLessons || []);
+        completedLessons.add(lessonId);
+        const nextState = { ...state, activeLesson: lessonId, completedLessons: Array.from(completedLessons) };
+        saveState(course, nextState);
+        CourseScorm.setLocation(lessonId);
+        renderCoursePlayer(course, nextState);
+      });
+    }
+  });
+
+  const completedCount = (state.completedLessons || []).length;
+  const percent = lessons.length ? Math.round((completedCount / lessons.length) * 100) : 0;
+  const progress = document.getElementById("progress-value");
+  if (progress) progress.textContent = `${percent}%`;
+}
+
+function renderActivityCard(activity, course, index, state) {
+  const card = document.createElement("article");
+  card.className = "activity-card";
+  card.innerHTML = `
+    <div class="activity-type">${escapeHtml(activity.activity_type || activity.type || "interactive")}</div>
+    <h3>${escapeHtml(activity.title || `Activity ${index + 1}`)}</h3>
+    <p>${escapeHtml(activity.objective || activity.instructions || "Complete the interactive practice item.")}</p>
+    <div class="activity-body"></div>
+    <div class="activity-feedback" role="status"></div>
+  `;
+  const body = card.querySelector(".activity-body");
+  const feedback = card.querySelector(".activity-feedback");
+  const type = String(activity.activity_type || activity.type || "").toLowerCase();
+  if (type.includes("matching")) {
+    body.innerHTML = (activity.items || []).map((item, itemIndex) => `
+      <div class="habit" data-item="${itemIndex}">
+        <span>${escapeHtml(item.left || item.front || `Item ${itemIndex + 1}`)}</span>
+        <button type="button">View match</button>
+        <span class="match-result"></span>
+      </div>
+    `).join("");
+    body.querySelectorAll(".habit button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const row = button.closest(".habit");
+        const result = row.querySelector(".match-result");
+        const itemIndex = Number(row.dataset.item);
+        const item = activity.items?.[itemIndex] || {};
+        result.textContent = item.right || item.back || "Matched";
+        feedback.textContent = "Matching interaction revealed.";
+        CourseScorm.recordInteraction?.(`activity-${index}`, "matching", item.left || item.front || "", "correct", activity.title || "Matching");
+      });
+    });
+  } else if (type.includes("scenario") || type.includes("decision")) {
+    const choices = activity.choices || activity.options || ["Choose the safest action", "Choose the fastest action", "Skip the check"];
+    body.innerHTML = `
+      <div class="scenario-options">
+        ${choices.map((choice, choiceIndex) => `<button type="button" class="primary" data-choice="${choiceIndex}">${escapeHtml(choice)}</button>`).join("")}
+      </div>
+    `;
+    body.querySelectorAll("button").forEach((button) => {
+      button.addEventListener("click", () => {
+        feedback.textContent = `Selected: ${button.textContent}`;
+        CourseScorm.recordInteraction?.(`activity-${index}`, "choice", button.textContent, "neutral", activity.title || "Scenario");
+      });
+    });
+  } else if (type.includes("reflection")) {
+    body.innerHTML = `
+      <label class="reflection-box">
+        <span>Your reflection</span>
+        <textarea rows="4" placeholder="Write your answer here"></textarea>
+      </label>
+      <button type="button" class="primary">Save reflection</button>
+    `;
+    body.querySelector("button").addEventListener("click", () => {
+      feedback.textContent = "Reflection saved in this session.";
+      CourseScorm.setSuspendData({ ...state, [`reflection-${index}`]: body.querySelector("textarea").value });
+    });
+  } else {
+    body.innerHTML = `<p>This interactive item is included in the course package and can be extended into a richer renderer later.</p>`;
+  }
+  return card;
+}
+
+function renderActivityDeck(course, state) {
+  const deck = document.getElementById("activity-deck");
+  if (!deck) return;
+  const activities = flattenActivities(course);
+  deck.innerHTML = "";
+  const shell = document.createElement("div");
+  shell.className = "activity-shell";
+  activities.forEach((activity, index) => {
+    shell.appendChild(renderActivityCard(activity, course, index, state));
+  });
+  if (!activities.length) {
+    shell.innerHTML = "<p>No interactive activities were generated for this course.</p>";
+  }
+  deck.appendChild(shell);
+}
+
+function renderAssessment(course) {
+  const deck = document.getElementById("assessment-deck");
+  if (!deck) return;
+  const questions = course.final_assessment?.questions || [];
+  deck.innerHTML = `
+    <div class="course-panel">
+      <div class="course-panel-header">
+        <div>
+          <h2 class="course-panel-title">${escapeHtml(course.final_assessment?.title || "Final Assessment")}</h2>
+          <p class="course-panel-subtitle">${questions.length} questions</p>
+        </div>
+      </div>
+      <form id="quiz-form">
+        ${questions.map((question, index) => `
+          <fieldset data-question-index="${index}">
+            <legend>${index + 1}. ${escapeHtml(question.question || "Question")}</legend>
+            ${(question.options || []).map((option, optionIndex) => `
+              <label>
+                <input type="radio" name="q${index}" value="${escapeHtml(option)}">
+                ${escapeHtml(option)}
+              </label>
+            `).join("")}
+          </fieldset>
+        `).join("")}
+      </form>
+      <div class="assessment-actions">
+        <button class="primary" type="button" id="quiz-submit">Submit quiz</button>
+        <p id="quiz-feedback" class="feedback" role="status"></p>
+      </div>
+    </div>
+  `;
+  const submit = deck.querySelector("#quiz-submit");
+  const feedback = deck.querySelector("#quiz-feedback");
+  if (!submit) return;
+  submit.addEventListener("click", () => {
+    const form = deck.querySelector("#quiz-form");
+    let score = 0;
+    questions.forEach((question, index) => {
+      const selected = form.querySelector(`input[name="q${index}"]:checked`);
+      if (selected && (question.correct_answers || []).includes(selected.value)) score += 1;
+      CourseScorm.recordInteraction?.(`quiz-${index}`, question.type || "mcq", selected ? selected.value : "", selected && (question.correct_answers || []).includes(selected.value) ? "correct" : "wrong", question.question || "");
+    });
+    const percent = questions.length ? Math.round((score / questions.length) * 100) : 0;
+    feedback.textContent = `Score: ${score}/${questions.length} (${percent}%).`;
+    CourseScorm.setScore(percent);
+    if (percent >= 80) CourseScorm.markComplete();
+  });
+}
+
+function renderModulePage(course) {
+  const moduleIndex = Math.max(0, Number(document.body.dataset.modulePage || "1") - 1);
+  const module = course.modules[moduleIndex] || course.modules[0];
+  const deck = document.getElementById("module-activity-deck");
+  if (!deck || !module) return;
+  const activities = module.activities || [];
+  deck.innerHTML = `
+    <div class="course-panel">
+      <div class="course-panel-header">
+        <div>
+          <h2 class="course-panel-title">${escapeHtml(module.title || `Module ${moduleIndex + 1}`)}</h2>
+          <p class="course-panel-subtitle">${activities.length} module activities</p>
+        </div>
+        <a class="primary" href="index.html" style="text-decoration:none; display:inline-flex; align-items:center;">Back to course</a>
+      </div>
+      <div class="activity-shell">
+        ${activities.map((activity, index) => `
+          <article class="activity-card">
+            <div class="activity-type">${escapeHtml(activity.activity_type || activity.type || "interactive")}</div>
+            <h3>${escapeHtml(activity.title || `Activity ${index + 1}`)}</h3>
+            <p>${escapeHtml(activity.objective || activity.instructions || "Complete the module activity.")}</p>
+          </article>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderCoursePlayer(course) {
+  const state = loadState(course);
+  renderHero(course);
+  renderModuleNav(course, state);
+  renderLessonDeck(course, state);
+  renderActivityDeck(course, state);
+  renderAssessment(course);
+  if (state.activeLesson) {
+    const active = document.querySelector(`[data-lesson-id="${state.activeLesson}"]`);
+    if (active) active.classList.add("active");
+  }
+}
+
+async function bootCoursePlayer() {
+  const root = document.querySelector("[data-course-player], [data-module-page]");
+  if (!root) return;
+  let course = getEmbeddedCourseData();
+  if (!course) {
+    const response = await fetch("data/course.json");
+    course = await response.json();
+  }
+  document.body.dataset.theme = course.theme || "studio";
+  if (document.body.dataset.coursePlayer !== undefined) {
+    renderCoursePlayer(course);
+    return;
+  }
+  if (document.body.dataset.modulePage) {
+    renderModulePage(course);
+  }
+}
+
+bootCoursePlayer();
+"""
 
 
 def _runtime_js() -> str:
@@ -339,9 +760,12 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
     module_files = [_module_page_name(i) for i, _module in enumerate(req.modules, start=1)]
     activities = _embedded_activities(req.modules)
     course_payload = _course_payload(req)
+    course_payload["theme"] = _theme_for_course(req.course_title, " ".join(str(module.get("title", "")) for module in req.modules))
+    course_payload_json = json.dumps(course_payload, indent=2).replace("</", "<\\/")
     asset_files = [
         "assets/styles.css",
         "assets/course.js",
+        "assets/player.js",
         "assets/h5p_bridge.js",
         "assets/scorm_api.js",
         "assets/study-map.svg",
@@ -382,15 +806,6 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
         f'<li><a href="{escape(file_name)}">{escape(module.get("title", f"Module {i}"))}</a></li>'
         for i, (file_name, module) in enumerate(zip(module_files, req.modules, strict=True), start=1)
     )
-    lesson_cards = "\n".join(
-        f'''<article class="lesson-card">
-          <h3>{escape(str(lesson.get("title", "Lesson")))}</h3>
-          <p>{escape(str(lesson.get("objective", "Complete the lesson objective.")))}</p>
-          <button class="primary" type="button" onclick="CourseScorm.setLocation('module-{module_index}-lesson-{lesson_index}'); CourseScorm.setSuspendData({{location: 'module-{module_index}-lesson-{lesson_index}'}})">Save progress</button>
-        </article>'''
-        for module_index, module in enumerate(req.modules, start=1)
-        for lesson_index, lesson in enumerate(module.get("lessons", []), start=1)
-    )
     first_video = next((_safe_video_url(module) for module in req.modules if _safe_video_url(module)), None)
     video_block = (
         f'''<div class="video-card">
@@ -408,20 +823,21 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
   <link rel="stylesheet" href="assets/styles.css">
   <script src="assets/scorm_api.js"></script>
 </head>
-<body>
+<body data-course-player data-theme="{escape(course_payload["theme"])}">
+  <script id="course-data" type="application/json">{course_payload_json}</script>
   <div class="course-shell">
     <aside class="course-sidebar">
       <p class="eyebrow">SCORM course player</p>
-      <h1>{escape(req.course_title)}</h1>
-      <div class="progress-ring" aria-label="Course progress"><span>35%</span></div>
-      <ul class="module-nav">{navigation}</ul>
+      <h1 id="course-title">{escape(req.course_title)}</h1>
+      <div class="progress-ring" aria-label="Course progress"><span id="progress-value">0%</span></div>
+      <ul class="module-nav" id="module-nav">{navigation}</ul>
     </aside>
     <div class="lesson-workspace">
       <header class="hero">
-        <div>
+        <div id="hero-copy">
           <p class="eyebrow">Interactive lesson path</p>
           <h1>{escape(req.course_title)}</h1>
-          <p class="lede">A structured course package with generated lessons, source-aware activity data, quiz scoring, suspend/resume data, and LMS completion tracking.</p>
+          <p class="lede" id="course-lede">A structured course package with generated lessons, source-aware activity data, quiz scoring, suspend/resume data, and LMS completion tracking.</p>
         </div>
         <img src="assets/study-map.svg" alt="Course study map">
       </header>
@@ -430,7 +846,7 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
           <div class="module-text">
             <h2>How to use this course</h2>
             <p>Move through each lesson, save progress, complete the interactions, and submit the final quiz. The LMS can capture score, location, suspend data, interactions, and completion.</p>
-            <div class="lesson-grid">{lesson_cards}</div>
+            <div id="lesson-deck" class="course-panel"></div>
           </div>
           {video_block}
         </section>
@@ -449,14 +865,7 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
         <section class="interactive">
           <h2>Embedded interactive content</h2>
           <p>H5P-style activity data is packaged inside this SCORM file so the course can be delivered as one download.</p>
-          <div id="embedded-activities"></div>
-        </section>
-        <section class="interactive">
-          <h2>Interactive 1: Sort the habits</h2>
-          <p>Choose whether each behavior is a smart use or risky use.</p>
-          <div id="sort-activity" class="activity-list"></div>
-          <button class="primary" type="button" onclick="checkSort()">Check habits</button>
-          <p id="sort-feedback" class="feedback" role="status"></p>
+          <div id="activity-deck"></div>
         </section>
         <section class="interactive">
           <h2>Interactive 2: Prompt builder</h2>
@@ -469,28 +878,7 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
           <button class="primary" type="button" onclick="buildPrompt()">Build prompt</button>
           <div id="prompt-output" class="prompt-output"></div>
         </section>
-        <section class="quiz">
-          <h2>Final quiz</h2>
-          <form id="quiz-form">
-            <fieldset>
-              <legend>1. What is the best way to use learning content?</legend>
-              <label><input type="radio" name="q1" value="correct"> Read, practice, and check understanding</label>
-              <label><input type="radio" name="q1" value="wrong"> Skip directly to completion</label>
-            </fieldset>
-            <fieldset>
-              <legend>2. What should you do after an AI-generated answer?</legend>
-              <label><input type="radio" name="q2" value="correct"> Check it and explain it in your own words</label>
-              <label><input type="radio" name="q2" value="wrong"> Submit it without reading</label>
-            </fieldset>
-            <fieldset>
-              <legend>3. What makes a good prompt?</legend>
-              <label><input type="radio" name="q3" value="correct"> Topic, level, task, and examples requested</label>
-              <label><input type="radio" name="q3" value="wrong"> A vague instruction with no context</label>
-            </fieldset>
-          </form>
-          <button class="primary" type="button" onclick="gradeQuiz()">Submit quiz</button>
-          <p id="quiz-feedback" class="feedback" role="status"></p>
-        </section>
+        <section class="quiz" id="assessment-deck"></section>
       </main>
       <footer>
         <button class="complete" type="button" onclick="markCourseComplete()">Mark course complete</button>
@@ -499,6 +887,7 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
     </div>
   </div>
   <script src="assets/course.js"></script>
+  <script src="assets/player.js"></script>
   <script src="assets/h5p_bridge.js"></script>
 </body>
 </html>
@@ -508,6 +897,7 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
     (base / "index.html").write_text(index, encoding="utf-8")
     (assets / "styles.css").write_text(_styles_css(), encoding="utf-8")
     (assets / "course.js").write_text(_course_js(), encoding="utf-8")
+    (assets / "player.js").write_text(_player_js(), encoding="utf-8")
     (assets / "h5p_bridge.js").write_text(_h5p_bridge_js(), encoding="utf-8")
     (assets / "scorm_api.js").write_text(_runtime_js(), encoding="utf-8")
     (assets / "study-map.svg").write_text(_study_map_svg(), encoding="utf-8")
@@ -534,20 +924,41 @@ def build_scorm_scaffold(req: ScormPackageRequest, output_dir: str) -> dict:
   <link rel="stylesheet" href="assets/styles.css">
   <script src="assets/scorm_api.js"></script>
 </head>
-<body>
-  <main>
-    <section class="module">
-      <div class="module-text">
-        <p><a href="index.html">Course index</a></p>
-        <h1>{escape(str(module.get("title", f"Module {i}")))}</h1>
-        <ul class="checks">{lesson_items}</ul>
-      </div>
-      <img src="assets/study-map.svg" alt="Module study map">
-    </section>
-  </main>
-  <footer>
-    <button class="complete" type="button" onclick="CourseScorm.markComplete()">Mark complete</button>
-  </footer>
+<body data-module-page="{i}" data-theme="{escape(course_payload["theme"])}">
+  <script id="course-data" type="application/json">{course_payload_json}</script>
+  <div class="course-shell">
+    <aside class="course-sidebar">
+      <p class="eyebrow">Module view</p>
+      <h1>{escape(str(module.get("title", f"Module {i}")))}</h1>
+      <div class="progress-ring" aria-label="Module progress"><span>0%</span></div>
+      <ul class="module-nav"><li><a href="index.html">Course index</a></li></ul>
+    </aside>
+    <div class="lesson-workspace">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Module {i}</p>
+          <h1>{escape(str(module.get("title", f"Module {i}")))}</h1>
+          <p class="lede">Lesson list, module activities, and completion controls for this section of the course.</p>
+        </div>
+        <img src="assets/study-map.svg" alt="Module study map">
+      </header>
+      <main>
+        <section class="module">
+          <div class="module-text">
+            <h2>Lessons</h2>
+            <div class="lesson-grid">{lesson_items}</div>
+          </div>
+          <div class="video-card"><p>Module pages reuse the same course JSON and player logic as the main course view.</p></div>
+        </section>
+        <section class="interactive" id="module-activity-deck"></section>
+      </main>
+      <footer>
+        <button class="complete" type="button" onclick="CourseScorm.markComplete()">Mark complete</button>
+      </footer>
+    </div>
+  </div>
+  <script src="assets/course.js"></script>
+  <script src="assets/player.js"></script>
 </body>
 </html>
 """
