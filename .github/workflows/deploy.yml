@@ -124,5 +124,15 @@ jobs:
             fi
             sleep 3
           done
+          for attempt in $(seq 1 20); do
+            if docker compose exec -T scorm-editor python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8788/', timeout=3).read()"; then
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              docker compose logs --tail=100 scorm-editor
+              exit 1
+            fi
+            sleep 3
+          done
           docker compose exec -T course-mcp python -m course_mcp_server.smoke
           REMOTE
