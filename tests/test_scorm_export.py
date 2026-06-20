@@ -667,3 +667,36 @@ def test_scorm_package_assigns_a_themed_player_for_compliance_courses(tmp_path):
 
     assert '"theme": "compliance"' in course_json
     assert 'data-theme="compliance"' in index
+
+
+def test_scorm_package_supports_reference_output_styles(tmp_path):
+    for style in ("interaction_game", "course_example"):
+        result = build_scorm_package(
+            ScormPackageRequest(
+                course_title=f"Reference {style}",
+                course_slug=f"reference-{style.replace('_', '-')}",
+                modules=[
+                    {
+                        "title": "Reference module",
+                        "lessons": [
+                            {
+                                "title": "Reference lesson",
+                                "objective": "Apply the reference format.",
+                                "content_blocks": [{"type": "concept", "text": "Use this output format."}],
+                            }
+                        ],
+                    }
+                ],
+                scorm_version="2004",
+                reference_style=style,
+            ),
+            tmp_path,
+        )
+
+        package_dir = tmp_path / f"reference-{style.replace('_', '-')}"
+        index = (package_dir / "index.html").read_text(encoding="utf-8")
+        course_json = (package_dir / "data" / "course.json").read_text(encoding="utf-8")
+
+        assert f'data-reference-style="{style}"' in index
+        assert f'"reference_style": "{style}"' in course_json
+        assert validate_scorm_package(result["package_path"], result["files"])["valid"] is True

@@ -55,6 +55,7 @@ class ScormPackageRequest(BaseModel):
     course_slug: str = Field(pattern=r"^[a-z0-9-]{3,80}$")
     modules: list[dict] = Field(min_length=1)
     scorm_version: Literal["1.2", "2004"] = "1.2"
+    reference_style: Literal["rise_block", "interaction_game", "course_example"] = "rise_block"
 
 
 class CourseMaterial(BaseModel):

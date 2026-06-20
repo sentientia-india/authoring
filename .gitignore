@@ -29,6 +29,9 @@ output/
 artifacts/
 course_mcp_output/
 
+# Local client/reference packages. Preserve locally, do not deploy raw vendor zips.
+scorm reference/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

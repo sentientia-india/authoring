@@ -3,6 +3,7 @@ let course = null;
 let selection = { type: null, moduleIndex: null, lessonIndex: null };
 let mode = "outline";
 let viewport = "desktop";
+let sampleZipBlob = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -395,6 +396,16 @@ async function importZip(file) {
   renderAll();
 }
 
+async function importSample(sample) {
+  $("import-status").textContent = `Loading ${sample.title}...`;
+  const response = await fetch(sample.url);
+  if (!response.ok) throw new Error("Could not load sample package.");
+  const blob = await response.blob();
+  const file = new File([blob], `${sample.id}.zip`, { type: "application/zip" });
+  sampleZipBlob = file;
+  await importZip(file);
+}
+
 async function exportZip() {
   if (!importedZip || !course) return;
   const response = await fetch("/api/export", {
@@ -450,5 +461,35 @@ function wire() {
   });
 }
 
+async function loadSamples() {
+  const list = $("sample-list");
+  if (!list) return;
+  try {
+    const response = await fetch("/api/samples");
+    const payload = await response.json();
+    const samples = payload.ok ? payload.data : [];
+    if (!samples.length) {
+      list.innerHTML = "";
+      return;
+    }
+    list.innerHTML = `
+      <div class="sample-heading">Reference output formats</div>
+      ${samples.map((sample) => `
+        <button class="sample-card" type="button" data-sample-id="${esc(sample.id)}">
+          <strong>${esc(sample.title)}</strong>
+          <span>${Math.max(1, Math.round(sample.size_bytes / 1024))} KB sample</span>
+        </button>
+      `).join("")}
+    `;
+    list.querySelectorAll("[data-sample-id]").forEach((button) => {
+      const sample = samples.find((item) => item.id === button.dataset.sampleId);
+      button.addEventListener("click", () => importSample(sample).catch((error) => $("import-status").textContent = error.message));
+    });
+  } catch (_error) {
+    list.innerHTML = "";
+  }
+}
+
 wire();
+loadSamples();
 renderAll();

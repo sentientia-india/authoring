@@ -62,6 +62,23 @@ h1 { margin: 0; font-size: 32px; line-height: 1.02; letter-spacing: -.03em; }
   cursor: pointer;
   box-shadow: 0 12px 24px rgba(37,99,235,.18);
 }
+.sample-list { display: grid; gap: 10px; margin-top: 18px; }
+.sample-heading { color: #475569; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.sample-card {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid #d7ddea;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  cursor: pointer;
+}
+.sample-card:hover { border-color: #2563eb; box-shadow: 0 10px 26px rgba(37, 99, 235, .12); }
+.sample-card strong { font-size: 14px; }
+.sample-card span { color: #64748b; font-size: 12px; }
 .upload input { display: none; }
 .layout {
   display: grid;

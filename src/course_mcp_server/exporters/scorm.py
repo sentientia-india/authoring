@@ -123,6 +123,42 @@ body[data-theme="studio"] {
   --hero-mid: #f7fffc;
   --hero-end: #fff4e8;
 }
+body[data-reference-style="interaction_game"] {
+  --blue: #e50a4f;
+  --green: #007199;
+  --orange: #ea661d;
+  --bg: #f0f9fa;
+  --sidebar: #15132a;
+  --sidebar-top: #31215f;
+  --hero-start: #fff0f5;
+  --hero-mid: #f0f9fa;
+  --hero-end: #fff3e8;
+}
+body[data-reference-style="course_example"] {
+  --blue: #202948;
+  --green: #546422;
+  --orange: #eb1c71;
+  --bg: #f8fafc;
+  --sidebar: #202948;
+  --sidebar-top: #3b4569;
+  --hero-start: #eef2ff;
+  --hero-mid: #ffffff;
+  --hero-end: #fff0f7;
+}
+body[data-reference-style="interaction_game"] .hero,
+body[data-reference-style="course_example"] .hero {
+  min-height: 62vh;
+}
+body[data-reference-style="interaction_game"] .lesson-card,
+body[data-reference-style="interaction_game"] .activity-card {
+  border-radius: 6px;
+  box-shadow: 0 22px 60px rgba(229, 10, 79, .14);
+}
+body[data-reference-style="course_example"] .lesson-card,
+body[data-reference-style="course_example"] .lesson-block,
+body[data-reference-style="course_example"] .activity-card {
+  border-left: 5px solid var(--orange);
+}
 .course-shell {
   min-height: 100vh;
   display: grid;
@@ -187,6 +223,7 @@ body[data-theme="studio"] {
 }
 .hero h1 { margin: 0; max-width: 760px; font-size: clamp(42px, 4.2vw, 60px); line-height: 1.02; letter-spacing: -.04em; }
 .eyebrow { margin: 0 0 12px; color: var(--blue); font-weight: 700; text-transform: uppercase; font-size: 13px; }
+.reference-style-label { margin: -4px 0 14px; color: #64748b; font-size: 13px; font-weight: 700; }
 .lede { max-width: 680px; color: #3f4755; font-size: 18px; }
 .hero img, .module img { width: 100%; max-height: 360px; object-fit: cover; }
 .course-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 22px 0; }
@@ -513,6 +550,15 @@ def _course_payload(req: ScormPackageRequest) -> dict:
         "course_slug": req.course_slug,
         "modules": req.modules,
     }
+
+
+def _reference_style_label(reference_style: str) -> str:
+    labels = {
+        "rise_block": "Rise-style block course",
+        "interaction_game": "Reference format 1: game interactions",
+        "course_example": "Reference format 2: full course example",
+    }
+    return labels.get(reference_style, labels["rise_block"])
 
 
 def _remove_h5p_markers(value):
@@ -1664,6 +1710,8 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
     module_files = [_module_page_name(i) for i, _module in enumerate(req.modules, start=1)]
     course_payload = _normalize_scorm_payload(_course_payload(req))
     course_payload["theme"] = _theme_for_course(req.course_title, " ".join(str(module.get("title", "")) for module in req.modules))
+    course_payload["reference_style"] = req.reference_style
+    course_payload["reference_style_label"] = _reference_style_label(req.reference_style)
     course_payload_json = json.dumps(course_payload, indent=2).replace("</", "<\\/")
     video_dir = base / "interactive-video"
     video_dir.mkdir(exist_ok=True)
@@ -1748,7 +1796,7 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
   <link rel="stylesheet" href="assets/styles.css">
   <script src="assets/scorm_api.js"></script>
 </head>
-<body data-course-player data-theme="{escape(course_payload["theme"])}">
+<body data-course-player data-theme="{escape(course_payload["theme"])}" data-reference-style="{escape(req.reference_style)}">
   <script id="course-data" type="application/json">{course_payload_json}</script>
   <div class="course-shell">
     <aside class="course-sidebar">
@@ -1766,6 +1814,7 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
       <header class="hero">
         <div id="hero-copy">
           <p class="eyebrow">Your learning path</p>
+          <p class="reference-style-label">{escape(_reference_style_label(req.reference_style))}</p>
           <h1>{escape(safe_course_title)}</h1>
           <p class="lede" id="course-lede">Build practical skill in {escape(safe_course_title)} through short lessons, examples, practice activities, and a final check.</p>
           <div class="course-stats" aria-label="Course summary">
@@ -1793,7 +1842,7 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
           <img src="assets/prompt-lab.svg" alt="Interactive prompt lab">
           <div class="module-text">
             <h2>Practice method</h2>
-            <p>Each generated course should combine explanation, example, learner practice, scenario feedback, and assessment evidence.</p>
+            <p>This package follows the selected reference format while keeping editable course JSON, native interactions, progress tracking, and quiz evidence in one SCORM ZIP.</p>
             <div class="method-grid">
               <div><span>Learn</span><p>Read the module objective.</p></div>
               <div><span>Practice</span><p>Try an interactive activity.</p></div>
@@ -1911,7 +1960,7 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
   <link rel="stylesheet" href="assets/styles.css">
   <script src="assets/scorm_api.js"></script>
 </head>
-<body data-module-page="{i}" data-theme="{escape(course_payload["theme"])}">
+<body data-module-page="{i}" data-theme="{escape(course_payload["theme"])}" data-reference-style="{escape(req.reference_style)}">
   <script id="course-data" type="application/json">{course_payload_json}</script>
   <div class="course-shell">
     <aside class="course-sidebar">

@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
+SAMPLES = STATIC / "samples"
 
 
 def _index_html() -> bytes:
@@ -122,6 +123,20 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/" or route == "/index.html":
             self._set_headers()
             self.wfile.write(_index_html())
+            return
+        if route == "/api/samples":
+            samples = []
+            if SAMPLES.exists():
+                for path in sorted(SAMPLES.glob("*.zip")):
+                    samples.append(
+                        {
+                            "id": path.stem,
+                            "title": path.stem.replace("-", " ").title(),
+                            "url": f"/static/samples/{path.name}",
+                            "size_bytes": path.stat().st_size,
+                        }
+                    )
+            self._json(HTTPStatus.OK, {"ok": True, "data": samples})
             return
         if route.startswith("/static/"):
             asset = STATIC / route.removeprefix("/static/")
