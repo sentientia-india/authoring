@@ -20,7 +20,7 @@ This repo is split into two runtime surfaces:
 1. `course-mcp`: the secure MCP generation, validation, and export service.
 2. `scorm-editor`: a separate drag-and-drop editor service for polishing uploaded SCORM exports.
 
-Keep them deployed from the same GitHub repo but running as separate server processes. See [docs/service-split.md](docs/service-split.md).
+Keep them deployed from the same GitHub repo but running as separate Docker services with separate Dockerfiles. See [docs/service-split.md](docs/service-split.md).
 
 ## Rotation
 

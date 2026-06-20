@@ -22,6 +22,7 @@ Rules:
 
 Deployment:
 - Docker service name: `course-mcp`
+- Dockerfile: `Dockerfile`
 - default local port: `127.0.0.1:8777`
 - health route: `/health`
 
@@ -47,6 +48,7 @@ Rules:
 
 Deployment:
 - Docker service name: `scorm-editor`
+- Dockerfile: `Dockerfile.scorm-editor`
 - default local port: `127.0.0.1:8788`
 - health route: `/`
 
@@ -58,6 +60,8 @@ One repo is fine because CI can build and deploy both services from the same com
 GitHub repository
 |-- src/course_mcp_server/        # secure MCP generation/export service
 |-- apps/scorm_editor/            # separate visual editor app
+|-- Dockerfile                    # MCP runtime image
+|-- Dockerfile.scorm-editor       # editor runtime image
 |-- docker-compose.yml            # independent services
 `-- docs/                         # shared contracts and runbooks
 ```

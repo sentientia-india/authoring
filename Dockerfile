@@ -13,13 +13,12 @@ RUN addgroup --system --gid 10001 appgroup \
 
 COPY pyproject.toml README.md /app/
 COPY src /app/src
-COPY apps /app/apps
 
 RUN pip install --upgrade pip \
     && pip install -e .
 
 USER appuser
 
-EXPOSE 8777 8788
+EXPOSE 8777
 
 CMD ["python", "-m", "course_mcp_server.server"]
