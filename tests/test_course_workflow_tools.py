@@ -28,6 +28,23 @@ def test_production_tool_surface_is_narrow_and_safe():
         "create_course_project",
         "ingest_course_source",
         "select_course_template",
+        "list_course_templates",
+        "recommend_course_templates",
+        "start_course_discovery",
+        "save_course_brief",
+        "get_next_course_question",
+        "save_course_discovery_answer",
+        "propose_course_outline",
+        "update_course_outline",
+        "approve_course_outline",
+        "propose_lesson_structure",
+        "update_lesson_structure",
+        "approve_lesson_structure",
+        "select_assessment_model",
+        "select_interaction_model",
+        "check_generation_readiness",
+        "generate_course_with_codex",
+        "get_course_workflow_status",
         "generate_course_blueprint",
         "generate_module_pack",
         "generate_lesson_pack",
@@ -121,6 +138,20 @@ def test_generate_blueprint_module_lesson_activity_assessment_and_quality(tmp_pa
     assert "blueprint" in artifacts["data"]["artifact_types"]
 
 
+def test_generate_blueprint_supports_three_minute_micro_course(tmp_path, monkeypatch):
+    monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
+    context = _ctx()
+    project = create_course_project(
+        {"course_title": "Agile Micro Course", "audience": "project managers", "language": "English"},
+        context,
+    )
+
+    blueprint = generate_course_blueprint({"project_id": project["data"]["project_id"], "duration_minutes": 3}, context)
+
+    assert blueprint["ok"] is True
+    assert blueprint["data"]["project_id"] == project["data"]["project_id"]
+
+
 def test_request_publish_approval_never_publishes(tmp_path, monkeypatch):
     monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
     context = _ctx()
@@ -212,7 +243,9 @@ def test_build_scorm_export_embeds_generated_activities(tmp_path, monkeypatch):
     result = build_export_package({"project_id": project_id, "export_format": "scorm"}, context)
 
     assert result["ok"] is True
-    assert "activities/content.json" in result["data"]["files"]
+    assert "activities/content.json" not in result["data"]["files"]
+    assert "h5p/course.h5p" not in result["data"]["files"]
+    assert "assets/player.js" in result["data"]["files"]
 
 
 def test_create_material_ticket_and_generate_chapter_layout_tools():
@@ -228,6 +261,7 @@ def test_create_material_ticket_and_generate_chapter_layout_tools():
             "duration_minutes": 5,
             "materials": [{"upload_id": "notes.txt", "source_type": "raw_text"}],
             "interactive_preferences": ["matching"],
+            "answers": {"module_topics_review": "yes", "quiz_decision": "mixed"},
         },
         _ctx(),
     )

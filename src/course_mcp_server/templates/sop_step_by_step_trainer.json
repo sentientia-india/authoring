@@ -1,0 +1,116 @@
+{
+  "template_id": "sop_step_by_step_trainer",
+  "name": "SOP Step-by-Step Trainer",
+  "display_name": "SOP Step-by-Step Trainer",
+  "category": "SOP / Process Training",
+  "domain": "standard operating procedure process training operations manufacturing service",
+  "best_for": ["standard operating procedure", "process training", "operations training", "manufacturing SOP", "service SOP"],
+  "use_when": ["standard operating procedure", "process training", "operations training", "manufacturing SOP", "service SOP"],
+  "avoid_when": ["creative storytelling"],
+  "default_difficulty": "beginner",
+  "supported_delivery_modes": ["standard", "simulation", "microlearning"],
+  "recommended_interactions": ["simulation_stepper", "matching", "decision_tree", "reflection", "interactive_video"],
+  "layout": {
+    "navigation": "mission_map",
+    "lesson_shell": "scenario",
+    "card_density": "comfortable",
+    "mobile_pattern": "stepper"
+  },
+  "theme": {
+    "primary": "#0F766E",
+    "secondary": "#14B8A6",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text": "#0F172A",
+    "danger": "#B42318",
+    "success": "#067647",
+    "font_family": "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+  },
+  "assessment_mix": {
+    "mcq": 20,
+    "multi_select": 10,
+    "scenario": 25,
+    "matching": 15,
+    "short_answer": 30
+  },
+  "gamification": {
+    "enabled": true,
+    "xp_per_lesson": 50,
+    "xp_per_activity": 75,
+    "xp_per_correct_answer": 20,
+    "streak_bonus": 30,
+    "mastery_badge_threshold": 85,
+    "unlock_mode": "mission_map",
+    "leaderboard": "off"
+  },
+  "lesson_blueprint": [
+    "process step",
+    "why it matters",
+    "inputs/outputs",
+    "sequence decision",
+    "common error",
+    "practice checkpoint",
+    "remediation"
+  ],
+  "video_scene_blueprint": [
+    "step highlight",
+    "operator action",
+    "quality check",
+    "exception decision"
+  ],
+  "quality_rules": {
+    "min_source_coverage": 0.8,
+    "min_scenario_specificity": 0.65,
+    "min_interaction_variety": 0.5
+  },
+  "prompt_rules": [
+    "Preserve source sequence exactly.",
+    "Do not add process steps not in source.",
+    "Explain why each step matters operationally.",
+    "Create exceptions from source only."
+  ],
+  "visual_style": {
+    "layout": "process timeline and checklist",
+    "image_style": "procedural diagrams",
+    "mobile": "checklist step cards"
+  },
+  "module_strategy": [
+    "process overview",
+    "step groups",
+    "exceptions",
+    "quality checks",
+    "practice run"
+  ],
+  "interaction_types": [
+    "step ordering",
+    "checklist completion",
+    "exception handling",
+    "matching inputs to outputs",
+    "process simulation"
+  ],
+  "gamification_rules": {
+    "xp_for": "correct sequence and exception handling",
+    "badges": ["Process Ready", "Zero Error Run", "SOP Certified"]
+  },
+  "html_video_pattern": {
+    "scene_types": ["step highlight", "operator action", "quality check", "exception decision"]
+  },
+  "quality_thresholds": {
+    "source_citation_coverage": 0.8,
+    "lesson_similarity_max": 0.42,
+    "activity_uniqueness_min": 0.75
+  },
+  "codex_prompt_rules": [
+    "Preserve source sequence exactly.",
+    "Do not add process steps not in source.",
+    "Explain why each step matters operationally.",
+    "Create exceptions from source only."
+  ],
+  "default_answers": {
+    "gamification_enabled": true,
+    "html_video_enabled": true,
+    "assessment_preference": "step-based assessment",
+    "interaction_preference": "interactive course"
+  }
+}

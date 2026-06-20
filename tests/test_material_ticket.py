@@ -14,6 +14,9 @@ def test_create_ticket_asks_for_missing_course_inputs():
     assert "audience" in result["missing_fields"]
     assert "goal" in result["missing_fields"]
     assert result["questions"]
+    assert result["question_flow"][0]["id"] == "course_brief"
+    assert result["question_flow"][2]["proposed_topics"]
+    assert any("quiz" in item["prompt"].lower() for item in result["question_flow"])
     assert result["normalized_ticket"]["course_title"] == "AI for Students"
 
 
@@ -64,6 +67,7 @@ def test_generate_layout_returns_chapters_and_confirmation_prompt():
             "materials": [{"upload_id": "study-notes.txt", "source_type": "raw_text"}],
             "media": [{"type": "youtube", "url": "https://youtu.be/abc123"}],
             "interactive_preferences": ["matching", "reflection_prompt"],
+            "answers": {"module_topics_review": "yes", "quiz_decision": "mixed"},
         }
     )
 
@@ -71,7 +75,27 @@ def test_generate_layout_returns_chapters_and_confirmation_prompt():
     assert len(result["chapters"]) >= 3
     assert result["media_plan"]
     assert result["interactive_plan"]
+    assert result["proposed_topics"]
     assert "confirm" in result["confirmation_prompt"].lower()
+
+
+def test_generate_layout_prompts_for_topic_and_quiz_confirmation():
+    result = generate_layout(
+        {
+            "course_title": "AI for Students",
+            "audience": "college students",
+            "goal": "Use AI safely for study",
+            "duration_minutes": 5,
+            "materials": [{"upload_id": "study-notes.txt", "source_type": "raw_text"}],
+            "media": [{"type": "youtube", "url": "https://youtu.be/abc123"}],
+            "interactive_preferences": ["matching", "reflection_prompt"],
+        }
+    )
+
+    assert result["status"] == "needs_more_information"
+    assert result["missing_fields"] == ["module_topics_review"]
+    assert "proposed_topics" in result
+    assert any("topics" in item.lower() for item in result["next_questions"])
 
 
 def test_material_ticket_tools_are_allowlisted_and_structured():
@@ -89,6 +113,7 @@ def test_material_ticket_tools_are_allowlisted_and_structured():
             "goal": "Use AI safely",
             "duration_minutes": 5,
             "materials": [{"upload_id": "notes.txt"}],
+            "answers": {"module_topics_review": "yes", "quiz_decision": "mixed"},
         },
         _ctx(),
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -13,9 +14,11 @@ from .activities import build_activity
 from .artifacts import store_artifact_metadata
 from .course_generator import generate_lesson, generate_outline, generate_quiz, generate_roleplay
 from .course_templates import TemplateRegistry
+from .discovery import CourseDiscoveryState, CourseDiscoveryWorkflow
 from .delivery import build_delivery_metadata
 from .exporters.h5p import build_h5p_package
 from .exporters.scorm import build_scorm_package
+from .generation import CodexGenerationContractBuilder
 from .html_video_engine import HtmlVideoRenderer, build_video_project_from_course
 from .ingestion import extract_source
 from .intake import create_ticket, generate_layout
@@ -28,12 +31,20 @@ from .schemas import (
     ArtifactListResult,
     AssessmentBankResult,
     AssessmentRequest,
+    CodexGenerationContractResult,
     BlueprintRequest,
+    CourseBriefSaveRequest,
     CourseOutlineRequest,
     CourseProjectRequest,
     CourseProjectResult,
+    DiscoveryAnswerRequest,
+    DiscoveryAnswerResult,
+    DiscoveryAnswer,
+    DiscoveryStartRequest,
+    DiscoveryStartResult,
     ExportPackageRequest,
     ChapterLayoutResult,
+    GenerationReadinessResult,
     InteractiveVideoRequest,
     InteractiveVideoResult,
     MaterialTicketResult,
@@ -44,12 +55,22 @@ from .schemas import (
     ListArtifactsRequest,
     ModulePackRequest,
     ModulePackResult,
+    TemplateListResult,
+    TemplateRecommendationRequest,
+    TemplateRecommendationResult,
     PublishApprovalRequest,
     PublishApprovalResult,
     QualityValidationRequest,
     QualityValidationResult,
     SuperiorQualityValidationRequest,
     SuperiorQualityValidationResult,
+    WorkflowOutlineRequest,
+    WorkflowOutlineResult,
+    WorkflowStructureUpdateRequest,
+    WorkflowModelSelectionRequest,
+    WorkflowApprovalRequest,
+    WorkflowSelectionResult,
+    WorkflowStatusResult,
     QuizBankRequest,
     RoleplayScenarioRequest,
     ScormPackageRequest,
@@ -109,8 +130,177 @@ def _project_template(project: dict[str, Any]):
     )
     project["template_id"] = match.template.template_id
     project["template_name"] = match.template.name
+    project.setdefault("workflow", {})
+    project["workflow"]["selected_template_id"] = match.template.template_id
     save_project(project)
     return match.template
+
+
+def _workflow_defaults(project: dict[str, Any]) -> dict[str, Any]:
+    template = None
+    if project.get("template_id"):
+        try:
+            template = _template_registry().get(project["template_id"])
+        except KeyError:
+            template = None
+    default_answers = {}
+    if template is not None:
+        default_answers = dict(getattr(template, "model_extra", {}) or {}).get("default_answers", {})
+    return default_answers
+
+
+def _workflow_state(project: dict[str, Any]) -> CourseDiscoveryState:
+    workflow = project.get("workflow") or {}
+    return CourseDiscoveryState(
+        project_id=project["project_id"],
+        status=workflow.get("status", "discovery_started"),
+        answers=workflow.get("answers", {}),
+        selected_template_id=workflow.get("selected_template_id") or project.get("template_id"),
+        module_outline=workflow.get("module_outline", []),
+        lesson_structure=workflow.get("lesson_structure", []),
+        assessment_model=workflow.get("assessment_model", {}),
+        interaction_model=workflow.get("interaction_model", {}),
+        approvals=workflow.get("approvals", {}),
+        source_chunk_count=workflow.get("source_chunk_count", len(_source_chunks_for_project(project))),
+    )
+
+
+def _persist_workflow_state(project: dict[str, Any], state: CourseDiscoveryState) -> dict[str, Any]:
+    project["workflow"] = state.to_dict()
+    if state.selected_template_id:
+        project["template_id"] = state.selected_template_id
+    save_project(project)
+    return project
+
+
+def _source_chunks_for_project(project: dict[str, Any], limit: int = 12) -> list[dict[str, Any]]:
+    chunks: list[dict[str, Any]] = []
+    for source_index, source in enumerate(project.get("sources", []), start=1):
+        text = str(source.get("extracted_text", "")).strip()
+        if not text:
+            continue
+        parts = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+        if not parts:
+            parts = [text]
+        for chunk_index, part in enumerate(parts[:3], start=1):
+            chunks.append(
+                {
+                    "source_id": source.get("source_id", f"source_{source_index}"),
+                    "chunk_id": f"{source.get('source_id', f'source_{source_index}')}_chunk_{chunk_index}",
+                    "text": part[:2000],
+                    "summary": part[:240],
+                }
+            )
+            if len(chunks) >= limit:
+                return chunks
+    return chunks
+
+
+def _proposed_topics_from_brief(brief: dict[str, Any], template_name: str | None = None) -> list[str]:
+    course_title = brief.get("course_title") or "the course"
+    audience = brief.get("audience") or brief.get("target_audience") or "the learners"
+    goal = brief.get("goal") or brief.get("course_goal") or "the learning goal"
+    template_hint = template_name or "the template"
+    return [
+        f"{course_title}: purpose and context",
+        f"Core ideas and rules for {audience}",
+        f"Applied practice using {template_hint}",
+        f"Assessment and readiness for {goal}",
+    ]
+
+
+def _course_brief_from_state(state: CourseDiscoveryState) -> dict[str, Any]:
+    brief = {}
+    for key, answer in state.answers.items():
+        brief[key] = answer.get("value")
+    if "target_learner" in brief and "target_audience" not in brief:
+        brief["target_audience"] = brief["target_learner"]
+    if "course_title" not in brief and "target_audience" not in brief:
+        brief.setdefault("course_title", "Generated Course")
+    return brief
+
+
+def _template_snapshot(template) -> dict[str, Any]:
+    extra = dict(getattr(template, "model_extra", {}) or {})
+    snapshot = {
+        "template_id": template.template_id,
+        "name": getattr(template, "name", extra.get("display_name", template.template_id)),
+        "domain": getattr(template, "domain", extra.get("category", "General")),
+        "recommended_interactions": list(getattr(template, "recommended_interactions", [])),
+        "quality_rules": dict(getattr(template, "quality_rules", {})),
+        "prompt_rules": list(getattr(template, "prompt_rules", [])),
+        "lesson_blueprint": list(getattr(template, "lesson_blueprint", [])),
+        "video_scene_blueprint": list(getattr(template, "video_scene_blueprint", [])),
+        "default_answers": extra.get("default_answers", {}),
+    }
+    snapshot.update(extra)
+    return snapshot
+
+
+def _rank_templates(topic: str, audience: str, industry: str | None = None, delivery_mode: str | None = None, limit: int = 3) -> list[dict[str, Any]]:
+    registry = _template_registry()
+    haystack = f"{topic} {audience} {industry or ''} {delivery_mode or ''}".lower()
+    scored: list[tuple[int, dict[str, Any], list[str]]] = []
+    for template in registry._templates.values():
+        snapshot = _template_snapshot(template)
+        score = 0
+        reasons: list[str] = []
+        for phrase in snapshot.get("use_when", []) or []:
+            if str(phrase).lower() in haystack:
+                score += 3
+                reasons.append(f"Matches: {phrase}")
+        for phrase in snapshot.get("best_for", []) or []:
+            if str(phrase).lower() in haystack:
+                score += 3
+                reasons.append(f"Best for: {phrase}")
+        if delivery_mode and delivery_mode in (snapshot.get("supported_delivery_modes") or []):
+            score += 2
+            reasons.append("Delivery mode supported")
+        if industry and str(industry).lower() in f"{snapshot.get('domain', '')} {snapshot.get('category', '')}".lower():
+            score += 2
+            reasons.append("Industry matched")
+        if not reasons:
+            reasons.append("General fit based on available course brief.")
+        scored.append((score, snapshot, reasons))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    output = []
+    for score, snapshot, reasons in scored[:limit]:
+        output.append(
+            {
+                "template_id": snapshot["template_id"],
+                "name": snapshot["name"],
+                "display_name": snapshot.get("display_name", snapshot["name"]),
+                "category": snapshot.get("category", "General"),
+                "score": score,
+                "reasons": reasons,
+                "recommended_interactions": snapshot.get("recommended_interactions", []),
+                "quality_rules": snapshot.get("quality_rules", {}),
+                "default_answers": snapshot.get("default_answers", {}),
+            }
+        )
+    return output
+
+
+def _discovery_context(project: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "course_topic": project.get("course_title"),
+        "target_audience": project.get("audience"),
+        "detected_industry": project.get("compliance_domain"),
+    }
+
+
+def _question_with_suggestion(workflow: CourseDiscoveryWorkflow, project: dict[str, Any], question: dict[str, Any]) -> dict[str, Any]:
+    defaults = _workflow_defaults(project)
+    suggestion = workflow.default_provider.suggest(question, _discovery_context(project))
+    return {
+        **question,
+        "suggested_answer": suggestion.to_dict(),
+        "template_default": defaults.get(question["id"]),
+    }
+
+
+def _question_batch(workflow: CourseDiscoveryWorkflow, project: dict[str, Any], state: CourseDiscoveryState, *, limit: int = 6) -> list[dict[str, Any]]:
+    return [_question_with_suggestion(workflow, project, question) for question in workflow.get_question_batch(state, limit=limit)]
 
 
 def _record(context: RequestContext, tool_name: str, project_id: str, message: str) -> None:
@@ -161,7 +351,8 @@ def select_course_template(payload: dict, context: RequestContext) -> dict[str, 
     tool_name = "select_course_template"
     assert_tool_allowed(tool_name)
     req = TemplateSelectionRequest.model_validate(payload)
-    match = _template_registry().select_template(
+    registry = _template_registry()
+    match = registry.select_template(
         topic=req.topic,
         audience=req.audience,
         industry=req.industry,
@@ -176,6 +367,404 @@ def select_course_template(payload: dict, context: RequestContext) -> dict[str, 
         reason="; ".join(match.reasons),
     ).model_dump(mode="json")
     _record(context, tool_name, req.topic.replace(" ", "_")[:20], "Course template selected.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def list_course_templates(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "list_course_templates"
+    assert_tool_allowed(tool_name)
+    templates = [_template_snapshot(template) for template in _template_registry()._templates.values()]
+    output = TemplateListResult(templates=templates).model_dump(mode="json")
+    _record(context, tool_name, context.request_id or "templates", "Template catalog listed.")
+    return _safe_return(tool_name, context, payload, output)
+
+
+def recommend_course_templates(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "recommend_course_templates"
+    assert_tool_allowed(tool_name)
+    req = TemplateRecommendationRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    recommendations = _rank_templates(
+        project.get("course_title", ""),
+        project.get("audience", ""),
+        project.get("compliance_domain"),
+        project.get("delivery_mode"),
+    )
+    if req.source_summary:
+        summary_recs = _rank_templates(
+            project.get("course_title", ""),
+            project.get("audience", ""),
+            req.source_summary,
+            project.get("delivery_mode"),
+        )
+        if summary_recs:
+            recommendations = summary_recs
+    output = TemplateRecommendationResult(recommendations=recommendations).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Template recommendations generated.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def start_course_discovery(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "start_course_discovery"
+    assert_tool_allowed(tool_name)
+    req = DiscoveryStartRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    workflow = CourseDiscoveryWorkflow()
+    state = workflow.start(req.project_id)
+    _persist_workflow_state(project, state)
+    questions = _question_batch(workflow, project, state)
+    next_question = questions[0] if questions else None
+    output = DiscoveryStartResult(
+        project_id=req.project_id,
+        status=state.status,
+        next_question=next_question,
+        questions=questions,
+        answers={k: DiscoveryAnswer.model_validate(v) for k, v in state.answers.items()},
+        proposed_topics=_proposed_topics_from_brief(project),
+        selected_template_id=state.selected_template_id,
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Course discovery started.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def get_next_course_question(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "get_next_course_question"
+    assert_tool_allowed(tool_name)
+    req = DiscoveryStartRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    workflow = CourseDiscoveryWorkflow()
+    state = _workflow_state(project)
+    questions = _question_batch(workflow, project, state)
+    next_question = questions[0] if questions else None
+    output = DiscoveryStartResult(
+        project_id=req.project_id,
+        status=state.status,
+        next_question=next_question,
+        questions=questions,
+        answers={k: DiscoveryAnswer.model_validate(v) for k, v in state.answers.items()},
+        proposed_topics=_proposed_topics_from_brief(_course_brief_from_state(state), project.get("template_name")),
+        selected_template_id=state.selected_template_id,
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Next course question returned.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def save_course_discovery_answer(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "save_course_discovery_answer"
+    assert_tool_allowed(tool_name)
+    req = DiscoveryAnswerRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    workflow = CourseDiscoveryWorkflow()
+    state = _workflow_state(project)
+    answer = workflow.save_answer(
+        state,
+        req.question_id,
+        req.answer,
+        {
+            "course_topic": project.get("course_title"),
+            "target_audience": project.get("audience"),
+            "detected_industry": project.get("compliance_domain"),
+        },
+        _workflow_defaults(project),
+    )
+    _persist_workflow_state(project, state)
+    next_question = workflow.get_next_question(state)
+    output = DiscoveryAnswerResult(
+        project_id=req.project_id,
+        question_id=req.question_id,
+        answer=DiscoveryAnswer.model_validate(answer.to_dict()),
+        next_question=next_question,
+        status=state.status,
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, f"Saved discovery answer for {req.question_id}.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def save_course_brief(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "save_course_brief"
+    assert_tool_allowed(tool_name)
+    req = CourseBriefSaveRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    workflow = CourseDiscoveryWorkflow()
+    state = _workflow_state(project)
+    values = req.model_dump(exclude={"project_id"}, exclude_none=True)
+    answer_context = {
+        "course_topic": project.get("course_title"),
+        "target_audience": project.get("audience"),
+        "detected_industry": project.get("compliance_domain"),
+    }
+    for question_id, answer in values.items():
+        workflow.save_answer(state, question_id, answer, answer_context, _workflow_defaults(project))
+
+    missing = workflow._missing_required_answers_for_stages(state, {"brief"})
+    approved = not missing
+    if approved:
+        workflow.approve_brief(state)
+        brief = _course_brief_from_state(state)
+        project["course_title"] = str(brief.get("course_title") or project.get("course_title"))
+        project["audience"] = str(brief.get("target_learner") or brief.get("target_audience") or project.get("audience"))
+        project["compliance_domain"] = str(brief.get("industry_context") or project.get("compliance_domain") or "")
+    else:
+        state.status = "brief_pending"
+    _persist_workflow_state(project, state)
+    output = WorkflowSelectionResult(
+        project_id=req.project_id,
+        status=state.status,
+        selected_value={
+            "approved": approved,
+            "missing": missing,
+            "course_brief": _course_brief_from_state(state),
+        },
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Course brief saved.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def propose_course_outline(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "propose_course_outline"
+    assert_tool_allowed(tool_name)
+    req = WorkflowOutlineRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    if not state.approvals.get("brief"):
+        readiness = CourseDiscoveryWorkflow().check_generation_readiness(state)
+        return _error_return(tool_name, context, req.model_dump(), "brief_not_approved", readiness)
+    if not _source_chunks_for_project(project):
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "source_chunks_required",
+            {"ready": False, "missing": ["source chunks"], "status": state.status},
+        )
+    workflow = CourseDiscoveryWorkflow()
+    template = _project_template(project)
+    state.selected_template_id = template.template_id
+    brief = _course_brief_from_state(state) or project
+    proposed_topics = _proposed_topics_from_brief(brief, template.name)
+    module_outline = [
+        {
+            "module_id": f"module_{index + 1}",
+            "title": title,
+            "objective": f"Help learners apply {brief.get('course_goal') or project['course_title']} in module {index + 1}.",
+            "review_status": "pending",
+        }
+        for index, title in enumerate(proposed_topics[:4])
+    ]
+    workflow.set_module_outline(state, module_outline)
+    _persist_workflow_state(project, state)
+    output = WorkflowOutlineResult(
+        project_id=req.project_id,
+        proposed_module_outline=module_outline,
+        proposed_lesson_structure=[],
+        selected_template_id=state.selected_template_id,
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Course outline proposed.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def update_course_outline(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "update_course_outline"
+    assert_tool_allowed(tool_name)
+    req = WorkflowStructureUpdateRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    state.module_outline = req.items
+    state.approvals["outline"] = False
+    state.status = "outline_pending_review"
+    _persist_workflow_state(project, state)
+    output = WorkflowSelectionResult(project_id=req.project_id, status=state.status, selected_value={"module_outline": req.items}).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Course outline updated.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def approve_course_outline(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "approve_course_outline"
+    assert_tool_allowed(tool_name)
+    req = WorkflowApprovalRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    if not state.module_outline:
+        raise SecurityError("Cannot approve course outline without proposed outline.")
+    state.approvals["outline"] = True
+    state.status = "outline_approved"
+    _persist_workflow_state(project, state)
+    output = WorkflowSelectionResult(project_id=req.project_id, status=state.status, selected_value={"approved": True}).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Course outline approved.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def propose_lesson_structure(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "propose_lesson_structure"
+    assert_tool_allowed(tool_name)
+    req = WorkflowOutlineRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    if not state.approvals.get("outline"):
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "outline_not_approved",
+            {"ready": False, "missing": ["approved module outline"], "status": state.status},
+        )
+    template = _project_template(project)
+    lesson_structure = [
+        {
+            "lesson_id": f"lesson_{index + 1}",
+            "module_id": f"module_{min(index // 2 + 1, max(1, len(state.module_outline) or 1))}",
+            "title": title,
+            "objective": f"Teach learners {title.lower()} using approved source chunks.",
+            "review_status": "pending",
+        }
+        for index, title in enumerate(template.lesson_blueprint)
+    ]
+    state.lesson_structure = lesson_structure
+    state.approvals["lessons"] = False
+    state.status = "lessons_pending_review"
+    _persist_workflow_state(project, state)
+    output = WorkflowOutlineResult(
+        project_id=req.project_id,
+        proposed_module_outline=state.module_outline,
+        proposed_lesson_structure=lesson_structure,
+        selected_template_id=state.selected_template_id,
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Lesson structure proposed.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def update_lesson_structure(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "update_lesson_structure"
+    assert_tool_allowed(tool_name)
+    req = WorkflowStructureUpdateRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    state.lesson_structure = req.items
+    state.approvals["lessons"] = False
+    state.status = "lessons_pending_review"
+    _persist_workflow_state(project, state)
+    output = WorkflowSelectionResult(project_id=req.project_id, status=state.status, selected_value={"lesson_structure": req.items}).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Lesson structure updated.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def approve_lesson_structure(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "approve_lesson_structure"
+    assert_tool_allowed(tool_name)
+    req = WorkflowApprovalRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    if not state.lesson_structure:
+        raise SecurityError("Cannot approve lesson structure without proposed lessons.")
+    state.approvals["lessons"] = True
+    state.status = "lessons_approved"
+    _persist_workflow_state(project, state)
+    output = WorkflowSelectionResult(project_id=req.project_id, status=state.status, selected_value={"approved": True}).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Lesson structure approved.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def select_assessment_model(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "select_assessment_model"
+    assert_tool_allowed(tool_name)
+    req = WorkflowModelSelectionRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    state.assessment_model = req.model
+    state.approvals["assessment_model"] = True
+    state.status = "assessment_model_approved"
+    _persist_workflow_state(project, state)
+    output = WorkflowSelectionResult(project_id=req.project_id, status=state.status, selected_value=req.model).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Assessment model selected.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def select_interaction_model(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "select_interaction_model"
+    assert_tool_allowed(tool_name)
+    req = WorkflowModelSelectionRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    state.interaction_model = req.model
+    state.approvals["interaction_model"] = True
+    state.status = "interaction_model_approved"
+    _persist_workflow_state(project, state)
+    output = WorkflowSelectionResult(project_id=req.project_id, status=state.status, selected_value=req.model).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Interaction model selected.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def check_generation_readiness(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "check_generation_readiness"
+    assert_tool_allowed(tool_name)
+    req = WorkflowApprovalRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    state.source_chunk_count = max(state.source_chunk_count, len(_source_chunks_for_project(project)))
+    readiness = CourseDiscoveryWorkflow().check_generation_readiness(state)
+    _persist_workflow_state(project, state)
+    output = GenerationReadinessResult(
+        project_id=req.project_id,
+        ready=readiness["ready"],
+        missing=readiness["missing"],
+        status=readiness["status"],
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Generation readiness checked.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def generate_course_with_codex(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "generate_course_with_codex"
+    assert_tool_allowed(tool_name)
+    req = WorkflowApprovalRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    template = _project_template(project)
+    state = _workflow_state(project)
+    state.selected_template_id = template.template_id
+    state.source_chunk_count = max(state.source_chunk_count, len(_source_chunks_for_project(project)))
+    readiness = CourseDiscoveryWorkflow().check_generation_readiness(state)
+    if not readiness["ready"]:
+        _persist_workflow_state(project, state)
+        return _error_return(tool_name, context, req.model_dump(), "not_ready", readiness)
+    state.status = "generation_started"
+    _persist_workflow_state(project, state)
+    contract = CodexGenerationContractBuilder().build(
+        project_id=req.project_id,
+        course_brief=_course_brief_from_state(state),
+        selected_template=_template_snapshot(template),
+        approved_module_outline=state.module_outline,
+        approved_lesson_structure=state.lesson_structure,
+        assessment_model=state.assessment_model,
+        interaction_model=state.interaction_model,
+        source_chunks=_source_chunks_for_project(project),
+        export_targets=state.answers.get("export_targets", {}).get("value", ["html", "scorm"]),
+    )
+    state.status = "generated"
+    _persist_workflow_state(project, state)
+    output = CodexGenerationContractResult(project_id=req.project_id, codex_payload=contract).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Codex generation contract prepared.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def get_course_workflow_status(payload: dict, context: RequestContext) -> dict[str, Any]:
+    tool_name = "get_course_workflow_status"
+    assert_tool_allowed(tool_name)
+    req = WorkflowApprovalRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    output = WorkflowStatusResult(
+        project_id=req.project_id,
+        status=state.status,
+        answers={k: DiscoveryAnswer.model_validate(v) for k, v in state.answers.items()},
+        selected_template_id=state.selected_template_id,
+        module_outline=state.module_outline,
+        lesson_structure=state.lesson_structure,
+        assessment_model=state.assessment_model,
+        interaction_model=state.interaction_model,
+        approvals=state.approvals,
+        source_chunk_count=state.source_chunk_count,
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Course workflow status returned.")
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
@@ -747,14 +1336,7 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
     modules = [
         {
             "title": module.get("title", project["course_title"]),
-            "lessons": [
-                {
-                    "title": lesson.get("lesson_title") or lesson.get("title", "Lesson"),
-                    "objective": lesson.get("objective", "Complete the lesson objective."),
-                    "duration_minutes": lesson.get("duration_minutes", 10),
-                }
-                for lesson in module.get("lessons", [])
-            ],
+            "lessons": module.get("lessons", []),
             "activities": module.get("activities", []),
             "course_payload": course_payload,
         }
@@ -879,6 +1461,23 @@ TOOL_REGISTRY = {
     "generate_chapter_layout": generate_chapter_layout,
     "create_course_project": create_course_project,
     "select_course_template": select_course_template,
+    "list_course_templates": list_course_templates,
+    "recommend_course_templates": recommend_course_templates,
+    "start_course_discovery": start_course_discovery,
+    "save_course_brief": save_course_brief,
+    "get_next_course_question": get_next_course_question,
+    "save_course_discovery_answer": save_course_discovery_answer,
+    "propose_course_outline": propose_course_outline,
+    "update_course_outline": update_course_outline,
+    "approve_course_outline": approve_course_outline,
+    "propose_lesson_structure": propose_lesson_structure,
+    "update_lesson_structure": update_lesson_structure,
+    "approve_lesson_structure": approve_lesson_structure,
+    "select_assessment_model": select_assessment_model,
+    "select_interaction_model": select_interaction_model,
+    "check_generation_readiness": check_generation_readiness,
+    "generate_course_with_codex": generate_course_with_codex,
+    "get_course_workflow_status": get_course_workflow_status,
     "ingest_course_source": ingest_course_source,
     "generate_course_blueprint": generate_course_blueprint,
     "generate_module_pack": generate_module_pack,

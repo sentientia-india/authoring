@@ -32,4 +32,4 @@ extend-exclude = ["codex_next_step_pack", "output", "course_mcp_output"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]

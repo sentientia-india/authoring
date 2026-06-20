@@ -1,0 +1,98 @@
+{
+  "template_id": "microlearning_nudge_series",
+  "name": "Microlearning Nudge Series",
+  "display_name": "Microlearning Nudge Series",
+  "category": "Microlearning / Nudges",
+  "domain": "short training reinforcement nudges daily learning policy refreshers",
+  "best_for": ["short training", "reinforcement", "WhatsApp nudges", "daily learning", "policy refreshers"],
+  "use_when": ["short training", "reinforcement", "WhatsApp nudges", "daily learning", "policy refreshers"],
+  "avoid_when": ["deep simulation"],
+  "default_difficulty": "beginner",
+  "supported_delivery_modes": ["microlearning", "refresher", "standard"],
+  "recommended_interactions": ["flashcards", "reflection", "matching", "decision_tree", "interactive_video"],
+  "layout": {
+    "navigation": "card_stack",
+    "lesson_shell": "article",
+    "card_density": "compact",
+    "mobile_pattern": "bottom_nav"
+  },
+  "theme": {
+    "primary": "#2563EB",
+    "secondary": "#60A5FA",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text": "#0F172A",
+    "danger": "#B42318",
+    "success": "#067647",
+    "font_family": "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+  },
+  "assessment_mix": {
+    "mcq": 30,
+    "multi_select": 20,
+    "scenario": 25,
+    "matching": 10,
+    "short_answer": 15
+  },
+  "gamification": {
+    "enabled": true,
+    "xp_per_lesson": 30,
+    "xp_per_activity": 45,
+    "xp_per_correct_answer": 15,
+    "streak_bonus": 25,
+    "mastery_badge_threshold": 85,
+    "unlock_mode": "score_gated",
+    "leaderboard": "off"
+  },
+  "lesson_blueprint": [
+    "one key idea",
+    "tiny example",
+    "one decision",
+    "one question",
+    "quick feedback",
+    "nudge recap"
+  ],
+  "video_scene_blueprint": ["micro hook", "example", "one decision", "recap"],
+  "quality_rules": {
+    "min_source_coverage": 0.7,
+    "lesson_similarity_max": 0.45,
+    "repeated_phrase_count_max": 3
+  },
+  "prompt_rules": [
+    "Keep each lesson short and focused.",
+    "Use one source-backed point per micro lesson.",
+    "Avoid long explanations.",
+    "Create retention nudges."
+  ],
+  "visual_style": {
+    "layout": "short cards and nudges",
+    "image_style": "minimal icon-led visuals",
+    "mobile": "mobile-first card stack"
+  },
+  "module_strategy": ["micro-topic grouping", "daily challenge", "practice prompt", "recap"],
+  "interaction_types": ["one-tap quiz", "quick decision", "reflection prompt", "streak check", "micro challenge"],
+  "gamification_rules": {
+    "xp_for": "daily completion and streak retention",
+    "badges": ["3-Day Streak", "Quick Learner", "Nudge Champion"]
+  },
+  "html_video_pattern": {
+    "scene_types": ["micro hook", "example", "one decision", "recap"]
+  },
+  "quality_thresholds": {
+    "source_citation_coverage": 0.7,
+    "lesson_similarity_max": 0.45,
+    "repeated_phrase_count_max": 3
+  },
+  "codex_prompt_rules": [
+    "Keep each lesson short and focused.",
+    "Use one source-backed point per micro lesson.",
+    "Avoid long explanations.",
+    "Create retention nudges."
+  ],
+  "default_answers": {
+    "gamification_enabled": true,
+    "html_video_enabled": false,
+    "assessment_preference": "quick checks",
+    "interaction_preference": "microlearning course"
+  }
+}

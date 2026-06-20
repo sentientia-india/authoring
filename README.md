@@ -11,8 +11,16 @@ The server runs as a separate Docker service and exposes only an allowlisted too
 - Course project creation, template selection, blueprint generation, module packs, lesson packs, activities, assessments, role-play simulations, and interactive video packages
 - Instructional quality validation and superior export quality gates
 - SCORM and H5P export packaging
-- Storyline handoff export for manual rebuilds
 - Approval-gated publish flow and audit logging
+
+## Product surfaces
+
+This repo is split into two runtime surfaces:
+
+1. `course-mcp`: the secure MCP generation, validation, and export service.
+2. `scorm-editor`: a separate drag-and-drop editor service for polishing uploaded SCORM exports.
+
+Keep them deployed from the same GitHub repo but running as separate server processes. See [docs/service-split.md](docs/service-split.md).
 
 ## Rotation
 
@@ -32,6 +40,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))" > secrets/mcp_api_t
 Set-Content secrets/openrouter_api_key.txt ""
 docker compose up -d --build
 curl http://localhost:8777/health
+curl http://localhost:8788/
 ```
 
 ## Codex setup

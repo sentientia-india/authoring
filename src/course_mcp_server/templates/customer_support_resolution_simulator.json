@@ -1,0 +1,117 @@
+{
+  "template_id": "customer_support_resolution_simulator",
+  "name": "Customer Support Resolution Simulator",
+  "display_name": "Customer Support Resolution Simulator",
+  "category": "Customer Support / Simulation",
+  "domain": "customer support call center issue resolution voice support empathy",
+  "best_for": ["customer support", "call center", "CS training", "issue resolution", "voice support"],
+  "use_when": ["customer support", "call center", "CS training", "issue resolution", "voice support"],
+  "avoid_when": ["policy refreshers"],
+  "default_difficulty": "intermediate",
+  "supported_delivery_modes": ["standard", "simulation", "assessment_first"],
+  "recommended_interactions": ["decision_tree", "roleplay", "reflection", "matching", "interactive_video"],
+  "layout": {
+    "navigation": "mission_map",
+    "lesson_shell": "scenario",
+    "card_density": "comfortable",
+    "mobile_pattern": "stepper"
+  },
+  "theme": {
+    "primary": "#1D4ED8",
+    "secondary": "#3B82F6",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text": "#0F172A",
+    "danger": "#B42318",
+    "success": "#067647",
+    "font_family": "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+  },
+  "assessment_mix": {
+    "mcq": 10,
+    "multi_select": 15,
+    "scenario": 35,
+    "matching": 15,
+    "short_answer": 25
+  },
+  "gamification": {
+    "enabled": true,
+    "xp_per_lesson": 55,
+    "xp_per_activity": 80,
+    "xp_per_correct_answer": 20,
+    "streak_bonus": 30,
+    "mastery_badge_threshold": 85,
+    "unlock_mode": "mission_map",
+    "leaderboard": "team"
+  },
+  "lesson_blueprint": [
+    "support principle",
+    "ticket/call example",
+    "diagnosis steps",
+    "good vs bad response",
+    "resolution decision",
+    "feedback",
+    "remediation"
+  ],
+  "video_scene_blueprint": [
+    "customer issue",
+    "agent choice",
+    "customer reaction",
+    "coach feedback",
+    "correct closure"
+  ],
+  "quality_rules": {
+    "min_source_coverage": 0.75,
+    "lesson_similarity_max": 0.43,
+    "scenario_specificity_min": 0.8
+  },
+  "prompt_rules": [
+    "Make customer issues specific and source-backed.",
+    "Include empathy and accuracy feedback.",
+    "Map each resolution to process/source chunks.",
+    "Avoid generic customer service advice."
+  ],
+  "visual_style": {
+    "layout": "ticket/call simulation panels",
+    "image_style": "agent-customer scenario visuals",
+    "mobile": "chat/ticket simulator"
+  },
+  "module_strategy": [
+    "customer context",
+    "issue diagnosis",
+    "policy/process lookup",
+    "response quality",
+    "escalation and closure"
+  ],
+  "interaction_types": [
+    "ticket triage",
+    "response selection",
+    "escalation decision",
+    "tone rewrite",
+    "case closure checklist"
+  ],
+  "gamification_rules": {
+    "xp_for": "accurate diagnosis and empathetic resolution",
+    "badges": ["Fast Resolver", "Empathy Pro", "Escalation Expert"]
+  },
+  "html_video_pattern": {
+    "scene_types": ["customer issue", "agent choice", "customer reaction", "coach feedback", "correct closure"]
+  },
+  "quality_thresholds": {
+    "source_citation_coverage": 0.75,
+    "lesson_similarity_max": 0.43,
+    "scenario_specificity_min": 0.8
+  },
+  "codex_prompt_rules": [
+    "Make customer issues specific and source-backed.",
+    "Include empathy and accuracy feedback.",
+    "Map each resolution to process/source chunks.",
+    "Avoid generic customer service advice."
+  ],
+  "default_answers": {
+    "gamification_enabled": true,
+    "html_video_enabled": true,
+    "assessment_preference": "case and response assessment",
+    "interaction_preference": "simulation-style course"
+  }
+}

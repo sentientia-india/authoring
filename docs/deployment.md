@@ -49,9 +49,11 @@ docker compose up -d --build
 ```bash
 docker compose ps
 curl http://localhost:8777/health
+curl http://localhost:8788/
 ```
 
 The healthcheck must return HTTP 200 from `/health`; missing routes or connection failures now fail the container healthcheck.
+The SCORM editor must return HTTP 200 from `/` and should show the authoring workspace.
 
 For a local Docker smoke test on Windows PowerShell, run:
 
@@ -62,7 +64,7 @@ For a local Docker smoke test on Windows PowerShell, run:
 ## 6. Logs
 
 ```bash
-docker compose logs -f course-mcp
+docker compose logs -f course-mcp scorm-editor
 ```
 
 ## 7. Rollback

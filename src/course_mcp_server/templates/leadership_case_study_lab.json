@@ -1,0 +1,117 @@
+{
+  "template_id": "leadership_case_study_lab",
+  "name": "Leadership Case Study Lab",
+  "display_name": "Leadership Case Study Lab",
+  "category": "Leadership / Case Study",
+  "domain": "leadership management decision making people management soft skills",
+  "best_for": ["leadership training", "manager training", "decision making", "soft skills", "people management"],
+  "use_when": ["leadership training", "manager training", "decision making", "soft skills", "people management"],
+  "avoid_when": ["procedural step training"],
+  "default_difficulty": "intermediate",
+  "supported_delivery_modes": ["standard", "simulation", "assessment_first"],
+  "recommended_interactions": ["roleplay", "reflection", "decision_tree", "matching", "interactive_video"],
+  "layout": {
+    "navigation": "mission_map",
+    "lesson_shell": "scenario",
+    "card_density": "comfortable",
+    "mobile_pattern": "stepper"
+  },
+  "theme": {
+    "primary": "#5B21B6",
+    "secondary": "#7C3AED",
+    "accent": "#F97316",
+    "background": "#FAF5FF",
+    "surface": "#FFFFFF",
+    "text": "#1F2937",
+    "danger": "#B42318",
+    "success": "#067647",
+    "font_family": "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+  },
+  "assessment_mix": {
+    "mcq": 5,
+    "multi_select": 10,
+    "scenario": 15,
+    "matching": 15,
+    "short_answer": 55
+  },
+  "gamification": {
+    "enabled": true,
+    "xp_per_lesson": 55,
+    "xp_per_activity": 80,
+    "xp_per_correct_answer": 20,
+    "streak_bonus": 30,
+    "mastery_badge_threshold": 85,
+    "unlock_mode": "mission_map",
+    "leaderboard": "team"
+  },
+  "lesson_blueprint": [
+    "leadership principle",
+    "case context",
+    "decision dilemma",
+    "good vs bad response",
+    "reflection",
+    "coach feedback",
+    "action plan"
+  ],
+  "video_scene_blueprint": [
+    "case setup",
+    "stakeholder conflict",
+    "leader decision",
+    "impact reveal",
+    "coach note"
+  ],
+  "quality_rules": {
+    "min_source_coverage": 0.65,
+    "lesson_similarity_max": 0.45,
+    "scenario_specificity_min": 0.75
+  },
+  "prompt_rules": [
+    "Use realistic workplace dilemmas.",
+    "Do not overuse generic leadership slogans.",
+    "Tie principles to source chunks.",
+    "Provide rubric-based feedback."
+  ],
+  "visual_style": {
+    "layout": "case study journal and decision board",
+    "image_style": "professional workplace case visuals",
+    "mobile": "case cards with reflection"
+  },
+  "module_strategy": [
+    "leadership context",
+    "case problem",
+    "decision options",
+    "impact analysis",
+    "reflection and action plan"
+  ],
+  "interaction_types": [
+    "case choice",
+    "reflection prompt",
+    "rubric scoring",
+    "peer discussion prompt",
+    "decision tree"
+  ],
+  "gamification_rules": {
+    "xp_for": "reflection quality and decision reasoning",
+    "badges": ["Case Thinker", "People Leader", "Action Planner"]
+  },
+  "html_video_pattern": {
+    "scene_types": ["case setup", "stakeholder conflict", "leader decision", "impact reveal", "coach note"]
+  },
+  "quality_thresholds": {
+    "source_citation_coverage": 0.65,
+    "lesson_similarity_max": 0.45,
+    "scenario_specificity_min": 0.75
+  },
+  "codex_prompt_rules": [
+    "Use realistic workplace dilemmas.",
+    "Do not overuse generic leadership slogans.",
+    "Tie principles to source chunks.",
+    "Provide rubric-based feedback."
+  ],
+  "default_answers": {
+    "gamification_enabled": true,
+    "html_video_enabled": true,
+    "assessment_preference": "case study and rubric",
+    "interaction_preference": "scenario-based course"
+  }
+}

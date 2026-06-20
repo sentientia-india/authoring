@@ -15,7 +15,7 @@ class Difficulty(str, Enum):
 class CourseOutlineRequest(BaseModel):
     topic: str = Field(min_length=3, max_length=300)
     audience: str = Field(min_length=2, max_length=200)
-    duration_minutes: int = Field(default=60, ge=10, le=480)
+    duration_minutes: int = Field(default=60, ge=3, le=480)
     difficulty: Difficulty = Difficulty.beginner
     source_text: str | None = Field(default=None, max_length=60_000)
     language: str = Field(default="English", max_length=60)
@@ -102,8 +102,128 @@ class MaterialTicketResult(BaseModel):
     status: Literal["needs_information", "ready_for_layout"]
     missing_fields: list[str]
     questions: list[str]
+    question_flow: list[dict] = Field(default_factory=list)
+    proposed_topics: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     normalized_ticket: dict
+
+
+class DiscoveryAnswer(BaseModel):
+    value: str | int | float | bool | list[str] | dict | None = None
+    source: Literal["user_provided", "ai_suggested", "template_default"]
+    confidence: float = Field(ge=0, le=1)
+    reason: str
+
+
+class DiscoveryStartRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+
+
+class DiscoveryStartResult(BaseModel):
+    project_id: str
+    status: str
+    next_question: dict | None = None
+    questions: list[dict] = Field(default_factory=list)
+    answers: dict[str, DiscoveryAnswer] = Field(default_factory=dict)
+    proposed_topics: list[str] = Field(default_factory=list)
+    selected_template_id: str | None = None
+
+
+class DiscoveryAnswerRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    question_id: str = Field(min_length=2, max_length=80)
+    answer: str | int | float | bool | list[str] | dict | None = None
+
+
+class CourseBriefSaveRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    course_title: str | None = Field(default=None, min_length=3, max_length=300)
+    target_learner: str | None = Field(default=None, min_length=2, max_length=200)
+    learner_level: Literal["beginner", "intermediate", "advanced", "mixed"] | None = None
+    course_goal: str | None = Field(default=None, min_length=3, max_length=500)
+    industry_context: str | None = Field(default=None, min_length=2, max_length=200)
+    course_type: str | None = Field(default=None, min_length=2, max_length=120)
+    expected_duration: int | None = Field(default=None, ge=3, le=480)
+    source_material: str | None = Field(default=None, min_length=2, max_length=1000)
+    module_topic_mode: Literal["suggested_modules", "user_topics"] | None = None
+    export_targets: list[str] | str | None = None
+
+
+class DiscoveryAnswerResult(BaseModel):
+    project_id: str
+    question_id: str
+    answer: DiscoveryAnswer
+    next_question: dict | None = None
+    status: str
+
+
+class TemplateListResult(BaseModel):
+    templates: list[dict]
+
+
+class TemplateRecommendationRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    source_summary: str = Field(default="", max_length=5000)
+
+
+class TemplateRecommendationResult(BaseModel):
+    recommendations: list[dict]
+
+
+class WorkflowOutlineRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+
+
+class WorkflowOutlineResult(BaseModel):
+    project_id: str
+    proposed_module_outline: list[dict]
+    proposed_lesson_structure: list[dict]
+    selected_template_id: str | None = None
+
+
+class WorkflowStructureUpdateRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    items: list[dict] = Field(default_factory=list)
+
+
+class WorkflowModelSelectionRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    model: dict = Field(default_factory=dict)
+
+
+class WorkflowApprovalRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+
+
+class WorkflowSelectionResult(BaseModel):
+    project_id: str
+    status: str
+    selected_value: dict | None = None
+
+
+class GenerationReadinessResult(BaseModel):
+    project_id: str
+    ready: bool
+    missing: list[str]
+    status: str
+
+
+class CodexGenerationContractResult(BaseModel):
+    project_id: str
+    codex_payload: dict
+
+
+class WorkflowStatusResult(BaseModel):
+    project_id: str
+    status: str
+    answers: dict[str, DiscoveryAnswer] = Field(default_factory=dict)
+    selected_template_id: str | None = None
+    module_outline: list[dict] = Field(default_factory=list)
+    lesson_structure: list[dict] = Field(default_factory=list)
+    assessment_model: dict = Field(default_factory=dict)
+    interaction_model: dict = Field(default_factory=dict)
+    approvals: dict[str, bool] = Field(default_factory=dict)
+    source_chunk_count: int = 0
 
 
 class ChapterLayoutRequest(MaterialTicketRequest):
@@ -158,7 +278,7 @@ class SourceIngestResult(BaseModel):
 
 class BlueprintRequest(BaseModel):
     project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
-    duration_minutes: int = Field(default=60, ge=5, le=480)
+    duration_minutes: int = Field(default=60, ge=3, le=480)
     difficulty: Difficulty = Difficulty.beginner
 
 

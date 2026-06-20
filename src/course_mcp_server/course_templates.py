@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import ConfigDict
 
 Difficulty = Literal["beginner", "intermediate", "advanced"]
 DeliveryMode = Literal["microlearning", "standard", "simulation", "assessment_first", "refresher"]
@@ -73,6 +74,8 @@ class GamificationRules(BaseModel):
 
 
 class TemplatePack(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     template_id: str = Field(pattern=r"^[a-z0-9_\-]{3,80}$")
     name: str = Field(min_length=3, max_length=120)
     domain: str = Field(min_length=3, max_length=120)

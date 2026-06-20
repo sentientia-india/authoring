@@ -1,0 +1,118 @@
+{
+  "template_id": "product_knowledge_certification",
+  "name": "Product Knowledge Certification",
+  "display_name": "Product Knowledge Certification",
+  "category": "Product / Certification",
+  "domain": "product training certification feature training dealer training partner enablement",
+  "best_for": ["product training", "partner enablement", "dealer training", "certification course", "feature training"],
+  "use_when": ["product training", "partner enablement", "dealer training", "certification course", "feature training"],
+  "avoid_when": ["policy compliance"],
+  "default_difficulty": "beginner",
+  "supported_delivery_modes": ["standard", "assessment_first", "microlearning"],
+  "recommended_interactions": ["matching", "decision_tree", "reflection", "interactive_video", "branching_scenario"],
+  "layout": {
+    "navigation": "top_tabs",
+    "lesson_shell": "slides",
+    "card_density": "comfortable",
+    "mobile_pattern": "stepper"
+  },
+  "theme": {
+    "primary": "#0EA5E9",
+    "secondary": "#38BDF8",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text": "#0F172A",
+    "danger": "#B42318",
+    "success": "#067647",
+    "font_family": "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+  },
+  "assessment_mix": {
+    "mcq": 25,
+    "multi_select": 20,
+    "scenario": 20,
+    "matching": 25,
+    "short_answer": 10
+  },
+  "gamification": {
+    "enabled": true,
+    "xp_per_lesson": 45,
+    "xp_per_activity": 60,
+    "xp_per_correct_answer": 20,
+    "streak_bonus": 20,
+    "mastery_badge_threshold": 85,
+    "unlock_mode": "score_gated",
+    "leaderboard": "off"
+  },
+  "lesson_blueprint": [
+    "feature/source point",
+    "benefit explanation",
+    "use case",
+    "comparison",
+    "mistake or misconception",
+    "practice question",
+    "remediation"
+  ],
+  "video_scene_blueprint": [
+    "product problem",
+    "feature reveal",
+    "customer use case",
+    "decision check",
+    "recap"
+  ],
+  "quality_rules": {
+    "min_source_coverage": 0.8,
+    "lesson_similarity_max": 0.45,
+    "assessment_alignment_min": 0.8
+  },
+  "prompt_rules": [
+    "Use product claims only from source.",
+    "Map features to learner use cases.",
+    "Include comparison and misconception checks.",
+    "Do not invent pricing/specifications."
+  ],
+  "visual_style": {
+    "layout": "feature cards and comparison tables",
+    "image_style": "product-focused diagrams",
+    "mobile": "feature flashcards"
+  },
+  "module_strategy": [
+    "product overview",
+    "features and benefits",
+    "use cases",
+    "comparison",
+    "objection handling",
+    "certification exam"
+  ],
+  "interaction_types": [
+    "feature matching",
+    "use case selection",
+    "comparison sorting",
+    "scenario recommendation",
+    "certification quiz"
+  ],
+  "gamification_rules": {
+    "xp_for": "feature mastery and use-case accuracy",
+    "badges": ["Feature Expert", "Product Certified", "Use-Case Master"]
+  },
+  "html_video_pattern": {
+    "scene_types": ["product problem", "feature reveal", "customer use case", "decision check", "recap"]
+  },
+  "quality_thresholds": {
+    "source_citation_coverage": 0.8,
+    "lesson_similarity_max": 0.45,
+    "assessment_alignment_min": 0.8
+  },
+  "codex_prompt_rules": [
+    "Use product claims only from source.",
+    "Map features to learner use cases.",
+    "Include comparison and misconception checks.",
+    "Do not invent pricing/specifications."
+  ],
+  "default_answers": {
+    "gamification_enabled": true,
+    "html_video_enabled": true,
+    "assessment_preference": "module quizzes and final certification",
+    "interaction_preference": "interactive course"
+  }
+}

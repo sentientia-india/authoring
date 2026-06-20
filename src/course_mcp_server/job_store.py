@@ -22,7 +22,13 @@ def _read_jobs() -> list[dict[str, Any]]:
     path = _store_path()
     if not path.exists():
         return []
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [job for job in data if isinstance(job, dict)]
 
 
 def _write_jobs(jobs: list[dict[str, Any]]) -> None:
