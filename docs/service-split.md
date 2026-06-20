@@ -49,7 +49,7 @@ Rules:
 Deployment:
 - Docker service name: `scorm-editor`
 - Dockerfile: `Dockerfile.scorm-editor`
-- default local port: `127.0.0.1:8788`
+- default server-facing port: `8788`
 - health route: `/`
 
 ## Why One GitHub Repo Still Works

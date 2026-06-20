@@ -43,7 +43,7 @@ services:
       dockerfile: Dockerfile.scorm-editor
     container_name: samrat-scorm-editor
     ports:
-      - "127.0.0.1:8788:8788"
+      - "8788:8788"
     networks:
       - course-mcp-net
     read_only: true

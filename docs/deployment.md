@@ -55,6 +55,14 @@ curl http://localhost:8788/
 The healthcheck must return HTTP 200 from `/health`; missing routes or connection failures now fail the container healthcheck.
 The SCORM editor must return HTTP 200 from `/` and should show the authoring workspace.
 
+From your browser, open the SCORM editor with the server IP or domain:
+
+```text
+http://<server-ip-or-domain>:8788/
+```
+
+The MCP service remains bound to server-local `127.0.0.1:8777` because it is an agent/tool endpoint, not a public web UI.
+
 For a local Docker smoke test on Windows PowerShell, run:
 
 ```powershell
@@ -77,7 +85,7 @@ docker compose up -d --build
 
 ## 8. Reverse proxy
 
-If exposing remotely, put the service behind Nginx/Caddy/Traefik with TLS and rate limiting. Do not expose the container directly to the public internet without auth and TLS.
+The SCORM editor is exposed on port `8788` for direct server testing. For production use, put it behind Nginx/Caddy/Traefik with TLS and rate limiting. Do not expose the MCP endpoint directly to the public internet.
 
 ## 9. Backup
 
