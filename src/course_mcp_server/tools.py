@@ -18,6 +18,7 @@ import copy
 
 from .course_schema_v2 import CourseProjectV2, GameOptions, MediaAsset
 from .media_briefs import build_media_briefs
+from .provenance import sign_export
 from .course_templates import TemplateRegistry
 from .discovery import CourseDiscoveryState, CourseDiscoveryWorkflow
 from .delivery import build_delivery_metadata
@@ -102,11 +103,14 @@ from .storyline_handoff import build_storyline_handoff_package as build_storylin
 
 def _safe_return(tool_name: str, context: RequestContext, request: Any, output: Any) -> dict[str, Any]:
     safe_output = redact_output(output)
-    return {
+    response = {
         "ok": True,
         "data": safe_output,
         "audit": audit_event(tool_name, context, request, safe_output),
     }
+    if context.license_warning:
+        response["license_warning"] = context.license_warning
+    return response
 
 
 def _error_return(tool_name: str, context: RequestContext, request: Any, error: str, output: Any) -> dict[str, Any]:
@@ -1242,14 +1246,27 @@ def upload_media_asset(payload: dict, context: RequestContext) -> dict[str, Any]
         )
     upload_dir = Path(os.getenv("UPLOAD_DIR", "/app/output/uploads"))
     upload_dir.mkdir(parents=True, exist_ok=True)
-    target = (upload_dir / req.filename).resolve()
+    tenant_prefix = re.sub(r"[^a-zA-Z0-9_-]", "-", context.tenant_id)[:40] or "tenant"
+    tenant_files = list(upload_dir.glob(f"{tenant_prefix}--*"))
+    used_bytes = sum(path.stat().st_size for path in tenant_files if path.is_file())
+    quota_bytes = int(os.getenv("TENANT_UPLOAD_QUOTA_BYTES", str(100 * 1024 * 1024)))
+    if used_bytes + len(blob) > quota_bytes:
+        return _error_return(
+            tool_name,
+            context,
+            {"project_id": req.project_id},
+            "tenant_upload_quota_exceeded",
+            {"quota_bytes": quota_bytes, "used_bytes": used_bytes, "requested_bytes": len(blob)},
+        )
+    stored_name = f"{tenant_prefix}--{req.filename}"
+    target = (upload_dir / stored_name).resolve()
     if not str(target).startswith(str(upload_dir.resolve())):
         raise SecurityError("Upload escapes the controlled upload directory")
     target.write_bytes(blob)
     suffix = target.suffix.lower()
     output = UploadMediaAssetResult(
         project_id=req.project_id,
-        upload_id=req.filename,
+        upload_id=stored_name,
         size_bytes=len(blob),
         kind="video" if suffix in _VIDEO_EXTENSIONS else "image",
     ).model_dump(mode="json")
@@ -1803,6 +1820,8 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
     if not quota["allowed"]:
         return _error_return(tool_name, context, req.model_dump(), "quota_exceeded", quota)
     branding = dict(req.branding or {}) if license_.white_label else {}
+    if context.tier == "free":
+        branding = {"footer_text": "Created with Samrat Course MCP — Free plan"}
     project = _project_or_raise(context, req.project_id)
     template = _project_template(project)
     course_payload = _project_course_payload(project)
@@ -1859,6 +1878,7 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
                 scorm_version=req.scorm_version,
                 media_files=media_files,
                 branding=branding,
+                export_stamp=sign_export(req.project_id, context.tenant_id, context.tier),
             ),
             os.getenv("OUTPUT_DIR", "/app/output"),
         )

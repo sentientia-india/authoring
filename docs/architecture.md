@@ -1,5 +1,7 @@
 # Architecture: Samrat Course MCP
 
+Hosted learner delivery, Stripe webhook processing and the public landing/editor routes are transport services, not MCP tools. They cannot register themselves in `TOOL_REGISTRY`; this preserves the course-tool allowlist and keeps learner traffic separate from agent authorization.
+
 ## Target architecture
 
 ```text

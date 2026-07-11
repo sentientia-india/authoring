@@ -89,6 +89,7 @@ class RequestContext:
     # License tier resolved at the transport boundary. Direct in-process callers
     # (tests, scripts) default to "admin" = legacy unlimited behavior.
     tier: str = "admin"
+    license_warning: str | None = None
 
 
 def assert_tool_allowed(tool_name: str) -> None:

@@ -37,21 +37,31 @@ def _hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _chunk_text(text: str, *, source_id: str, source_type: str, chunk_size: int = 2500) -> list[dict[str, Any]]:
+def _chunk_text(
+    text: str,
+    *,
+    source_id: str,
+    source_type: str,
+    chunk_size: int = 2500,
+    source_ref: str | None = None,
+) -> list[dict[str, Any]]:
     normalized = "\n".join(line.strip() for line in text.splitlines() if line.strip())
     chunks: list[dict[str, Any]] = []
     start = 0
     index = 1
     while start < len(normalized):
         part = normalized[start : start + chunk_size]
-        chunks.append({
+        chunk = {
             "chunk_id": f"{source_id}_chunk_{index}",
             "source_id": source_id,
             "source_type": source_type,
             "text": part,
             "char_start": start,
             "char_end": start + len(part),
-        })
+        }
+        if source_ref:
+            chunk["source_ref"] = source_ref
+        chunks.append(chunk)
         start += chunk_size
         index += 1
     return chunks
@@ -61,7 +71,7 @@ def _extract_txt(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
-def _extract_pdf(path: Path) -> tuple[str, list[str]]:
+def _extract_pdf(path: Path) -> tuple[str, list[str], list[tuple[int, str]]]:
     warnings: list[str] = []
     try:
         from pypdf import PdfReader  # type: ignore
@@ -69,12 +79,14 @@ def _extract_pdf(path: Path) -> tuple[str, list[str]]:
         raise SourceIngestionError("pypdf is required for PDF ingestion") from exc
     reader = PdfReader(str(path))
     pages: list[str] = []
+    page_texts: list[tuple[int, str]] = []
     for page_number, page in enumerate(reader.pages, start=1):
         text = page.extract_text() or ""
         if not text.strip():
             warnings.append(f"Page {page_number} has no extractable text")
         pages.append(f"[page {page_number}]\n{text}")
-    return "\n\n".join(pages), warnings
+        page_texts.append((page_number, text))
+    return "\n\n".join(pages), warnings, page_texts
 
 
 def _extract_docx(path: Path) -> str:
@@ -138,10 +150,11 @@ def ingest_source_from_upload(upload_root: Path | str, upload_id: str) -> Extrac
     source_id = f"src_{sha[:16]}"
     warnings: list[str] = []
 
+    page_texts: list[tuple[int, str]] = []
     if suffix in {".txt", ".md"}:
         text = _extract_txt(path)
     elif suffix == ".pdf":
-        text, warnings = _extract_pdf(path)
+        text, warnings, page_texts = _extract_pdf(path)
     elif suffix == ".docx":
         text = _extract_docx(path)
     elif suffix == ".pptx":
@@ -153,12 +166,26 @@ def ingest_source_from_upload(upload_root: Path | str, upload_id: str) -> Extrac
         warnings.append("No useful text could be extracted from source")
 
     source_type = suffix.lstrip(".")
+    chunks = _chunk_text(text, source_id=source_id, source_type=source_type)
+    if page_texts:
+        chunks = []
+        for page_number, page_text in page_texts:
+            page_chunks = _chunk_text(
+                    page_text,
+                    source_id=f"{source_id}_page_{page_number}",
+                    source_type=source_type,
+                    source_ref=f"page:{page_number}",
+                )
+            for chunk in page_chunks:
+                chunk["source_id"] = source_id
+            chunks.extend(page_chunks)
+
     return ExtractedSource(
         source_id=source_id,
         source_type=source_type,
         title=path.name,
         text=text,
-        chunks=_chunk_text(text, source_id=source_id, source_type=source_type),
+        chunks=chunks,
         sha256=sha,
         warnings=warnings,
     )

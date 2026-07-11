@@ -4,7 +4,7 @@ import copy
 import json
 import os
 from html import escape
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -2119,21 +2119,43 @@ def validate_scorm_package(package_path: Path | str, expected_files: list[str]) 
     try:
         with ZipFile(path) as package:
             names = set(package.namelist())
+            for name in names:
+                member = PurePosixPath(name.replace("\\", "/"))
+                if member.is_absolute() or ".." in member.parts:
+                    errors.append(f"Unsafe package path: {name}")
             for file_name in expected_files:
                 if file_name not in names:
                     errors.append(f"Missing package file: {file_name}")
             manifest = package.read("imsmanifest.xml").decode("utf-8") if "imsmanifest.xml" in names else ""
             if manifest and "<manifest" not in manifest:
                 errors.append("imsmanifest.xml does not contain a manifest root.")
-            if manifest and "adlcp:scormtype=\"sco\"" not in manifest:
+            if manifest and not any(
+                marker in manifest for marker in ('adlcp:scormtype="sco"', 'adlcp:scormType="sco"')
+            ):
                 errors.append("Manifest does not declare a SCO resource.")
+            if manifest and 'href="index.html"' not in manifest:
+                errors.append("Manifest does not launch index.html as the SCO.")
+            if manifest and "<organizations" not in manifest:
+                errors.append("Manifest does not define an organization.")
             runtime = package.read("assets/scorm_api.js").decode("utf-8") if "assets/scorm_api.js" in names else ""
+            if not runtime:
+                errors.append("Missing SCORM runtime: assets/scorm_api.js")
             if runtime and "recordInteraction" not in runtime:
                 errors.append("SCORM runtime does not record interactions.")
             if runtime and "cmi.core.lesson_status" not in runtime:
                 errors.append("SCORM runtime does not set SCORM 1.2 completion status.")
             if runtime and "cmi.success_status" not in runtime:
                 errors.append("SCORM runtime does not set SCORM 2004 success status.")
+            if runtime and "cmi.core.score.raw" not in runtime:
+                errors.append("SCORM runtime does not set SCORM 1.2 score.")
+            if runtime and "cmi.score.raw" not in runtime:
+                errors.append("SCORM runtime does not set SCORM 2004 score.")
+            if runtime and "cmi.suspend_data" not in runtime:
+                errors.append("SCORM runtime does not persist suspend/resume data.")
+            if runtime and "LMSCommit" not in runtime:
+                errors.append("SCORM runtime does not commit SCORM 1.2 state.")
+            if runtime and "Commit" not in runtime:
+                errors.append("SCORM runtime does not commit SCORM 2004 state.")
     except Exception:
         errors.append("Package is not a readable zip archive.")
 
@@ -2154,6 +2176,8 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
     course_payload["theme"] = _theme_for_course(req.course_title, " ".join(str(module.get("title", "")) for module in req.modules))
     course_payload["reference_style"] = req.reference_style
     course_payload["reference_style_label"] = _reference_style_label(req.reference_style)
+    if req.export_stamp:
+        course_payload["export_stamp"] = req.export_stamp
     course_payload_json = json.dumps(course_payload, indent=2).replace("</", "<\\/")
     video_dir = base / "interactive-video"
     video_dir.mkdir(exist_ok=True)
@@ -2188,13 +2212,23 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
             media_files.append(f"assets/media/{name}")
     files = ["imsmanifest.xml", "index.html", *module_files, *asset_files, *media_files, *video_files, *data_files]
 
+    if req.scorm_version == "2004":
+        manifest_namespace = "http://www.imsglobal.org/xsd/imscp_v1p1"
+        adlcp_namespace = "http://www.adlnet.org/xsd/adlcp_v1p3"
+        scorm_type_attribute = "adlcp:scormType"
+        schema_version = "2004 4th Edition"
+    else:
+        manifest_namespace = "http://www.imsproject.org/xsd/imscp_rootv1p1p2"
+        adlcp_namespace = "http://www.adlnet.org/xsd/adlcp_rootv1p2"
+        scorm_type_attribute = "adlcp:scormtype"
+        schema_version = "1.2"
     manifest = f'''<?xml version="1.0" encoding="UTF-8"?>
 <manifest identifier="{escape(req.course_slug)}" version="1.0"
-  xmlns="http://www.imsproject.org/xsd/imscp_rootv1p1p2"
-  xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_rootv1p2">
+  xmlns="{manifest_namespace}"
+  xmlns:adlcp="{adlcp_namespace}">
   <metadata>
     <schema>ADL SCORM</schema>
-    <schemaversion>{escape(req.scorm_version)}</schemaversion>
+    <schemaversion>{schema_version}</schemaversion>
   </metadata>
   <organizations default="org1">
     <organization identifier="org1">
@@ -2205,7 +2239,7 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
     </organization>
   </organizations>
   <resources>
-    <resource identifier="res1" type="webcontent" adlcp:scormtype="sco" href="index.html">
+    <resource identifier="res1" type="webcontent" {scorm_type_attribute}="sco" href="index.html">
       <file href="index.html" />
 {chr(10).join(f'      <file href="{escape(file_name)}" />' for file_name in module_files)}
 {chr(10).join(f'      <file href="{escape(file_name)}" />' for file_name in asset_files)}

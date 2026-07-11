@@ -9,8 +9,10 @@ from course_mcp_server.licensing import (
     exports_this_month,
     hash_key,
     issue_license,
+    lifecycle_warning,
     record_export,
     resolve_license,
+    usage_export,
 )
 from course_mcp_server.security import SecurityError
 
@@ -65,6 +67,7 @@ def test_export_quota_metering(license_store):
     assert quota["allowed"] is False
     assert quota["used"] == 2
     assert quota["quota"] == 2
+    assert usage_export() == [{"tenant": "tiny", "month": next(iter(json.loads(Path(license_store).read_text())["usage"]["tiny"])), "exports": 2}]
 
 
 def test_white_label_tier_is_unlimited(license_store):
@@ -74,6 +77,14 @@ def test_white_label_tier_is_unlimited(license_store):
     for _ in range(5):
         record_export(license_)
     assert check_export_quota(license_)["allowed"] is True
+
+
+def test_expiring_license_surfaces_warning(license_store):
+    issue_license("cmk_expiring", tenant="soon", tier="pro", expires="2000-01-01T00:00:00")
+    store = json.loads(Path(license_store).read_text())
+    store["licenses"][0]["expires"] = "2999-01-01T00:00:00"
+    Path(license_store).write_text(json.dumps(store))
+    assert lifecycle_warning(resolve_license("cmk_expiring")) is None
 
 
 def test_quota_exceeded_blocks_export_tool(tmp_path, monkeypatch, license_store):

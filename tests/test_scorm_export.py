@@ -696,7 +696,11 @@ def test_scorm_package_supports_reference_output_styles(tmp_path):
         package_dir = tmp_path / f"reference-{style.replace('_', '-')}"
         index = (package_dir / "index.html").read_text(encoding="utf-8")
         course_json = (package_dir / "data" / "course.json").read_text(encoding="utf-8")
+        manifest = (package_dir / "imsmanifest.xml").read_text(encoding="utf-8")
 
         assert f'data-reference-style="{style}"' in index
         assert f'"reference_style": "{style}"' in course_json
+        assert 'xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_v1p3"' in manifest
+        assert 'adlcp:scormType="sco"' in manifest
+        assert "2004 4th Edition" in manifest
         assert validate_scorm_package(result["package_path"], result["files"])["valid"] is True

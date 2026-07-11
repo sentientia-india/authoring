@@ -52,6 +52,34 @@ def test_build_zip_replaces_course_json_without_touching_manifest():
         assert '"title": "B"' in package.read("data/course.json").decode("utf-8")
 
 
+def test_build_zip_replaces_media_and_preserves_protected_branding():
+    original = _sample_zip_bytes()
+    buffer = BytesIO()
+    with ZipFile(BytesIO(original)) as source, ZipFile(buffer, "w", ZIP_DEFLATED) as target:
+        for name in source.namelist():
+            if name == "data/course.json":
+                target.writestr(
+                    name,
+                    '{"course_title":"Demo Course","course_slug":"demo-course","modules":[],"branding":{"footer_text":"Licensed customer"},"export_stamp":"signed"}',
+                )
+            else:
+                target.writestr(name, source.read(name))
+        target.writestr("assets/scorm_api.js", "tracking")
+        target.writestr("assets/media/hero.png", b"old")
+
+    rebuilt = _build_zip(
+        buffer.getvalue(),
+        {"course_title": "Edited", "course_slug": "demo-course", "modules": [], "branding": {}},
+        {"hero.png": b"new"},
+    )
+    with ZipFile(BytesIO(rebuilt)) as package:
+        course = package.read("data/course.json").decode("utf-8")
+        assert '"footer_text": "Licensed customer"' in course
+        assert '"export_stamp": "signed"' in course
+        assert package.read("assets/media/hero.png") == b"new"
+        assert package.read("assets/scorm_api.js") == b"tracking"
+
+
 def test_editor_ui_has_authoring_modes_and_preview():
     index = open("apps/scorm_editor/static/index.html", encoding="utf-8").read()
     app_js = open("apps/scorm_editor/static/app.js", encoding="utf-8").read()
@@ -61,9 +89,12 @@ def test_editor_ui_has_authoring_modes_and_preview():
     assert 'data-mode="lesson"' in index
     assert 'data-mode="theme"' in index
     assert 'data-mode="assessment"' in index
+    assert 'data-mode="media"' in index
     assert 'id="preview"' in index
     assert "ensureBlocks" in app_js
     assert "renderAssessmentEditor" in app_js
     assert "renderPreview" in app_js
+    assert "localStorage" in app_js
+    assert "game_options" in app_js
     assert "Edit JSON blocks directly" not in app_js
     assert ".preview-frame" in css

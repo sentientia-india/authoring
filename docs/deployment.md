@@ -87,6 +87,16 @@ docker compose up -d --build
 
 The SCORM editor is exposed on port `8788` for direct server testing. For production use, put it behind Nginx/Caddy/Traefik with TLS and rate limiting. Do not expose the MCP endpoint directly to the public internet.
 
+The repository now includes an opt-in Caddy TLS profile. Set `PUBLIC_DOMAIN` to a DNS name pointing at the server, allow inbound ports 80/443, then run:
+
+```bash
+docker compose --profile tls up -d --build
+```
+
+Caddy obtains and renews the certificate. The MCP remains bearer-license protected at `/mcp`; the landing page is `/`, the editor is `/editor/`, and hosted courses use unguessable `/learn/<token>/` paths. Configure Stripe to POST to `https://<domain>/billing/stripe-webhook` and set `STRIPE_WEBHOOK_SECRET` plus `EXPORT_SIGNING_SECRET` through deployment secrets.
+
+OAuth 2.1 migration path: retain license keys as tenant entitlements, add an authorization server with PKCE and resource indicators, exchange access tokens at the HTTP boundary, and map the authenticated subject/client to the existing `RequestContext`. Do not pass refresh tokens into MCP tool payloads.
+
 ## 9. Backup
 
 Back up only artifact output and metadata DB after those are introduced. Do not back up `.env` into shared locations.

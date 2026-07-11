@@ -4,6 +4,12 @@ Written 2026-07-11, after the agent-authored pipeline, Level 3.5/4 player, media
 
 Ordering principle: **prove the deliverable → make it editable → make it easy to buy → make it hard to leave.** Each item has an acceptance test; nothing counts as done without it.
 
+## Delivery status — 2026-07-11
+
+- Implemented and locally verified: A3, B1 decision, B2, B3 automated preservation coverage, C1 application/TLS configuration, C2 tutorial/landing/gallery foundations, D1 webhook/license automation, D2 anti-abuse/provenance, and E1–E4 hosted service primitives.
+- Requires external acceptance evidence before it can truthfully be marked done: A1 SCORM Cloud and Moodle runtime runs; A2 three pilot-designer sign-offs; C1 public domain/TLS connection; C2 independent new-user timing; C3 registry publication; D1 live Stripe checkout; E1–E4 hosted paying-tier demo runs.
+- Local automation cannot substitute for those third-party accounts or human acceptance tests. The repository contains the test harnesses, deployment configuration, and operational instructions needed to execute them once access is supplied.
+
 ---
 
 ## Track A — Prove the deliverable (first)

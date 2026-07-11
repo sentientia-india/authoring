@@ -1,4 +1,25 @@
 services:
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: samrat-course-mcp-caddy
+    profiles: ["tls"]
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks:
+      - course-mcp-net
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./apps/landing:/srv/apps/landing:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - course-mcp
+      - scorm-editor
+    restart: unless-stopped
   course-mcp:
     build: .
     container_name: samrat-course-mcp
@@ -93,6 +114,8 @@ volumes:
   course_mcp_output:
   course_mcp_postgres:
   course_mcp_redis:
+  caddy_data:
+  caddy_config:
 
 secrets:
   mcp_api_token:

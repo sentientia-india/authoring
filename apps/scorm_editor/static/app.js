@@ -4,6 +4,8 @@ let selection = { type: null, moduleIndex: null, lessonIndex: null };
 let mode = "outline";
 let viewport = "desktop";
 let sampleZipBlob = null;
+let mediaFiles = {};
+let saveTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -134,6 +136,8 @@ function renderEditor() {
           </select>
         </label>
         <label>Course summary<textarea name="summary">${esc(course.summary || course.description || "")}</textarea></label>
+        <label><input name="timed_challenges" type="checkbox" ${course.game_options?.timed_challenges !== false ? "checked" : ""}> Timed challenges</label>
+        <label><input name="branching_scenarios" type="checkbox" ${course.game_options?.branching_scenarios !== false ? "checked" : ""}> Branching scenarios</label>
       </form>
     `;
     $("theme-form").addEventListener("input", updateTheme);
@@ -142,6 +146,11 @@ function renderEditor() {
   if (mode === "assessment") {
     label.textContent = "Assessment";
     renderAssessmentEditor(editor);
+    return;
+  }
+  if (mode === "media") {
+    label.textContent = "Media manager";
+    renderMediaEditor(editor);
     return;
   }
   if (selection.type === null) {
@@ -210,7 +219,36 @@ function updateTheme() {
   course.course_title = form.course_title.value;
   course.theme = form.theme.value;
   course.summary = form.summary.value;
+  course.game_options = course.game_options || {};
+  course.game_options.timed_challenges = form.timed_challenges?.checked ?? true;
+  course.game_options.branching_scenarios = form.branching_scenarios?.checked ?? true;
+  scheduleAutosave();
   renderPreview();
+}
+
+function scheduleAutosave() {
+  clearTimeout(saveTimer);
+  $("save-status").textContent = "Saving…";
+  saveTimer = setTimeout(() => {
+    if (course) localStorage.setItem("samrat-scorm-editor-draft", JSON.stringify(course));
+    $("save-status").textContent = "Saved locally";
+  }, 300);
+}
+
+function renderMediaEditor(editor) {
+  const attached = Object.keys(mediaFiles);
+  editor.innerHTML = `
+    <label class="media-upload">Replace or add course media
+      <input id="media-input" type="file" accept="image/*,video/mp4,video/webm" multiple>
+    </label>
+    <div class="media-list">
+      ${attached.map((name) => `<div class="media-row"><strong>${esc(name)}</strong><span>Ready for export</span></div>`).join("") || "<p class='muted'>No replacement media selected.</p>"}
+    </div>`;
+  $("media-input").addEventListener("change", async (event) => {
+    for (const file of event.target.files) mediaFiles[file.name] = await fileToDataUrl(file);
+    scheduleAutosave();
+    renderMediaEditor(editor);
+  });
 }
 
 function renderBlockRow(block, index) {
@@ -348,6 +386,7 @@ function renderAll() {
   $("import-status").textContent = course
     ? `${course.course_title || "Course"} loaded with ${(course.modules || []).length} modules.`
     : "No package loaded.";
+  if (course) scheduleAutosave();
 }
 
 function renderModes() {
@@ -392,6 +431,13 @@ async function importZip(file) {
   if (!response.ok || !payload.ok) throw new Error(payload.error || "Failed to import package.");
   importedZip = file;
   course = payload.data.course;
+  const draft = localStorage.getItem("samrat-scorm-editor-draft");
+  if (draft) {
+    try {
+      const restored = JSON.parse(draft);
+      if (restored.course_slug === course.course_slug) course = restored;
+    } catch (_error) { /* ignore corrupt local drafts */ }
+  }
   selection = { type: null, moduleIndex: null, lessonIndex: null };
   renderAll();
 }
@@ -411,7 +457,7 @@ async function exportZip() {
   const response = await fetch("/api/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ zip: await fileToDataUrl(importedZip), course }),
+    body: JSON.stringify({ zip: await fileToDataUrl(importedZip), course, media_files: mediaFiles }),
   });
   if (!response.ok) throw new Error("Export failed.");
   const blob = await response.blob();
@@ -433,6 +479,7 @@ function fileToDataUrl(file) {
 }
 
 function wire() {
+  document.addEventListener("input", () => { if (course) scheduleAutosave(); });
   $("zip-input").addEventListener("change", (event) => importZip(event.target.files[0]).catch((error) => $("import-status").textContent = error.message));
   $("export-btn").addEventListener("click", () => exportZip().catch((error) => $("import-status").textContent = error.message));
   document.querySelectorAll(".mode-tab").forEach((button) => {

@@ -1,5 +1,7 @@
 from zipfile import ZipFile
 
+import course_mcp_server.ingestion as ingestion
+
 from course_mcp_server.ingestion import extract_source
 
 
@@ -74,3 +76,30 @@ def test_pdf_extraction_reports_page_markers_from_text_pdf(tmp_path):
     assert "Page One" in result.text
     assert "Page Two" in result.text
     assert "page:1" in result.references
+
+
+def test_pdf_extraction_uses_page_aware_pypdf(monkeypatch, tmp_path):
+    pdf = tmp_path / "thirty-pages.pdf"
+    pdf.write_bytes(b"%PDF-1.4 test fixture")
+
+    class Page:
+        def __init__(self, number):
+            self.number = number
+
+        def extract_text(self):
+            return f"Policy page {self.number} — café safety"
+
+    class Reader:
+        def __init__(self, _path):
+            self.pages = [Page(number) for number in range(1, 31)]
+
+    import pypdf
+
+    monkeypatch.setattr(pypdf, "PdfReader", Reader)
+    result = ingestion.extract_source(pdf, "pdf")
+
+    assert "[page 1]" in result.text
+    assert "[page 30]" in result.text
+    assert "café safety" in result.text
+    assert result.references == [f"page:{number}" for number in range(1, 31)]
+    assert result.warnings == []

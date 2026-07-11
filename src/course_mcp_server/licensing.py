@@ -117,6 +117,32 @@ def check_export_quota(license_: License) -> dict:
     return {"allowed": allowed, "used": used, "quota": quota, "tier": license_.tier}
 
 
+def usage_export() -> list[dict]:
+    store = _load_store()
+    rows: list[dict] = []
+    for tenant, months in sorted(store["usage"].items()):
+        for month, exports in sorted(months.items()):
+            rows.append({"tenant": tenant, "month": month, "exports": int(exports)})
+    return rows
+
+
+def lifecycle_warning(license_: License) -> str | None:
+    store = _load_store()
+    if not license_.key_hash:
+        return None
+    entry = next((item for item in store["licenses"] if item.get("key_hash") == license_.key_hash), None)
+    if not entry or not entry.get("expires"):
+        return None
+    try:
+        expires = datetime.fromisoformat(entry["expires"]).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    days = (expires - datetime.now(timezone.utc)).days
+    if days <= 14:
+        return f"License expires in {max(days, 0)} day(s). Renew to avoid interruption."
+    return None
+
+
 def record_export(license_: License) -> None:
     store = _load_store()
     tenant_usage = store["usage"].setdefault(license_.tenant, {})
@@ -159,4 +185,6 @@ __all__ = [
     "exports_this_month",
     "issue_license",
     "hash_key",
+    "usage_export",
+    "lifecycle_warning",
 ]

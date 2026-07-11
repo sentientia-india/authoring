@@ -1,0 +1,8 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ratsam93/samrat-course-mcp",
+  "description": "Secure source-grounded e-learning course generation and SCORM export.",
+  "version": "0.2.0",
+  "packages": [],
+  "remotes": [{"type": "streamable-http", "url": "https://YOUR_DOMAIN/mcp"}]
+}

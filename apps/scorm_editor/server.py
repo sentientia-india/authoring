@@ -7,12 +7,12 @@ import mimetypes
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 import copy
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parent
@@ -29,7 +29,12 @@ def _read_json(text: str) -> dict:
 
 
 def _zip_members(package: ZipFile) -> list[str]:
-    return sorted(name for name in package.namelist() if not name.endswith("/"))
+    names = sorted(name for name in package.namelist() if not name.endswith("/"))
+    for name in names:
+        member = PurePosixPath(name.replace("\\", "/"))
+        if member.is_absolute() or ".." in member.parts:
+            raise ValueError(f"Unsafe ZIP member: {name}")
+    return names
 
 
 def _parse_manifest(xml_text: str) -> dict:
@@ -93,16 +98,40 @@ def _normalize_course(course: dict) -> dict:
     return course
 
 
-def _build_zip(zip_bytes: bytes, course_json: dict) -> bytes:
+def _build_zip(zip_bytes: bytes, course_json: dict, media_files: dict[str, bytes] | None = None) -> bytes:
     normalized = _normalize_course(course_json)
+    media_files = media_files or {}
     buffer = BytesIO()
     with ZipFile(BytesIO(zip_bytes)) as source, ZipFile(buffer, "w", ZIP_DEFLATED) as target:
-        for name in source.namelist():
+        names = _zip_members(source)
+        original_course = _read_json(source.read("data/course.json").decode("utf-8"))
+        for protected in ("branding", "license", "license_stamp", "export_stamp"):
+            if protected in original_course:
+                normalized[protected] = original_course[protected]
+        replacements = {f"assets/media/{name}": payload for name, payload in media_files.items()}
+        for name in names:
             if name == "data/course.json":
                 target.writestr(name, json.dumps(normalized, indent=2))
+            elif name in replacements:
+                target.writestr(name, replacements.pop(name))
             else:
                 target.writestr(name, source.read(name))
+        for name, payload in replacements.items():
+            target.writestr(name, payload)
     return buffer.getvalue()
+
+
+def _decode_media_files(value: dict | None) -> dict[str, bytes]:
+    decoded: dict[str, bytes] = {}
+    for filename, blob in (value or {}).items():
+        safe_name = Path(str(filename)).name
+        if safe_name != filename or not safe_name:
+            raise ValueError("Media filenames must not contain paths")
+        payload = _decode_zip_blob(blob)
+        if len(payload) > 25 * 1024 * 1024:
+            raise ValueError(f"Media file is too large: {safe_name}")
+        decoded[safe_name] = payload
+    return decoded
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -169,7 +198,11 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_export(self) -> None:
         try:
             body = _read_json_body(self)
-            rebuilt = _build_zip(_decode_zip_blob(body.get("zip", "")), body.get("course", {}))
+            rebuilt = _build_zip(
+                _decode_zip_blob(body.get("zip", "")),
+                body.get("course", {}),
+                _decode_media_files(body.get("media_files")),
+            )
         except Exception as exc:  # noqa: BLE001
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
             return

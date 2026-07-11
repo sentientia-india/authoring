@@ -81,13 +81,39 @@ def _extract_pptx(path: Path) -> ExtractedSource:
 
 
 def _extract_pdf(path: Path) -> ExtractedSource:
+    warnings: list[str] = []
+    try:
+        from pypdf import PdfReader  # type: ignore
+
+        reader = PdfReader(str(path))
+        pages: list[str] = []
+        references: list[str] = []
+        for page_number, page in enumerate(reader.pages, start=1):
+            page_text = (page.extract_text() or "").strip()
+            references.append(f"page:{page_number}")
+            if page_text:
+                pages.append(f"[page {page_number}]\n{page_text}")
+            else:
+                warnings.append(f"Page {page_number} has no extractable text")
+        return ExtractedSource(
+            text="\n\n".join(pages),
+            references=references or ["page:1"],
+            warnings=warnings,
+        )
+    except Exception as exc:  # malformed PDFs and optional dependency fallback
+        warnings.append(f"pypdf extraction failed; used compatibility fallback ({type(exc).__name__})")
+
     raw = path.read_bytes().decode("latin-1", errors="ignore")
     strings = re.findall(r"\(([^()] {0,0}.*?)\)\s*Tj", raw)
     if not strings:
         strings = re.findall(r"[A-Za-z][A-Za-z0-9 ,.;:!?'-]{4,}", raw)
     text = "\n".join(_collapse(item) for item in strings if _collapse(item))
     page_count = max(1, raw.count("/Page") or raw.count("%%Page") or 1)
-    return ExtractedSource(text=text, references=[f"page:{index}" for index in range(1, page_count + 1)])
+    return ExtractedSource(
+        text=text,
+        references=[f"page:{index}" for index in range(1, page_count + 1)],
+        warnings=warnings,
+    )
 
 
 def _extract_timed_text(path: Path) -> ExtractedSource:

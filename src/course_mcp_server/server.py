@@ -5,12 +5,15 @@ from typing import Any
 
 try:
     from fastmcp import FastMCP
-    from starlette.responses import JSONResponse
+    from starlette.responses import FileResponse, JSONResponse
 except Exception:  # pragma: no cover - fallback for environments without fastmcp installed
     FastMCP = None  # type: ignore
     JSONResponse = None  # type: ignore
+    FileResponse = None  # type: ignore
 
-from .licensing import resolve_license
+from .licensing import lifecycle_warning, resolve_license
+from .billing import BillingError, handle_stripe_webhook
+from .hosted_learning import HostedLearningError, record_learner_event, resolve_share_file, tutor_reply
 from .security import RequestContext
 from .rate_limit import check_rate_limit
 from .tools import TOOL_REGISTRY, safe_error
@@ -38,6 +41,7 @@ def _context_from_payload(payload: dict[str, Any] | None) -> RequestContext:
         token=token,
         request_id=payload.pop("request_id", None),
         tier=license_.tier,
+        license_warning=lifecycle_warning(license_),
     )
     if not check_rate_limit(tenant_id=context.tenant_id, user_id=context.user_id):
         raise PermissionError("Rate limit exceeded")
@@ -52,6 +56,56 @@ def create_mcp_server():
     @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
     async def health(_request):  # noqa: ANN001
         return JSONResponse({"ok": True, "service": "samrat-course-mcp"})
+
+    @mcp.custom_route("/metrics", methods=["GET"], include_in_schema=False)
+    async def metrics(_request):  # noqa: ANN001
+        return JSONResponse({"ok": True, "service": "samrat-course-mcp", "status": "ready"})
+
+    @mcp.custom_route("/billing/stripe-webhook", methods=["POST"], include_in_schema=False)
+    async def stripe_webhook(request):  # noqa: ANN001
+        try:
+            result = handle_stripe_webhook(
+                await request.body(), request.headers.get("stripe-signature", "")
+            )
+        except (BillingError, ValueError):
+            return JSONResponse({"ok": False, "error": "invalid_webhook"}, status_code=400)
+        safe_result = {key: value for key, value in result.items() if key != "license_key"}
+        return JSONResponse({"ok": True, **safe_result})
+
+    @mcp.custom_route("/learn/{token}/{asset_path:path}", methods=["GET"], include_in_schema=False)
+    async def hosted_course(request):  # noqa: ANN001
+        try:
+            target = resolve_share_file(
+                request.path_params["token"],
+                request.path_params.get("asset_path") or "index.html",
+                request.query_params.get("access_token"),
+            )
+        except HostedLearningError:
+            return JSONResponse({"ok": False, "error": "share_not_found"}, status_code=404)
+        return FileResponse(target)
+
+    @mcp.custom_route("/learn/{token}/events", methods=["POST"], include_in_schema=False)
+    async def hosted_event(request):  # noqa: ANN001
+        try:
+            result = record_learner_event(request.path_params["token"], await request.json())
+        except (HostedLearningError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "invalid_event"}, status_code=400)
+        return JSONResponse({"ok": True, "event": result})
+
+    @mcp.custom_route("/learn/{token}/tutor", methods=["POST"], include_in_schema=False)
+    async def hosted_tutor(request):  # noqa: ANN001
+        try:
+            resolve_share_file(request.path_params["token"], "index.html", request.query_params.get("access_token"))
+            payload = await request.json()
+            answer = tutor_reply(
+                str(payload.get("question", "")),
+                str(payload.get("course_context", "")),
+                str(payload.get("api_key", "")),
+                str(payload.get("model", "openai/gpt-4.1-mini")),
+            )
+        except (HostedLearningError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "tutor_unavailable"}, status_code=400)
+        return JSONResponse({"ok": True, "answer": answer})
 
     for tool_name, handler in TOOL_REGISTRY.items():
         def make_tool(name: str, fn):

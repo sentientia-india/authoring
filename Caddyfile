@@ -1,0 +1,32 @@
+{$PUBLIC_DOMAIN} {
+  encode zstd gzip
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+
+  handle /mcp* {
+    reverse_proxy course-mcp:8777
+  }
+  handle /health {
+    reverse_proxy course-mcp:8777
+  }
+  handle /metrics {
+    reverse_proxy course-mcp:8777
+  }
+  handle /billing/* {
+    reverse_proxy course-mcp:8777
+  }
+  handle /learn/* {
+    reverse_proxy course-mcp:8777
+  }
+  handle /editor* {
+    uri strip_prefix /editor
+    reverse_proxy scorm-editor:8788
+  }
+  handle {
+    root * /srv/apps/landing
+    file_server
+  }
+}

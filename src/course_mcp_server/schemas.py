@@ -58,6 +58,7 @@ class ScormPackageRequest(BaseModel):
     reference_style: Literal["rise_block", "interaction_game", "course_example"] = "rise_block"
     media_files: list[str] = Field(default_factory=list, max_length=60)
     branding: dict = Field(default_factory=dict)
+    export_stamp: dict = Field(default_factory=dict)
 
 
 class CourseMaterial(BaseModel):
