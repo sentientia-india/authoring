@@ -25,13 +25,25 @@ C:\Aicoding\adapt-editor\
 2. Author/edit in the browser: Dashboard → **Add new course** (or edit existing), full drag-and-drop page/component editing, then **Publish/Download** produces a SCORM zip.
 3. `stop-editor.cmd` when done.
 
-## What it does and does not edit (today)
+## Editing MCP-generated courses in Adapt (converter shipped)
 
-- Adapt authors and publishes **its own** responsive SCORM courses (100+ community components) — this is the "client polishes a course by hand" path.
-- It does **not** natively import the MCP's game-player zips (`data/course.json` format). Two editing paths exist today:
-  - **Adapt** for hand-authored and polished client work.
-  - **`apps/scorm_editor`** (this repo, port 8788) for direct edits to MCP-exported zips (outline reorder, lesson blocks, quiz items, re-export).
-- The planned upgrade (roadmap B2/B3): a converter that maps MCP `course.json` into Adapt's content model so MCP-generated courses can be polished in Adapt, with a round-trip validity test in CI.
+`build_export_package` with `export_format: "adapt"` produces `<slug>-adapt.zip` — an Adapt framework source package (`src/course/en/*.json` + assets + theme/menu stubs) that the dashboard's **Import source** accepts directly. Verified end-to-end: a full MCP demo course imported as 4 pages / 7 articles / 52 blocks with text, graphic (packaged images), accordion, matching, and MCQ components, all editable, previewable, and re-publishable from Adapt.
+
+Mapping (in `src/course_mcp_server/exporters/adapt_source.py`, tests in `tests/test_adapt_export.py`):
+
+| MCP | Adapt |
+|---|---|
+| module | page |
+| lesson | article |
+| content block | block + text component (media → graphic/media component) |
+| matching activity | matching component |
+| flashcards / accordion / tabs | accordion component |
+| quiz + final assessment questions | mcq components |
+| other interactive types (branching, decision tree, roleplay...) | editable rich-text fallback describing the interaction |
+
+Note: the Level-4 game mechanics (HUD, streaks, slide player) live in the MCP's own SCORM export, not in Adapt's output — Adapt is for hand-polishing content, its Publish produces a standard Adapt course. The two editing paths remain:
+- **Adapt** — import the `-adapt.zip`, polish visually, publish.
+- **`apps/scorm_editor`** (this repo, port 8788) — direct edits to the MCP game-player zip itself.
 
 ## Rebuild-from-scratch notes (if the install is ever lost)
 

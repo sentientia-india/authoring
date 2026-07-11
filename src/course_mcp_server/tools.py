@@ -22,6 +22,7 @@ from .provenance import sign_export
 from .course_templates import TemplateRegistry
 from .discovery import CourseDiscoveryState, CourseDiscoveryWorkflow
 from .delivery import build_delivery_metadata
+from .exporters.adapt_source import build_adapt_source_package
 from .exporters.h5p import build_h5p_package
 from .exporters.scorm import build_scorm_package
 from .generation import CodexGenerationContractBuilder
@@ -1845,7 +1846,15 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
         }
         for module in course_payload.get("modules", [])
     ]
-    if req.export_format == "h5p":
+    if req.export_format == "adapt":
+        course_payload.setdefault("course_slug", req.project_id.replace("_", "-"))
+        output = build_adapt_source_package(
+            course_payload,
+            os.getenv("OUTPUT_DIR", "/app/output"),
+            upload_dir=os.getenv("UPLOAD_DIR", "/app/output/uploads"),
+        )
+        output["artifact_path"] = output["package_path"]
+    elif req.export_format == "h5p":
         output = build_h5p_package(
             {
                 "course_title": project["course_title"],
