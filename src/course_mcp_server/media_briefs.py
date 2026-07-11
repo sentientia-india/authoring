@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Deterministic media briefs: no LLM calls, no image generation.
 
 The MCP composes briefs from authored course content; the calling agent
@@ -7,6 +5,8 @@ The MCP composes briefs from authored course content; the calling agent
 tools and uploads the results via `upload_media_asset`. This keeps all
 generation cost on the user's side while the pipeline stays server-gated.
 """
+
+from __future__ import annotations
 
 import re
 from typing import Any

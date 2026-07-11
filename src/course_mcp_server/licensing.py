@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Per-customer licensing, tiers, and export metering.
 
 The MCP server is the monetized gate: course creation requires a valid license
@@ -11,6 +9,8 @@ If the license store has no entries, enforcement is transparent: the bootstrap
 token behaves exactly as before (unlimited), so existing deployments and tests
 do not break until the operator provisions licenses.
 """
+
+from __future__ import annotations
 
 import hashlib
 import json
