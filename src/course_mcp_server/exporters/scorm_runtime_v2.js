@@ -22,20 +22,43 @@
     return null;
   }
 
+  function findApiInFrames(win, apiName, visited) {
+    if (!win) return null;
+    visited = visited || [];
+    if (visited.indexOf(win) !== -1) return null;
+    visited.push(win);
+
+    var direct = findApi(win, apiName);
+    if (direct) return direct;
+
+    // SCORM Cloud's modern player can host the API in a sibling player frame
+    // when content is opened in a popup. Search same-origin child frames as a
+    // fallback after checking the normal parent/opener chain.
+    try {
+      for (var index = 0; index < win.frames.length; index += 1) {
+        var nested = findApiInFrames(win.frames[index], apiName, visited);
+        if (nested) return nested;
+      }
+    } catch (_error) {
+      // A cross-origin frame is not a valid SCORM API host for this package.
+    }
+    return null;
+  }
+
   function discoverApi() {
     if (apiHandle) return apiHandle;
-    apiHandle = findApi(window, "API");
+    apiHandle = findApiInFrames(window, "API");
     if (apiHandle) {
       apiVersion = "1.2";
       return apiHandle;
     }
-    apiHandle = findApi(window, "API_1484_11");
+    apiHandle = findApiInFrames(window, "API_1484_11");
     if (apiHandle) {
       apiVersion = "2004";
       return apiHandle;
     }
     if (window.opener && !window.opener.closed) {
-      apiHandle = findApi(window.opener, "API") || findApi(window.opener, "API_1484_11");
+      apiHandle = findApiInFrames(window.opener, "API") || findApiInFrames(window.opener, "API_1484_11");
       apiVersion = apiHandle && apiHandle.LMSInitialize ? "1.2" : apiHandle ? "2004" : null;
     }
     return apiHandle;

@@ -557,7 +557,8 @@ def test_scorm_package_uses_polished_responsive_template(tmp_path):
     assert "renderCoursePlayer" in player_js
     assert "renderAssessmentOrEmptyState" in player_js
     assert "setScore" in scorm_js
-    assert "findApi(window.opener" in scorm_js
+    assert "findApiInFrames(window.opener" in scorm_js
+    assert "SCORM Cloud's modern player" in scorm_js
     assert "setSuspendData" in scorm_js
     assert "setLocation" in scorm_js
     assert "recordInteraction" in scorm_js
