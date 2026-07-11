@@ -6,11 +6,15 @@
 
 ## 2. One-line description
 
-A secure MCP server that lets Codex and AI clients create structured, interactive, LMS-ready e-learning courses without exposing the private internals of the course-generation system.
+A licensed MCP server that turns the user's own Claude Code / Codex subscription into a production-grade course factory: the calling agent authors all content, the MCP validates, gamifies, and packages it into a Level 3.5/4 SCORM zip.
 
 ## 3. Background
 
-Existing AI course creators can generate outlines, lessons, quizzes, and publishable mini courses. Mini Course Generator's public MCP positioning focuses on connecting AI clients to course planning, generation, and publishing. The opportunity is to build a more production-grade, domain-specific version for professional training businesses, especially e-learning, compliance, SOP, airline, safety, sales enablement, onboarding, and certification programs.
+Existing AI course creators can generate outlines, lessons, quizzes, and publishable mini courses. Mini Course Generator's public MCP positioning focuses on connecting AI clients to course planning, generation, and publishing; Coursebox.ai adds AI images, branching scenarios, avatar videos, an AI tutor, and white-label selling. The opportunity is to build a more production-grade, domain-specific version for professional training businesses, especially e-learning, compliance, SOP, airline, safety, sales enablement, onboarding, and certification programs.
+
+## 3b. Business model (fixed constraint)
+
+The MCP server is the product and the licensing gate: without a valid license key, no course can be created. All expensive work — lesson prose, quiz writing, image generation — runs on the **user's own Claude Code or Codex subscription**. The MCP performs only cheap deterministic work (validation, quality gates, media briefs, PDF extraction, SCORM packaging), so operating cost stays near zero while content quality rides on the frontier model the user already pays for. The server retains a small internal LLM hook (OpenRouter) strictly for minor helper tasks, never full authoring.
 
 ## 4. Problem
 
@@ -49,9 +53,13 @@ Training teams spend too much time turning raw materials into structured courses
 | Metric | Target |
 |---|---:|
 | Time to generate first complete course draft | < 10 minutes |
+| User questions asked before a plan is proposed | <= 3 |
+| Exported courses containing placeholder/duplicated content | 0% (quality gate blocks) |
+| Server-side LLM/image generation cost per course | ~0 (user's agent pays) |
 | Instructional designer acceptance of first outline | >= 75% |
 | Quiz schema validation success | >= 95% |
 | SCORM package validation success | >= 90% in MVP, >= 98% post-MVP |
+| Course creation without a valid license | 0 |
 | Unauthorized tool access attempts blocked | 100% |
 | Secrets exposed to Codex | 0 |
 | Tools visible to Codex beyond allowlist | 0 |
@@ -104,32 +112,32 @@ MCP submits a reviewed course package to a connected LMS using a scoped integrat
 
 ## 9. MVP scope
 
-### Included
+### Included (shipped as of 2026-07-11)
 
 - MCP server with allowlisted tools only
 - Dockerized separate service
-- API-token authentication
-- Tool-level permission checks
-- JSON schema validation
+- Per-customer license keys with tiers (free/pro/white_label), monthly export quotas, and metering; admin bootstrap token retained
+- Tool-level permission checks and JSON schema validation
 - Course project lifecycle
-- Controlled source ingestion by upload ID
-- Blueprint, module, lesson, activity, and assessment generators
-- Scenario/role-play generator
-- Instructional quality validator
-- SCORM export package generator
-- Audit logging
-- Health endpoint
-- Codex project config example
-- CI workflow for lint/test/security checks
+- Three-question discovery interview (`course_brief_line`, `duration_preset`, `media_plan_mode`) with AI-derived brief fields and a one-shot plan approval (`propose_course_plan` / `approve_course_plan`)
+- Controlled source ingestion by upload ID (PDF/DOCX/PPTX/TXT/MD/YouTube/website; deterministic extraction, no LLM cost)
+- Agent-authored content pipeline: `submit_course_content` (one-shot) and `submit_course_module` (parallel, idempotent per module)
+- Media pipeline with zero server generation cost: deterministic image briefs + video slots (`get_media_briefs`), agent upload channel (`upload_media_asset`), block-level attachment (`attach_media`), packaged into the zip
+- Level 3.5/4 SCORM player: dark game HUD, full-screen slide lessons, locked progression, streaks, timed challenges, branching character scenes, confetti celebration, printable certificate — all selectable per course via `game_options`
+- Instructional quality validator + superior quality gate (blocks export on placeholder/duplicated content, including leaked writer meta-instructions)
+- SCORM 1.2/2004 and H5P export packaging; white-label branding on the white_label tier
+- Separate drag-and-drop SCORM editor service (`apps/scorm_editor`); Adapt Authoring adoption evaluated as future replacement
+- Audit logging, rate limiting, health endpoint
+- Codex project config example and CI workflow for lint/test/security checks
 
-### Excluded from MVP
+### Excluded from MVP (deferred to hosted phase)
 
-- Full WYSIWYG authoring UI
+- Live hosted landing pages / share links
 - Full LMS learner portal
 - Payment/gated course sales
-- Live video generation
-- Voiceover rendering
-- Full production SCORM conformance engine
+- AI tutor chatbot and AI grading of open answers
+- Live video generation and voiceover rendering
+- Full production SCORM conformance engine (SCORM Cloud certification pending)
 - Direct unreviewed publishing to customer LMS
 
 ## 10. Post-MVP scope
@@ -207,21 +215,15 @@ The MCP shall require approval for publishing, overwriting courses, deleting con
 
 ## 13. MCP tool surface
 
-MVP tools exposed to Codex:
+The authoritative, tested tool list lives in `docs/tool-contracts.md` (allowlist enforced in `security.py`, registry in `tools.py`, exact-set tested). The primary content path:
 
-1. `create_course_project`
-2. `ingest_course_source`
-3. `generate_course_blueprint`
-4. `generate_module_pack`
-5. `generate_lesson_pack`
-6. `generate_interactive_activity`
-7. `generate_assessment_bank`
-8. `generate_roleplay_simulation`
-9. `validate_instructional_quality`
-10. `build_export_package`
-11. `get_course_generation_status`
-12. `list_course_artifacts`
-13. `request_publish_approval`
+1. Interview: `start_course_discovery` → `save_course_discovery_answer` (3 essentials) → `ingest_course_source` (optional PDF/doc)
+2. Plan: `propose_course_plan` → `approve_course_plan` (one-shot approval)
+3. Author (user's agent, parallel): `submit_course_module` × N, or `submit_course_content` one-shot
+4. Media: `get_media_briefs` → agent generates → `upload_media_asset` → `attach_media`
+5. Gate & ship: `validate_instructional_quality` / `validate_superior_course_quality` → `build_export_package` (license-metered)
+
+Supporting tools: template listing/recommendation, granular outline/lesson/assessment/interaction approvals (power users), interactive video, Storyline handoff, status, artifacts, publish approval.
 
 Tools intentionally not exposed:
 

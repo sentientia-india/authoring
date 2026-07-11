@@ -1,17 +1,22 @@
 # Samrat Course MCP
 
-Secure MCP server for e-learning course generation, quality validation, and export packaging.
+Licensed MCP server that turns the user's own Claude Code / Codex subscription into a course factory: the calling agent authors all content, the MCP validates, gamifies, and packages it into a Level 3.5/4 SCORM zip.
 
-The server runs as a separate Docker service and exposes only an allowlisted tool surface. Internal prompts, file paths, secrets, database access, and shell execution stay hidden from MCP clients.
+The server runs as a separate Docker service and exposes only an allowlisted tool surface. Internal prompts, file paths, secrets, database access, and shell execution stay hidden from MCP clients. All expensive work (writing, image generation) runs on the caller's subscription — the MCP does only cheap deterministic work.
 
 ## Current capabilities
 
-- Material ticket intake and chapter layout planning
-- Controlled source ingestion for uploaded PDF, DOCX, PPTX, TXT, MD, YouTube transcript, and website text inputs
-- Course project creation, template selection, blueprint generation, module packs, lesson packs, activities, assessments, role-play simulations, and interactive video packages
-- Instructional quality validation and superior export quality gates
-- SCORM and H5P export packaging
+- Three-question discovery interview with AI-derived brief and one-shot plan approval
+- Controlled source ingestion for uploaded PDF, DOCX, PPTX, TXT, MD, YouTube transcript, and website text inputs (deterministic extraction, no LLM cost)
+- Agent-authored content pipeline: one-shot `submit_course_content` or parallel `submit_course_module`
+- Zero-cost media pipeline: deterministic image briefs + video slots, agent upload channel, block-level media attachment, packaged into the zip
+- Level 3.5/4 SCORM player: dark game HUD, full-screen slide lessons, locked progression, streaks, timed challenges, branching character scenes, confetti, printable certificate — selectable per course
+- Instructional quality validation and superior export quality gates (placeholder/duplicate content blocks export)
+- SCORM 1.2/2004 and H5P export packaging; white-label branding on the white_label tier
+- Per-customer license keys with tiers and monthly export quotas (`scripts/issue_license.py`)
 - Approval-gated publish flow and audit logging
+
+Start with the agent playbook in [docs/tool-contracts.md](docs/tool-contracts.md).
 
 ## Product surfaces
 

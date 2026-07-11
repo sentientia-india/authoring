@@ -3,8 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import re
+
 from .ai_defaults import AIDefaultProvider, DiscoveryAnswer
-from .question_flow import COURSE_DISCOVERY_QUESTIONS, get_next_unanswered_question, get_question, get_unanswered_questions
+from .question_flow import (
+    COURSE_DISCOVERY_QUESTIONS,
+    DURATION_PRESETS,
+    get_next_unanswered_question,
+    get_question,
+    get_unanswered_questions,
+)
 
 
 DISCOVERY_STATUSES = [
@@ -41,6 +49,7 @@ class CourseDiscoveryState:
     interaction_model: dict[str, Any] = field(default_factory=dict)
     approvals: dict[str, bool] = field(default_factory=dict)
     source_chunk_count: int = 0
+    course_plan: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,6 +63,7 @@ class CourseDiscoveryState:
             "interaction_model": self.interaction_model,
             "approvals": self.approvals,
             "source_chunk_count": self.source_chunk_count,
+            "course_plan": self.course_plan,
         }
 
 
@@ -81,19 +91,140 @@ class CourseDiscoveryWorkflow:
         question = get_question(question_id)
         answer = self.default_provider.answer_question(question, raw_answer, context, template_defaults)
         state.answers[question_id] = answer.to_dict()
+        self._expand_essentials(state, question_id, answer.value)
         self._refresh_status(state)
         return answer
+
+    def _expand_essentials(self, state: CourseDiscoveryState, question_id: str, value: Any) -> None:
+        """Derive the detailed brief fields from the three essential answers so the
+        user never has to answer them individually."""
+
+        def derive(field_id: str, derived_value: Any) -> None:
+            if field_id not in state.answers and derived_value not in (None, ""):
+                state.answers[field_id] = DiscoveryAnswer(
+                    value=derived_value, source="derived", confidence=0.7,
+                    reason=f"Derived from {question_id}.",
+                ).to_dict()
+
+        if question_id == "course_brief_line" and isinstance(value, str) and value.strip():
+            line = value.strip()
+            match = re.search(r"(.+?)\s+for\s+(.+)", line, re.IGNORECASE)
+            title = (match.group(1) if match else line).strip(" .")
+            learner = (match.group(2) if match else "professional learners").strip(" .")
+            derive("course_title", title[:120].title() if title.islower() else title[:120])
+            derive("target_learner", learner[:120])
+            derive("course_goal", f"Apply {title[:90]} confidently in real work situations.")
+        elif question_id == "duration_preset":
+            preset = DURATION_PRESETS.get(str(value), DURATION_PRESETS["standard"])
+            derive("expected_duration", preset["expected_duration"])
+            derive("module_count_preference", preset["module_count_preference"])
 
     def select_template(self, state: CourseDiscoveryState, template_id: str) -> None:
         state.selected_template_id = template_id
         state.status = "template_selected"
 
+    def _backfill_essentials(self, state: CourseDiscoveryState) -> None:
+        """Legacy compatibility: callers that answered the detailed brief questions
+        directly satisfy the essentials without being re-asked."""
+        answers = state.answers
+        legacy_keys = ("course_title", "target_learner", "course_goal")
+        if "course_brief_line" not in answers and all(key in answers for key in legacy_keys):
+            title = answers["course_title"].get("value", "Course")
+            learner = answers["target_learner"].get("value", "learners")
+            answers["course_brief_line"] = DiscoveryAnswer(
+                value=f"{title} for {learner}",
+                source="derived",
+                confidence=0.6,
+                reason="Backfilled from detailed brief answers.",
+            ).to_dict()
+        if "course_brief_line" in answers:
+            for field_id, default in (("duration_preset", "standard"), ("media_plan_mode", "agent_images")):
+                if field_id not in answers:
+                    answers[field_id] = DiscoveryAnswer(
+                        value=default,
+                        source="ai_default",
+                        confidence=0.5,
+                        reason="Default applied at brief approval.",
+                    ).to_dict()
+
     def approve_brief(self, state: CourseDiscoveryState) -> None:
-        missing = self._missing_required_answers_for_stages(state, {"brief"})
+        self._backfill_essentials(state)
+        missing = self._missing_required_answers_for_stages(state, {"essentials", "brief"})
         if missing:
             raise ValueError(f"Cannot approve brief. Missing answers: {', '.join(missing)}")
         state.approvals["brief"] = True
         state.status = "brief_approved"
+
+    def build_course_plan(
+        self,
+        state: CourseDiscoveryState,
+        *,
+        template_name: str | None = None,
+        proposed_modules: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Compose the single confirmation card shown to the user instead of 14 questions."""
+
+        def answer(field_id: str, fallback: Any = None) -> Any:
+            entry = state.answers.get(field_id) or {}
+            value = entry.get("value")
+            return value if value not in (None, "") else fallback
+
+        preset = str(answer("duration_preset", "standard"))
+        preset_numbers = DURATION_PRESETS.get(preset, DURATION_PRESETS["standard"])
+        modules = proposed_modules or state.module_outline or []
+        media_mode = str(answer("media_plan_mode", "agent_images"))
+        video_links = [link.strip() for link in str(answer("video_links", "")).split(",") if link.strip()]
+        plan = {
+            "course_title": answer("course_title", "Generated Course"),
+            "audience": answer("target_learner", "professional learners"),
+            "goal": answer("course_goal", ""),
+            "level": answer("learner_level", "beginner"),
+            "duration_minutes": int(answer("expected_duration", preset_numbers["expected_duration"])),
+            "module_count": int(answer("module_count_preference", preset_numbers["module_count_preference"])),
+            "modules": modules,
+            "template": template_name or state.selected_template_id or "auto-selected",
+            "assessment": answer("assessment_preference", "mixed"),
+            "interactions": answer("interaction_preference", "scenario_based"),
+            "media_plan": {
+                "images_mode": media_mode,
+                "image_briefs_planned": media_mode != "text_only",
+                "video_links": video_links,
+                "video_slots_planned": media_mode != "text_only",
+            },
+            "gamification": bool(answer("gamification_enabled", True)),
+            "confirmation_prompt": (
+                "Here is the full course plan. Reply 'go' to build it exactly like this, "
+                "or tell me anything to change (modules, length, media, interactions)."
+            ),
+        }
+        state.course_plan = plan
+        return plan
+
+    def approve_course_plan(self, state: CourseDiscoveryState) -> None:
+        """One-shot approval: collapses brief, outline, lessons, assessment, and interaction sign-off."""
+        if not state.course_plan:
+            raise ValueError("No course plan proposed yet. Call propose_course_plan first.")
+        missing = self._missing_required_answers_for_stages(state, {"essentials"})
+        if missing:
+            raise ValueError(f"Cannot approve plan. Missing essentials: {', '.join(missing)}")
+        if not state.module_outline and state.course_plan.get("modules"):
+            state.module_outline = list(state.course_plan["modules"])
+        if not state.lesson_structure:
+            state.lesson_structure = [
+                {
+                    "module_id": module.get("module_id", f"module_{index}"),
+                    "lesson_title": module.get("title", f"Module {index}"),
+                    "objective": module.get("objective", state.course_plan.get("goal", "")),
+                }
+                for index, module in enumerate(state.module_outline, start=1)
+            ]
+        if not state.assessment_model:
+            state.assessment_model = {"preference": state.course_plan.get("assessment", "mixed")}
+        if not state.interaction_model:
+            state.interaction_model = {"preference": state.course_plan.get("interactions", "scenario_based")}
+        for key in ("brief", "outline", "lessons", "assessment_model", "interaction_model", "course_plan"):
+            state.approvals[key] = True
+        state.status = "lessons_approved"
 
     def set_module_outline(self, state: CourseDiscoveryState, outline: list[dict[str, Any]]) -> None:
         state.module_outline = outline
@@ -133,7 +264,8 @@ class CourseDiscoveryWorkflow:
     def check_generation_readiness(self, state: CourseDiscoveryState) -> dict[str, Any]:
         missing: list[str] = []
 
-        if self._missing_required_answers_for_stages(state, {"brief"}):
+        self._backfill_essentials(state)
+        if self._missing_required_answers_for_stages(state, {"essentials", "brief"}):
             missing.append("required course brief answers")
         if not state.approvals.get("brief"):
             missing.append("brief approval")

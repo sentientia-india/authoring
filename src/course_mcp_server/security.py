@@ -21,6 +21,8 @@ ALLOWED_TOOLS: set[str] = {
     "save_course_brief",
     "get_next_course_question",
     "save_course_discovery_answer",
+    "propose_course_plan",
+    "approve_course_plan",
     "propose_course_outline",
     "update_course_outline",
     "approve_course_outline",
@@ -34,6 +36,11 @@ ALLOWED_TOOLS: set[str] = {
     "get_course_workflow_status",
     "ingest_course_source",
     "generate_course_blueprint",
+    "submit_course_content",
+    "submit_course_module",
+    "upload_media_asset",
+    "get_media_briefs",
+    "attach_media",
     "generate_module_pack",
     "generate_lesson_pack",
     "generate_interactive_activity",
@@ -79,6 +86,9 @@ class RequestContext:
     user_id: str
     token: str | None = None
     request_id: str | None = None
+    # License tier resolved at the transport boundary. Direct in-process callers
+    # (tests, scripts) default to "admin" = legacy unlimited behavior.
+    tier: str = "admin"
 
 
 def assert_tool_allowed(tool_name: str) -> None:

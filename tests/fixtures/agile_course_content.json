@@ -1,0 +1,214 @@
+{
+  "difficulty": "intermediate",
+  "theme": "studio",
+  "game_options": {
+    "branching_scenarios": true,
+    "locked_progression": true,
+    "streaks": true,
+    "timed_challenges": true,
+    "timer_seconds": 25,
+    "celebration": true,
+    "certificate": true
+  },
+  "learning_objectives": [
+    {"id": "lo_sprint", "text": "Explain how fixed-length sprints expose delivery risk early.", "bloom_level": "understand"},
+    {"id": "lo_backlog", "text": "Prioritize a product backlog so the next sprint maximises stakeholder value.", "bloom_level": "apply"},
+    {"id": "lo_planning", "text": "Construct a sprint plan with a goal, forecast, and explicit trade-offs.", "bloom_level": "apply"},
+    {"id": "lo_daily", "text": "Differentiate a decision-driving daily scrum from a status-report ritual.", "bloom_level": "analyze"},
+    {"id": "lo_review", "text": "Evaluate sprint outcomes using evidence from the review and retrospective.", "bloom_level": "evaluate"},
+    {"id": "lo_context", "text": "Select the right level of agile ceremony for a team's 2026 context.", "bloom_level": "evaluate"}
+  ],
+  "modules": [
+    {
+      "id": "module_1",
+      "title": "The Sprint Engine",
+      "duration_minutes": 25,
+      "objective_ids": ["lo_sprint", "lo_backlog"],
+      "lessons": [
+        {
+          "id": "lesson_1",
+          "title": "Why sprints expose risk early",
+          "duration_minutes": 12,
+          "objective_ids": ["lo_sprint"],
+          "content_blocks": [
+            {"id": "cb_1_intro", "type": "intro", "text": "A project that reports green for five months and then slips by a quarter did not fail in month six. It failed quietly in month one, and nobody had a mechanism to see it. Sprints are that mechanism: a fixed-length container, one month or less, that forces working output into the open before optimism can compound.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020", "excerpt": "Sprints are the heartbeat of Scrum, where ideas are turned into value."}]},
+            {"id": "cb_1_explain", "type": "explanation", "text": "Each sprint behaves like a small project: it has a sprint goal, a forecast of backlog items, and it must end with a usable increment. Because the cadence is fixed, slippage cannot hide inside a moving deadline. If the increment is not usable at the review, the team learns that within weeks, not quarters, and the next sprint plan absorbs the lesson.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_1_example", "type": "example", "text": "A payments team forecast eight backlog items and delivered three, but the three included the riskiest integration with the card network. At the review the product owner saw a real end-to-end payment, agreed the remaining items were cosmetic, and cut two of them entirely. A fixed deadline with honest scope beat a padded deadline with fictional scope.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}], "media": {"kind": "video", "url": "https://www.youtube-nocookie.com/embed/9TycLR0TqFA", "caption": "Watch: Scrum explained in under ten minutes"}},
+            {"id": "cb_1_scenario", "type": "scenario", "text": "Your sponsor asks the team to skip the next sprint review because a stakeholder demo is scheduled two days later and 'everyone is busy'. The dashboard shows the team is mid-way through a risky API migration. Skipping the review means six more weeks before anyone outside the team sees working software. What do you protect, and what do you trade?", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_1_summary", "type": "summary", "text": "Sprints convert invisible schedule risk into visible increment risk. The discipline is not the timebox itself but what the timebox forbids: unreviewed work, moving deadlines, and progress claims without a usable increment behind them.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]}
+          ],
+          "activities": [
+            {"id": "act_1_cards", "type": "flashcards", "title": "Sprint vocabulary that survives an audit", "instructions": "Flip each card and say the definition aloud before revealing it.", "data": {"items": [
+              {"front": "Sprint goal", "back": "The single objective this sprint's increment must achieve; scope flexes around it."},
+              {"front": "Increment", "back": "A usable, inspectable slice of product that meets the Definition of Done."},
+              {"front": "Timebox", "back": "A fixed duration that ends on schedule regardless of scope completed."}
+            ]}, "objective_ids": ["lo_sprint"]},
+            {"id": "act_1_tree", "type": "decision_tree", "title": "The skipped review", "instructions": "Choose how you respond to the sponsor who wants to cancel the sprint review.", "data": {"scenario": "The sponsor wants to cancel this sprint's review because a stakeholder demo happens two days later during a risky API migration.", "choices": [
+              {"label": "Hold a short review anyway, focused only on the API migration risk", "result": "best", "feedback": "Right call. The review exists to surface migration risk while it is still cheap to react; twenty minutes is enough."},
+              {"label": "Cancel it and roll both audiences into the stakeholder demo", "result": "risk", "feedback": "The demo audience will not inspect the increment - they will watch a rehearsed happy path, and the migration risk stays hidden."},
+              {"label": "Cancel it and extend the sprint by a week to 'finish properly'", "result": "risk", "feedback": "Moving the timebox to fit the work inverts the whole mechanism; deadlines that move cannot expose slippage."}
+            ]}, "objective_ids": ["lo_sprint"]}
+          ],
+          "quiz_questions": [
+            {"id": "q_l1", "type": "mcq", "difficulty": "intermediate", "objective_ids": ["lo_sprint"], "question": "A team finishes a sprint with no usable increment. What did the sprint mechanism just do?", "options": ["Failed - the process should guarantee an increment", "Worked - it exposed a delivery problem within weeks instead of months", "Nothing - increments are optional in modern agile"], "correct_answers": ["Worked - it exposed a delivery problem within weeks instead of months"], "explanation": "Sprints do not guarantee success; they guarantee early, cheap visibility of failure so the next plan can absorb the lesson."}
+          ]
+        },
+        {
+          "id": "lesson_2",
+          "title": "Backlog ordering that pays",
+          "duration_minutes": 13,
+          "objective_ids": ["lo_backlog"],
+          "content_blocks": [
+            {"id": "cb_2_intro", "type": "intro", "text": "Every backlog is a queue, and every queue is a bet about what matters next. A product owner who orders by loudest stakeholder is betting the roadmap on volume. Ordering is the one lever that costs nothing to move and changes everything downstream: what gets built, what gets tested, and what gets cut when time runs out.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020", "excerpt": "The Product Owner is accountable for effective Product Backlog management, including ordering."}]},
+            {"id": "cb_2_explain", "type": "explanation", "text": "Three inputs make an ordering defensible: value if shipped now, cost of delay if shipped later, and risk retired by building it early. Items that score high on any two of those move up. Everything else is a candidate for the cut line, and the cut line - not the wish list above it - is what stakeholders should argue about.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_2_example", "type": "example", "text": "An onboarding team held two items at the top of the backlog: a legal-mandated consent screen with a fixed regulatory date, and a signup A/B test the CEO kept asking about. The consent screen had brutal cost of delay - a fine - so it shipped first even though the A/B test was more exciting. The CEO argued, saw the fine amount, and stopped arguing.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_2_practice", "type": "practice", "text": "Take your current top ten backlog items and label each with V (high value now), D (high cost of delay), or R (retires real risk). Any item with no label should drop below the cut line. Do this before your next planning session and bring the labels, not opinions, to the ordering argument.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}], "media": {"kind": "image", "upload_id": "backlog-labels.svg", "alt": "The V, D, R backlog labelling model", "caption": "The three labels that make an ordering defensible"}},
+            {"id": "cb_2_summary", "type": "summary", "text": "Backlog ordering is a public bet on value, delay cost, and risk. Make the bet legible - labels beat lobbying - and defend the cut line rather than the wish list.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]}
+          ],
+          "activities": [
+            {"id": "act_2_match", "type": "matching", "title": "Match the item to its ordering reason", "instructions": "Reveal each pair and check whether your reasoning matched before you looked.", "data": {"items": [
+              {"prompt": "Consent screen with a regulatory deadline", "match": "Cost of delay - a fine accrues for every week late"},
+              {"prompt": "Refactor of the flaky payment retry logic", "match": "Risk retirement - failure here corrupts revenue data"},
+              {"prompt": "One-click reorder for returning customers", "match": "Immediate value - measurable revenue the sprint it ships"}
+            ]}, "objective_ids": ["lo_backlog"]}
+          ],
+          "quiz_questions": [
+            {"id": "q_l2", "type": "mcq", "difficulty": "intermediate", "objective_ids": ["lo_backlog"], "question": "Two items compete for the top of the backlog: a CEO-favoured experiment and a compliance fix with a fixed fine date. What justifies putting the compliance fix first?", "options": ["Seniority of whoever asked for it", "Cost of delay - the fine accrues with every week of waiting", "Compliance work is always first regardless of context"], "correct_answers": ["Cost of delay - the fine accrues with every week of waiting"], "explanation": "Ordering is defended with value, cost of delay, and risk. Here delay has a priced consequence, which beats enthusiasm."}
+          ]
+        }
+      ],
+      "activities": []
+    },
+    {
+      "id": "module_2",
+      "title": "Ceremonies That Earn Their Time",
+      "duration_minutes": 25,
+      "objective_ids": ["lo_planning", "lo_daily"],
+      "lessons": [
+        {
+          "id": "lesson_3",
+          "title": "Sprint planning that sticks",
+          "duration_minutes": 12,
+          "objective_ids": ["lo_planning"],
+          "content_blocks": [
+            {"id": "cb_3_intro", "type": "intro", "text": "Most failed sprints were lost in planning, not execution. A plan that is a pile of tickets with no goal cannot flex when reality bites: the team either finishes everything or 'fails', and mid-sprint discoveries have nowhere to go. Planning is where you buy the right to adapt later.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020", "excerpt": "Sprint Planning addresses why the Sprint is valuable, what can be Done, and how the work will get done."}]},
+            {"id": "cb_3_explain", "type": "explanation", "text": "A durable plan answers three questions in order: why is this sprint valuable (the goal), what can realistically be done (the forecast), and how will the first days of work start (the plan). The goal is the contract; the forecast is an honest estimate, not a promise; and the trade-offs - what you explicitly did not take - are written down so nobody relitigates them mid-sprint.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_3_example", "type": "example", "text": "A platform team set the goal 'a tenant can be provisioned without a human touching the database'. Halfway through, a dependency slipped. Because the goal was outcome-shaped, the team swapped an automated DNS step for a documented manual one and still hit the goal. The tickets changed; the sprint did not fail.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_3_checklist", "type": "checklist", "text": "Before you leave planning: the goal fits in one sentence a stakeholder would care about; the forecast lists items by backlog order, not by who shouted; at least one item is marked as the first casualty if capacity shrinks; and the known unknowns each have an owner and a check-in day.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_3_summary", "type": "summary", "text": "Plan the goal first, the forecast second, and the sacrifices explicitly. A sprint with a clear goal can absorb surprises; a sprint that is only a ticket list shatters on the first one.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]}
+          ],
+          "activities": [
+            {"id": "act_3_accordion", "type": "accordion", "title": "The three planning questions", "instructions": "Open each section and connect it to your own team's last planning session.", "data": {"items": [
+              {"title": "Why - the sprint goal", "detail": "One outcome-shaped sentence. If every ticket changed but this sentence came true, the sprint still succeeded."},
+              {"title": "What - the forecast", "detail": "Items pulled in backlog order until capacity is credible. An estimate offered honestly, never a promise extracted."},
+              {"title": "How - the first steps", "detail": "Enough task breakdown to start tomorrow morning without a meeting, plus owners for each known unknown."}
+            ]}, "objective_ids": ["lo_planning"]}
+          ],
+          "quiz_questions": [
+            {"id": "q_l3", "type": "mcq", "difficulty": "intermediate", "objective_ids": ["lo_planning"], "question": "Mid-sprint, a dependency slips and two forecast items become impossible. The sprint goal is still reachable by another route. What does a well-planned sprint do?", "options": ["Declare the sprint failed and stop early", "Swap the affected items for the alternate route and keep the goal", "Extend the sprint until the original items are possible again"], "correct_answers": ["Swap the affected items for the alternate route and keep the goal"], "explanation": "The goal is the contract and scope is the flex. Outcome-shaped goals let the plan bend without the sprint breaking."}
+          ]
+        },
+        {
+          "id": "lesson_4",
+          "title": "Daily scrum without status theatre",
+          "duration_minutes": 13,
+          "objective_ids": ["lo_daily"],
+          "content_blocks": [
+            {"id": "cb_4_intro", "type": "intro", "text": "You can measure the health of a daily scrum by counting decisions. A healthy fifteen minutes produces two or three: swap this pair, escalate that blocker, cut that scope. An unhealthy one produces fifteen minutes of yesterday-today-no-blockers recited to a manager, which is a status report wearing a stand-up costume.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020", "excerpt": "The Daily Scrum is a 15-minute event for the Developers to inspect progress toward the Sprint Goal."}]},
+            {"id": "cb_4_explain", "type": "explanation", "text": "The daily scrum has one job: inspect progress toward the sprint goal and adapt the day's plan. The audience is the team, not the manager. Any format works - walking the board, goal-first questions, silent Kanban review - if it ends with the team knowing what changed about today. If nothing ever changes, the meeting is a habit, not an inspection.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_4_warning", "type": "warning", "text": "The most expensive failure mode is the blocked item that stays polite. A developer mentions the same blocker three days running, nobody owns it, and it quietly eats the sprint goal. A blocker named twice without an owner and a deadline is not a mention - it is an escalation that has not happened yet.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_4_example", "type": "example", "text": "A mobile team replaced person-by-person updates with walking the board right-to-left, starting from the item closest to done. Meetings dropped to nine minutes, and the first question each day became 'what does this item need to move?' - which is a decision prompt, not a status prompt.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_4_summary", "type": "summary", "text": "Judge the daily scrum by decisions per minute, not attendance. Walk the work, not the people; name owners for blockers on the second mention; and let the goal, not the manager, be the audience.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]}
+          ],
+          "activities": [
+            {"id": "act_4_roleplay", "type": "roleplay", "title": "Rescue this stand-up", "instructions": "Read the persona, then write exactly what you would say in the meeting to convert status theatre into a decision.", "data": {"persona": {"name": "Priya", "role": "Delivery lead who inherited a 25-minute status stand-up", "goals": "Cut the meeting to 15 minutes and surface the real blocker on the payments item.", "constraints": "The engineering manager likes the current format and attends daily."}, "scenario": "Day three: the payments integration item has been 'almost done, waiting on the gateway team' for three straight days. Nobody has escalated. The manager nods along each day.", "objectives": ["Name the repeated blocker and assign it an owner and a deadline", "Redirect updates from person-by-person to the board, goal-first", "Handle the manager's attachment to the old format without a public confrontation"]}, "objective_ids": ["lo_daily"]}
+          ],
+          "quiz_questions": [
+            {"id": "q_l4", "type": "mcq", "difficulty": "intermediate", "objective_ids": ["lo_daily"], "question": "A blocker has been mentioned in the daily scrum three days in a row with no owner. What is the correct reading?", "options": ["The team is transparent - mentioning it is enough", "An escalation is overdue - repetition without ownership is the failure", "The blocker must not be important or someone would have fixed it"], "correct_answers": ["An escalation is overdue - repetition without ownership is the failure"], "explanation": "Transparency without adaptation is theatre. A blocker named twice needs an owner and a deadline; three mentions means the mechanism already failed."}
+          ]
+        }
+      ],
+      "activities": []
+    },
+    {
+      "id": "module_3",
+      "title": "Evidence and Judgement",
+      "duration_minutes": 25,
+      "objective_ids": ["lo_review", "lo_context"],
+      "lessons": [
+        {
+          "id": "lesson_5",
+          "title": "Review and retrospective as evidence",
+          "duration_minutes": 12,
+          "objective_ids": ["lo_review"],
+          "content_blocks": [
+            {"id": "cb_5_intro", "type": "intro", "text": "The sprint review and the retrospective answer two different questions with two different kinds of evidence. The review asks 'did the product move?' and its evidence is the increment in a stakeholder's hands. The retrospective asks 'did the system that builds the product improve?' and its evidence is one changed working agreement, tested next sprint.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020", "excerpt": "The Sprint Review is a working session; the Scrum Team should avoid limiting it to a presentation."}]},
+            {"id": "cb_5_explain", "type": "explanation", "text": "A review that is a slide deck is a rehearsal; a review that is a working session is an inspection. Put the increment in front of stakeholders, let them drive it, and capture what they try to do that the product cannot. For the retrospective, the output is not a feelings summary - it is one experiment small enough to run next sprint with a way to tell whether it worked.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_5_example", "type": "example", "text": "A claims-processing team stopped presenting at reviews and started handing stakeholders a laptop with the new intake flow. In one session an adjuster tried to attach two documents at once and failed - a workflow nobody had specified. That single observed failure re-ordered the next sprint's backlog more credibly than any survey.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_5_reflection", "type": "reflection", "text": "Think about your team's last retrospective. Can you name the one experiment it produced, and do you know yet whether that experiment worked? If you cannot name it, the meeting produced conversation, not change - what would you propose as the single experiment for next sprint?", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]},
+            {"id": "cb_5_summary", "type": "summary", "text": "Reviews inspect the product with stakeholders' hands on the increment; retrospectives inspect the system with one testable experiment. Both meetings are only as good as the evidence they leave behind.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "Scrum Guide 2020"}]}
+          ],
+          "activities": [
+            {"id": "act_5_branch", "type": "branching_scenario", "title": "The defensive stakeholder", "instructions": "Lead a sprint review with Dana, an operations director who hates surprises. Every choice changes how the conversation unfolds.", "data": {"persona": {"name": "Dana", "role": "Operations director"}, "items": [
+              {"scenario": "Dana opens the review with: 'I only have ten minutes. Just show me the status slide.'", "choices": [
+                {"label": "Hand Dana the laptop and ask her to process one real claim in the new intake flow", "result": "best", "feedback": "Exactly. Her hands on the increment turn ten minutes into a real inspection instead of a briefing."},
+                {"label": "Show the slide first and offer a demo afterwards if time remains", "result": "risk", "feedback": "The slide eats the ten minutes, the increment goes uninspected, and the review becomes a status meeting."},
+                {"label": "Reschedule the review for when she has more time", "result": "risk", "feedback": "Inspection delayed is inspection denied - the next sprint plans on stale evidence."}
+              ]},
+              {"scenario": "Dana hits the two-document attach bug you already knew about. She frowns: 'Is this thing ready or not?'", "choices": [
+                {"label": "Own it: 'Not for that workflow - and that is exactly what this review is for. It goes to the top of the backlog.'", "result": "best", "feedback": "Honest inspection converts a frown into a prioritised backlog item and keeps her trust for the next review."},
+                {"label": "Downplay it: 'Edge case - most adjusters only attach one document.'", "result": "risk", "feedback": "Dana just watched reality contradict you. Every future review now gets discounted."}
+              ]}
+            ]}, "objective_ids": ["lo_review"]},
+            {"id": "act_5_timeline", "type": "timeline", "title": "The evidence loop", "instructions": "Walk the loop in order and note where your own team currently breaks it.", "data": {"items": [
+              {"label": "Build", "detail": "The sprint produces a usable increment against the goal."},
+              {"label": "Inspect the product", "detail": "Stakeholders drive the increment at the review; observed friction becomes backlog candidates."},
+              {"label": "Inspect the system", "detail": "The retrospective converts the sprint's pain into one small experiment."},
+              {"label": "Adapt", "detail": "Next sprint runs the experiment and re-ordered backlog; evidence compounds."}
+            ]}, "objective_ids": ["lo_review"]}
+          ],
+          "quiz_questions": [
+            {"id": "q_l5", "type": "mcq", "difficulty": "intermediate", "objective_ids": ["lo_review"], "question": "What distinguishes a sprint review from a demo?", "options": ["Reviews are longer and have more attendees", "Stakeholders operate the increment themselves and their friction feeds the backlog", "Reviews happen only when the sprint goal was fully met"], "correct_answers": ["Stakeholders operate the increment themselves and their friction feeds the backlog"], "explanation": "A demo shows a rehearsed happy path; a review is an inspection where observed stakeholder behaviour becomes the next sprint's evidence."}
+          ]
+        },
+        {
+          "id": "lesson_6",
+          "title": "Contextual agility in 2026",
+          "duration_minutes": 13,
+          "objective_ids": ["lo_context"],
+          "content_blocks": [
+            {"id": "cb_6_intro", "type": "intro", "text": "The 2026 conversation has moved past 'doing Scrum right' toward business agility: matching the weight of process to the risk of the work. AI pair-tools compress build time, distributed teams stretch communication, and the question a project manager actually faces is no longer which framework - it is how much ceremony this specific team and this specific risk deserve.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "2026 Agile trends brief", "excerpt": "Recent trend reporting emphasizes enterprise agility and contextual Agile over prescriptive frameworks."}]},
+            {"id": "cb_6_explain", "type": "explanation", "text": "Contextual agility keeps the invariants and flexes the rituals. The invariants: a forced cadence of inspection, a usable increment as the unit of progress, and one owner for ordering decisions. The flex: meeting length, estimation technique, tooling, and how much of the ceremony an AI assistant now drafts before the humans argue with it. Cut ritual freely; never cut inspection.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "2026 Agile trends brief"}]},
+            {"id": "cb_6_example", "type": "example", "text": "A two-person AI-assisted prototype team ran one-week sprints with a fifteen-minute combined review-retro and no estimation at all - full ceremony would have cost more than the work. The same company's payments platform team kept two-week sprints, formal reviews, and compliance sign-off inside the Definition of Done. Same invariants, opposite ceremony budgets, both defensible.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "2026 Agile trends brief"}]},
+            {"id": "cb_6_callout", "type": "callout", "text": "A useful test for any ceremony in 2026: if this meeting disappeared for a month, what risk would go unseen? If the answer is 'none', delete the meeting. If the answer names a real risk, the meeting stays - at the minimum length that still surfaces that risk.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "2026 Agile trends brief"}], "media": {"kind": "link", "url": "https://scrumguides.org/scrum-guide.html", "caption": "Read the full 2020 Scrum Guide"}},
+            {"id": "cb_6_summary", "type": "summary", "text": "Protect inspection cadence, usable increments, and single-owner ordering; negotiate everything else against the team's actual risk. Ceremony is a budget to be spent where risk lives, not a uniform to be worn.", "source_refs": [{"source_id": "source_1", "source_type": "manual", "title": "2026 Agile trends brief"}]}
+          ],
+          "activities": [
+            {"id": "act_6_tree", "type": "decision_tree", "title": "Right-size the ceremony", "instructions": "Pick the ceremony budget that fits this team's risk profile.", "data": {"scenario": "A three-person team is building an internal AI-assisted reporting prototype. No external users, no compliance surface, two-month funding window.", "choices": [
+              {"label": "One-week sprints, combined 20-minute review-retro, no estimation", "result": "best", "feedback": "Matches the risk: the funding window is the real deadline, and inspection cadence stays high while ritual cost stays near zero."},
+              {"label": "Two-week sprints with full separate ceremonies and story-point estimation", "result": "risk", "feedback": "This ceremony budget belongs to a team with compliance or integration risk; here it burns roughly a fifth of the funding window on meetings."},
+              {"label": "No sprints - just a kanban board and a demo when it is ready", "result": "risk", "feedback": "You deleted the inspection cadence itself. With a two-month window, a month of unreviewed drift is fatal."}
+            ]}, "objective_ids": ["lo_context"]}
+          ],
+          "quiz_questions": [
+            {"id": "q_l6", "type": "mcq", "difficulty": "intermediate", "objective_ids": ["lo_context"], "question": "Which element must survive no matter how much agile ceremony a team strips away?", "options": ["Story-point estimation", "A forced cadence of inspection with a usable increment", "Separate one-hour review and retrospective meetings"], "correct_answers": ["A forced cadence of inspection with a usable increment"], "explanation": "Rituals are negotiable against risk; the inspection cadence and the increment are the invariants that make adaptation possible at all."}
+          ]
+        }
+      ],
+      "activities": []
+    }
+  ],
+  "final_assessment": {
+    "id": "assessment_final",
+    "title": "Sprint Playbook Final Check",
+    "passing_score": 80,
+    "questions": [
+      {"id": "q_f1", "type": "mcq", "objective_ids": ["lo_sprint"], "question": "What is the primary mechanism by which sprints reduce project risk?", "options": ["They make teams work faster under deadline pressure", "They force working output into review before optimism can compound", "They eliminate the need for long-term planning"], "correct_answers": ["They force working output into review before optimism can compound"], "explanation": "The timebox itself is not the value; the forced, frequent inspection of a usable increment is what converts hidden schedule risk into visible, cheap-to-fix increment risk."},
+      {"id": "q_f2", "type": "mcq", "objective_ids": ["lo_backlog"], "question": "Which trio of inputs makes a backlog ordering defensible to stakeholders?", "options": ["Value now, cost of delay, risk retired", "Stakeholder seniority, team preference, item age", "Estimated effort, ticket count, sprint velocity"], "correct_answers": ["Value now, cost of delay, risk retired"], "explanation": "An ordering argued from value, delay cost, and risk retirement can be defended with evidence; orderings argued from volume or seniority cannot."},
+      {"id": "q_f3", "type": "mcq", "objective_ids": ["lo_planning"], "question": "What makes a sprint goal 'outcome-shaped' rather than ticket-shaped?", "options": ["It lists every forecast item in one sentence", "It stays true even if every ticket under it changes", "It includes the story-point total for the sprint"], "correct_answers": ["It stays true even if every ticket under it changes"], "explanation": "An outcome-shaped goal is the contract that survives mid-sprint surprises; tickets are the flexible means, not the commitment."},
+      {"id": "q_f4", "type": "mcq", "objective_ids": ["lo_daily"], "question": "By what measure should you judge whether a daily scrum is working?", "options": ["Full attendance and punctuality", "Decisions made that change the day's plan", "Each person speaking for an equal amount of time"], "correct_answers": ["Decisions made that change the day's plan"], "explanation": "The daily scrum exists to inspect and adapt the plan toward the sprint goal; a meeting that never changes anything is a habit, not an inspection."},
+      {"id": "q_f5", "type": "mcq", "objective_ids": ["lo_review"], "question": "What is the strongest evidence a sprint review can produce?", "options": ["A polished slide summary of completed tickets", "Stakeholders' observed friction while driving the increment themselves", "A recorded demo video for absent stakeholders"], "correct_answers": ["Stakeholders' observed friction while driving the increment themselves"], "explanation": "Observed behaviour against the real increment re-orders the backlog more credibly than any presentation or survey."},
+      {"id": "q_f6", "type": "scenario", "objective_ids": ["lo_context", "lo_sprint"], "question": "A five-person team maintains a compliance-critical payments platform and also spikes AI prototypes on the side. The CTO wants one uniform process for both streams to 'keep things simple'. As the project manager, what do you recommend?", "options": ["One uniform heavyweight process - compliance risk sets the bar for everything", "One uniform lightweight process - prototypes prove ceremony is unnecessary", "Shared invariants (inspection cadence, usable increments, single ordering owner) with a different ceremony budget per stream"], "correct_answers": ["Shared invariants (inspection cadence, usable increments, single ordering owner) with a different ceremony budget per stream"], "explanation": "Contextual agility keeps the invariants and flexes the ritual to the risk: the payments stream carries compliance ceremony inside its Definition of Done, while the prototype stream runs the same inspection cadence at minimum ritual cost."}
+    ]
+  }
+}

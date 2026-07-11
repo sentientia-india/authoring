@@ -13,6 +13,7 @@ from course_mcp_server.tools import (
     ingest_course_source,
     list_course_artifacts,
     request_publish_approval,
+    submit_course_content,
     validate_instructional_quality,
 )
 
@@ -34,6 +35,8 @@ def test_production_tool_surface_is_narrow_and_safe():
         "save_course_brief",
         "get_next_course_question",
         "save_course_discovery_answer",
+        "propose_course_plan",
+        "approve_course_plan",
         "propose_course_outline",
         "update_course_outline",
         "approve_course_outline",
@@ -46,6 +49,11 @@ def test_production_tool_surface_is_narrow_and_safe():
         "generate_course_with_codex",
         "get_course_workflow_status",
         "generate_course_blueprint",
+        "submit_course_content",
+        "submit_course_module",
+        "upload_media_asset",
+        "get_media_briefs",
+        "attach_media",
         "generate_module_pack",
         "generate_lesson_pack",
         "generate_interactive_activity",
@@ -298,3 +306,46 @@ def test_build_storyline_handoff_package_tool(tmp_path, monkeypatch):
     assert result["data"]["package_path"].endswith(".zip")
     assert result["data"]["native_story_file_generated"] is False
     assert "storyboard.md" in result["data"]["files"]
+
+
+def test_submitted_course_content_drives_scorm_export(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+
+    monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
+    monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "output"))
+    context = _ctx()
+    project = create_course_project(
+        {"course_title": "Agile Sprint Playbook", "audience": "project managers", "language": "English"},
+        context,
+    )
+    project_id = project["data"]["project_id"]
+
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "agile_course_content.json").read_text(encoding="utf-8")
+    )
+    fixture["project_id"] = project_id
+    submission = submit_course_content(fixture, context)
+    assert submission["ok"] is True
+    assert submission["data"]["module_count"] == 3
+    assert submission["data"]["lesson_count"] == 6
+    assert submission["data"]["quality_status"] in {"approved", "needs_review"}
+
+    result = build_export_package({"project_id": project_id, "export_format": "scorm"}, context)
+    assert result["ok"] is True, result.get("data")
+
+    package_dir = Path(result["data"]["package_path"]).with_suffix("")
+    course_json = json.loads((package_dir / "data" / "course.json").read_text(encoding="utf-8"))
+    all_text = json.dumps(course_json)
+    # Authored prose made it through; fabricated filler did not.
+    assert "optimism can compound" in all_text
+    assert "Use the source to explain" not in all_text
+    assert "A learner faces a realistic decision." not in all_text
+    # Activities are lesson-specific, not one global list repeated everywhere.
+    lesson_activity_ids = [
+        activity["activity_id"]
+        for module in course_json["modules"]
+        for lesson in module["lessons"]
+        for activity in lesson.get("activities", [])
+    ]
+    assert len(lesson_activity_ids) == len(set(lesson_activity_ids))

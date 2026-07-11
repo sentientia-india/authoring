@@ -41,6 +41,30 @@ class LearningObjective(BaseModel):
     measurable: bool = True
 
 
+class MediaAsset(BaseModel):
+    """Media attached to a content block: an image the author supplies, a video link, or a web link.
+
+    Exactly one of `url` (https link, YouTube embed allowed for video) or `upload_id`
+    (a controlled upload packaged into the SCORM zip at export) must be provided.
+    """
+
+    kind: Literal["image", "video", "link"]
+    url: str | None = Field(default=None, max_length=600)
+    upload_id: str | None = Field(default=None, max_length=200)
+    alt: str | None = Field(default=None, max_length=300)
+    caption: str | None = Field(default=None, max_length=400)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "MediaAsset":
+        if not self.url and not self.upload_id:
+            raise ValueError("Media requires either url or upload_id")
+        if self.url and not self.url.startswith("https://"):
+            raise ValueError("Media url must use https")
+        if self.upload_id and ("/" in self.upload_id or "\\" in self.upload_id or ".." in self.upload_id):
+            raise ValueError("upload_id must be a bare file name")
+        return self
+
+
 class ContentBlock(BaseModel):
     id: str = Field(pattern=r"^cb_[a-zA-Z0-9_-]{1,40}$")
     type: Literal[
@@ -59,6 +83,19 @@ class ContentBlock(BaseModel):
     text: str = Field(min_length=1, max_length=6000)
     source_refs: list[SourceReference] = Field(default_factory=list, max_length=10)
     alt_text: str | None = Field(default=None, max_length=300)
+    media: MediaAsset | None = None
+
+
+class GameOptions(BaseModel):
+    """Per-course Level 3.5/4 mechanics the authoring agent (or user) can switch on."""
+
+    branching_scenarios: bool = True
+    locked_progression: bool = True
+    streaks: bool = True
+    timed_challenges: bool = False
+    timer_seconds: int = Field(default=20, ge=5, le=120)
+    celebration: bool = True
+    certificate: bool = True
 
 
 class Activity(BaseModel):
@@ -71,7 +108,10 @@ class Activity(BaseModel):
         "matching",
         "hotspot",
         "decision_tree",
+        "branching_scenario",
         "roleplay",
+        "timeline",
+        "fill_blank",
         "interactive_video_checkpoint",
         "reflection",
     ]

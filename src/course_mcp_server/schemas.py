@@ -56,6 +56,8 @@ class ScormPackageRequest(BaseModel):
     modules: list[dict] = Field(min_length=1)
     scorm_version: Literal["1.2", "2004"] = "1.2"
     reference_style: Literal["rise_block", "interaction_game", "course_example"] = "rise_block"
+    media_files: list[str] = Field(default_factory=list, max_length=60)
+    branding: dict = Field(default_factory=dict)
 
 
 class CourseMaterial(BaseModel):
@@ -111,7 +113,7 @@ class MaterialTicketResult(BaseModel):
 
 class DiscoveryAnswer(BaseModel):
     value: str | int | float | bool | list[str] | dict | None = None
-    source: Literal["user_provided", "ai_suggested", "template_default"]
+    source: Literal["user_provided", "ai_suggested", "template_default", "derived", "ai_default"]
     confidence: float = Field(ge=0, le=1)
     reason: str
 
@@ -356,6 +358,102 @@ class AssessmentBankResult(BaseModel):
     questions: list[dict]
 
 
+class SubmitCourseContentRequest(BaseModel):
+    """Full course content authored by the calling agent (Claude Code / Codex).
+
+    The MCP server validates and stores this payload; it never writes the
+    lesson prose itself. Structures are validated against course_schema_v2.
+    """
+
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    learning_objectives: list[dict] = Field(min_length=1, max_length=30)
+    modules: list[dict] = Field(min_length=1, max_length=30)
+    final_assessment: dict | None = None
+    difficulty: Literal["beginner", "intermediate", "advanced"] = "beginner"
+    theme: Literal["studio", "compliance", "academy"] | None = None
+    game_options: dict = Field(default_factory=dict)
+
+
+class SubmitCourseContentResult(BaseModel):
+    project_id: str
+    module_count: int
+    lesson_count: int
+    activity_count: int
+    quiz_question_count: int
+    quality_score: int
+    quality_status: str
+    quality_issues: list[dict] = Field(default_factory=list)
+    media_requests: list[dict] = Field(default_factory=list)
+
+
+class SubmitCourseModuleRequest(BaseModel):
+    """Incremental content submission: one authored module at a time.
+
+    Lets the calling agent fan out parallel subagents (one per module) and
+    submit each as it finishes. Idempotent per module id.
+    """
+
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    module: dict
+    learning_objectives: list[dict] = Field(default_factory=list, max_length=30)
+    final_assessment: dict | None = None
+    difficulty: Literal["beginner", "intermediate", "advanced"] | None = None
+    theme: Literal["studio", "compliance", "academy"] | None = None
+    game_options: dict | None = None
+    expected_module_count: int | None = Field(default=None, ge=1, le=30)
+
+
+class SubmitCourseModuleResult(BaseModel):
+    project_id: str
+    module_id: str
+    modules_submitted: int
+    expected_module_count: int | None = None
+    complete: bool
+    missing_module_ids: list[str] = Field(default_factory=list)
+
+
+class UploadMediaAssetRequest(BaseModel):
+    """Channel for the calling agent to push generated images/videos into the controlled upload dir."""
+
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    filename: str = Field(min_length=5, max_length=120, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(png|jpg|jpeg|svg|webp|mp4|webm)$")
+    content_base64: str = Field(min_length=8)
+
+
+class UploadMediaAssetResult(BaseModel):
+    project_id: str
+    upload_id: str
+    size_bytes: int
+    kind: Literal["image", "video"]
+
+
+class MediaBriefsRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+
+
+class MediaBriefsResult(BaseModel):
+    project_id: str
+    image_briefs: list[dict] = Field(default_factory=list)
+    video_slots: list[dict] = Field(default_factory=list)
+
+
+class AttachMediaRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    block_id: str = Field(min_length=3, max_length=60)
+    kind: Literal["image", "video", "link"] = "image"
+    upload_id: str | None = Field(default=None, max_length=200)
+    url: str | None = Field(default=None, max_length=600)
+    alt: str | None = Field(default=None, max_length=300)
+    caption: str | None = Field(default=None, max_length=400)
+
+
+class AttachMediaResult(BaseModel):
+    project_id: str
+    block_id: str
+    attached: bool
+    media: dict
+
+
 class QualityValidationRequest(BaseModel):
     project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
 
@@ -372,6 +470,7 @@ class ExportPackageRequest(BaseModel):
     project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
     export_format: Literal["scorm", "h5p"] = "scorm"
     scorm_version: Literal["1.2", "2004"] = "1.2"
+    branding: dict | None = None
 
 
 class StorylineHandoffRequest(BaseModel):

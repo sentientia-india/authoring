@@ -102,27 +102,27 @@ def test_discovery_flow_uses_ai_default_when_answer_is_blank(tmp_path, monkeypat
     assert result["data"]["answer"]["value"]
 
 
-def test_next_question_asks_required_course_brief_fields_in_order(tmp_path, monkeypatch):
+def test_next_question_asks_essentials_first_then_brief_details(tmp_path, monkeypatch):
     context, project_id = _create_project(tmp_path, monkeypatch)
     start = start_course_discovery({"project_id": project_id}, context)
-    assert start["data"]["next_question"]["id"] == "course_title"
-    assert [question["id"] for question in start["data"]["questions"][:4]] == [
-        "course_title",
-        "target_learner",
-        "course_goal",
-        "learner_level",
+    assert start["data"]["next_question"]["id"] == "course_brief_line"
+    assert [question["id"] for question in start["data"]["questions"][:3]] == [
+        "course_brief_line",
+        "duration_preset",
+        "media_plan_mode",
     ]
 
-    save_course_discovery_answer({"project_id": project_id, "question_id": "course_title", "answer": "Safety Basics"}, context)
+    save_course_discovery_answer(
+        {"project_id": project_id, "question_id": "course_brief_line", "answer": "Ramp safety basics for new ramp agents"},
+        context,
+    )
     next_question = get_next_course_question({"project_id": project_id}, context)
 
-    assert next_question["data"]["next_question"]["id"] == "target_learner"
-    assert [question["id"] for question in next_question["data"]["questions"][:3]] == [
-        "target_learner",
-        "course_goal",
-        "learner_level",
-    ]
-    assert next_question["data"]["questions"][0]["suggested_answer"]["value"]
+    # The one-liner auto-derives the detailed brief fields so they are not re-asked.
+    assert next_question["data"]["next_question"]["id"] == "duration_preset"
+    answered = {"course_title", "target_learner", "course_goal"}
+    remaining_ids = [question["id"] for question in next_question["data"]["questions"]]
+    assert not answered.intersection(remaining_ids)
 
 
 def test_discovery_flow_uses_user_answer_over_ai_default(tmp_path, monkeypatch):

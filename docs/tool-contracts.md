@@ -1,5 +1,17 @@
 # MCP Tool Contracts
 
+## Recommended generation recipe (agent playbook)
+
+The calling agent (the user's Claude Code / Codex subscription) does all expensive work; the MCP validates, gates, and packages. The friction-free flow:
+
+1. **Interview — three questions only.** `start_course_discovery`, then save answers for `course_brief_line` ("Ramp safety essentials for new ramp agents" — title/audience/goal are auto-derived), `duration_preset` (`micro`/`standard`/`deep`), and `media_plan_mode` (`agent_images`/`user_uploads`/`text_only`, plus optional `video_links`). If the user shared a PDF/PPT/doc/site, `ingest_course_source` it (extraction is deterministic — no LLM cost).
+2. **One plan card.** `propose_course_plan` returns the whole plan (modules, length, template, media, gamification). Show it; when the user says "go", call `approve_course_plan` — it collapses every granular approval in one step.
+3. **Write in parallel.** Spawn one subagent per module (user's tokens), each authoring full lessons per the content rules below, and `submit_course_module` as each finishes (idempotent by module id; the last one auto-assembles and quality-checks the course). Or use `submit_course_content` for one-shot.
+4. **Media.** `get_media_briefs` returns image briefs (ready-to-render prompts + filenames) and video slots (with suggested searches). Generate images with your own tooling, push each via `upload_media_asset` (base64, png/jpg/svg/webp/mp4/webm, ≤8 MB), then `attach_media` to the target block. For video slots, ask the user one crisp question per slot (paste a YouTube/Vimeo/Loom link, upload an mp4, or skip — skipped slots render a clean poster card).
+5. **Gate and ship.** `validate_instructional_quality` → `build_export_package` (SCORM zip with everything embedded). Exports are metered per license tier; `white_label` licenses may pass `branding: {product_name, footer_text}`.
+
+Licensing: every call requires a license key (`mcp_api_token`). Customer keys are issued server-side with `scripts/issue_license.py` (tiers: free/pro/white_label with monthly export quotas); the `MCP_API_TOKEN` bootstrap key remains for the operator. Tenant identity comes from the license, not the payload.
+
 ## Tool Exposure Rule
 
 Only the tools below are exposed to Codex. Do not expose shell, exec, raw file read/write, environment, database query, Docker, prompt dump, or raw log tools.
@@ -131,9 +143,95 @@ Selects the best template for the requested topic, audience, industry, and deliv
 
 Creates learning objectives, module plan, assessment strategy, and source citation policy.
 
+## 6b. `submit_course_content`
+
+**This is the primary content path.** The calling agent (Claude Code / Codex) authors the full course — every lesson's prose, every activity's items, every quiz question — and submits it in one validated payload. The MCP server validates structure against `course_schema_v2`, runs the deterministic instructional-quality gate, stores the content, and uses it for export. The server never writes lesson prose itself.
+
+Input:
+
+```json
+{
+  "project_id": "course_ab12cd34ef56",
+  "difficulty": "beginner",
+  "theme": "studio",
+  "learning_objectives": [
+    {"id": "lo_sprint", "text": "Explain how sprints structure delivery work.", "bloom_level": "understand"}
+  ],
+  "modules": [
+    {
+      "id": "module_1",
+      "title": "Scrum Foundations",
+      "duration_minutes": 20,
+      "objective_ids": ["lo_sprint"],
+      "lessons": [
+        {
+          "id": "lesson_1",
+          "title": "Why sprints work",
+          "duration_minutes": 10,
+          "objective_ids": ["lo_sprint"],
+          "content_blocks": [
+            {"id": "cb_1", "type": "intro", "text": "Learner-facing prose, not writer instructions."}
+          ],
+          "activities": [
+            {"id": "act_1", "type": "flashcards", "title": "Sprint vocabulary", "instructions": "Flip each card.", "data": {"items": [{"front": "...", "back": "..."}]}, "objective_ids": ["lo_sprint"]}
+          ],
+          "quiz_questions": []
+        }
+      ],
+      "activities": []
+    }
+  ],
+  "final_assessment": {"id": "assessment_final", "title": "Final check", "passing_score": 80, "questions": [/* QuizQuestion objects */]}
+}
+```
+
+Content rules the validator enforces (submission returns `quality_score`, `quality_status`, `quality_issues` so the agent can immediately fix and resubmit):
+
+- Every lesson needs intro/explanation/example/practice/summary block types and at least ~180 learner-facing words.
+- Text must be learner-facing prose. Writer meta-instructions ("Ask the learner to...", "Use the source to explain...") are flagged as placeholder content.
+- Lessons, activities, and questions must map to learning objective ids.
+- Final assessment needs 5+ questions including at least one scenario question, each with a meaningful explanation.
+- Activity `data.items` should differ per lesson; do not reuse one activity everywhere.
+
+Output: `{project_id, module_count, lesson_count, activity_count, quiz_question_count, quality_score, quality_status, quality_issues, media_requests}`.
+
+### Level 3.5/4 mechanics (`game_options`)
+
+Optional per-course switches controlling the packaged player's gamified experience:
+
+```json
+"game_options": {
+  "branching_scenarios": true,
+  "locked_progression": true,
+  "streaks": true,
+  "timed_challenges": false,
+  "timer_seconds": 20,
+  "celebration": true,
+  "certificate": true
+}
+```
+
+- `locked_progression`: lessons unlock sequentially on the dashboard.
+- `streaks`: consecutive correct answers build an XP multiplier shown in the HUD.
+- `timed_challenges`: knowledge-check slides get a countdown ring.
+- `celebration` / `certificate`: confetti on completion and a printable certificate.
+- Use activity type `branching_scenario` with `data.persona {name, role}` and `data.items` (each `{scenario, choices: [{label, result: "best"|"risk", feedback}]}`) for character-driven dialogue scenes.
+
+### Media on content blocks
+
+Any content block may carry one `media` attachment. Images the user supplies are referenced by controlled `upload_id` and packaged into the SCORM zip; videos and links use https URLs (YouTube embeds allowed):
+
+```json
+{"id": "cb_x", "type": "example", "text": "...", "media": {"kind": "video", "url": "https://www.youtube-nocookie.com/embed/VIDEO_ID", "caption": "Watch: ..."}}
+{"id": "cb_y", "type": "practice", "text": "...", "media": {"kind": "image", "upload_id": "diagram.svg", "alt": "...", "caption": "..."}}
+{"id": "cb_z", "type": "callout", "text": "...", "media": {"kind": "link", "url": "https://example.com", "caption": "Read more"}}
+```
+
+If a `media_placeholder` block has no media, or an `upload_id` file is missing, the submission result's `media_requests` lists exactly what to ask the user for — ask, then resubmit.
+
 ## 7. `generate_module_pack`
 
-Creates generated module metadata for a course project.
+Creates generated module metadata for a course project. Prefer `submit_course_content` for real courses; this remains for scaffolding.
 
 ## 8. `generate_lesson_pack`
 

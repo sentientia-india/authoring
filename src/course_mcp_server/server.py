@@ -10,7 +10,8 @@ except Exception:  # pragma: no cover - fallback for environments without fastmc
     FastMCP = None  # type: ignore
     JSONResponse = None  # type: ignore
 
-from .security import RequestContext, validate_token
+from .licensing import resolve_license
+from .security import RequestContext
 from .rate_limit import check_rate_limit
 from .tools import TOOL_REGISTRY, safe_error
 
@@ -26,12 +27,17 @@ approval workflows. High-risk publish actions require human approval and are not
 def _context_from_payload(payload: dict[str, Any] | None) -> RequestContext:
     payload = payload or {}
     token = payload.pop("mcp_api_token", None) or os.getenv("MCP_API_TOKEN")
-    validate_token(token)
+    license_ = resolve_license(token)
+    # Tenant identity comes from the license, never from the caller's payload
+    # (the admin bootstrap key may impersonate tenants for support).
+    claimed_tenant = payload.pop("tenant_id", "default")
+    tenant_id = claimed_tenant if license_.tier == "admin" else license_.tenant
     context = RequestContext(
-        tenant_id=payload.pop("tenant_id", "default"),
+        tenant_id=tenant_id,
         user_id=payload.pop("user_id", "codex"),
         token=token,
         request_id=payload.pop("request_id", None),
+        tier=license_.tier,
     )
     if not check_rate_limit(tenant_id=context.tenant_id, user_id=context.user_id):
         raise PermissionError("Rate limit exceeded")

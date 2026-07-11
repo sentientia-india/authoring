@@ -13,6 +13,11 @@ from .advanced_quality_gates import evaluate_superior_quality
 from .activities import build_activity
 from .artifacts import store_artifact_metadata
 from .course_generator import generate_lesson, generate_outline, generate_quiz, generate_roleplay
+import base64
+import copy
+
+from .course_schema_v2 import CourseProjectV2, GameOptions, MediaAsset
+from .media_briefs import build_media_briefs
 from .course_templates import TemplateRegistry
 from .discovery import CourseDiscoveryState, CourseDiscoveryWorkflow
 from .delivery import build_delivery_metadata
@@ -23,6 +28,7 @@ from .html_video_engine import HtmlVideoRenderer, build_video_project_from_cours
 from .ingestion import extract_source
 from .intake import create_ticket, generate_layout
 from .job_store import get_job_status, record_job
+from .licensing import License, TIER_EXPORT_QUOTAS, check_export_quota, record_export
 from .project_store import add_artifact, create_project, get_project, latest_artifact, save_project
 from .instructional_quality import validate_instructional_quality as validate_course_v2_quality
 from .schemas import (
@@ -62,6 +68,16 @@ from .schemas import (
     PublishApprovalResult,
     QualityValidationRequest,
     QualityValidationResult,
+    AttachMediaRequest,
+    AttachMediaResult,
+    MediaBriefsRequest,
+    MediaBriefsResult,
+    SubmitCourseContentRequest,
+    SubmitCourseContentResult,
+    SubmitCourseModuleRequest,
+    SubmitCourseModuleResult,
+    UploadMediaAssetRequest,
+    UploadMediaAssetResult,
     SuperiorQualityValidationRequest,
     SuperiorQualityValidationResult,
     WorkflowOutlineRequest,
@@ -161,7 +177,8 @@ def _workflow_state(project: dict[str, Any]) -> CourseDiscoveryState:
         assessment_model=workflow.get("assessment_model", {}),
         interaction_model=workflow.get("interaction_model", {}),
         approvals=workflow.get("approvals", {}),
-        source_chunk_count=workflow.get("source_chunk_count", len(_source_chunks_for_project(project))),
+        source_chunk_count=workflow.get("source_chunk_count") or len(_source_chunks_for_project(project)),
+        course_plan=workflow.get("course_plan", {}),
     )
 
 
@@ -594,6 +611,85 @@ def approve_course_outline(payload: dict, context: RequestContext) -> dict[str, 
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
+def propose_course_plan(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Build the single confirmation card: everything AI-suggested, shown once."""
+    tool_name = "propose_course_plan"
+    assert_tool_allowed(tool_name)
+    req = WorkflowApprovalRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    workflow = CourseDiscoveryWorkflow()
+    missing = [
+        q["id"]
+        for q in workflow.get_question_batch(state, limit=10, stage="essentials")
+        if q.get("required")
+    ]
+    if missing:
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "essentials_missing",
+            {"missing": missing, "message": "Answer the essential questions first."},
+        )
+    if not state.selected_template_id:
+        brief = _course_brief_from_state(state)
+        ranked = _rank_templates(
+            topic=str(brief.get("course_title", "")),
+            audience=str(brief.get("target_learner", "")),
+            industry=str(brief.get("industry_context", "")) or None,
+            limit=1,
+        )
+        if ranked:
+            state.selected_template_id = ranked[0]["template_id"]
+    template = _project_template(project) if state.selected_template_id else None
+    proposed_modules = state.module_outline
+    if not proposed_modules:
+        brief = _course_brief_from_state(state)
+        plan_defaults = state.answers.get("module_count_preference", {}).get("value", 5)
+        topics = _proposed_topics_from_brief(brief, getattr(template, "name", None))
+        count = max(2, min(int(plan_defaults or 5), 12))
+        proposed_modules = [
+            {"module_id": f"module_{index + 1}", "title": topics[index % len(topics)], "status": "proposed"}
+            for index in range(count)
+        ]
+        state.module_outline = proposed_modules
+    plan = workflow.build_course_plan(
+        state,
+        template_name=getattr(template, "name", None),
+        proposed_modules=proposed_modules,
+    )
+    _persist_workflow_state(project, state)
+    output = {"project_id": req.project_id, "status": state.status, "plan": plan}
+    _record(context, tool_name, req.project_id, "Course plan proposed for one-shot confirmation.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def approve_course_plan(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """One user 'go' collapses brief, outline, lessons, assessment, and interaction approvals."""
+    tool_name = "approve_course_plan"
+    assert_tool_allowed(tool_name)
+    req = WorkflowApprovalRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    state = _workflow_state(project)
+    try:
+        CourseDiscoveryWorkflow().approve_course_plan(state)
+    except ValueError as exc:
+        return _error_return(tool_name, context, req.model_dump(), "plan_not_ready", {"message": str(exc)})
+    _persist_workflow_state(project, state)
+    readiness = CourseDiscoveryWorkflow().check_generation_readiness(state)
+    _persist_workflow_state(project, state)
+    output = {
+        "project_id": req.project_id,
+        "status": state.status,
+        "approved": True,
+        "ready_for_generation": readiness["ready"],
+        "missing": readiness["missing"],
+    }
+    _record(context, tool_name, req.project_id, "Course plan approved in one step.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
 def propose_lesson_structure(payload: dict, context: RequestContext) -> dict[str, Any]:
     tool_name = "propose_lesson_structure"
     assert_tool_allowed(tool_name)
@@ -840,7 +936,386 @@ def _inject_source_refs(blocks: list[dict[str, Any]], source_refs: list[dict[str
     return enriched
 
 
+_ACTIVITY_TYPE_TO_PLAYER = {
+    "decision_tree": "scenario_decision_tree",
+    "drag_drop_sort": "drag_and_drop",
+    "hotspot": "hotspot_image",
+    "interactive_video_checkpoint": "interactive_video",
+}
+
+
+def _player_activity(activity: dict[str, Any]) -> dict[str, Any]:
+    """Map a course_schema_v2 Activity onto the shape the SCORM player renders."""
+    data = dict(activity.get("data") or {})
+    items = data.pop("items", None) or data.pop("cards", None) or data.pop("steps", None) or []
+    raw_type = activity.get("type", "reflection")
+    mapped = dict(data)
+    mapped.update(
+        {
+            "activity_id": activity.get("id"),
+            "activity_type": _ACTIVITY_TYPE_TO_PLAYER.get(raw_type, raw_type),
+            "title": activity.get("title"),
+            "objective": activity.get("instructions"),
+            "objective_ids": activity.get("objective_ids", []),
+            "items": items,
+        }
+    )
+    return mapped
+
+
+def _player_media(media: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Map an authored MediaAsset onto the src the packaged player loads."""
+    if not media:
+        return None
+    src = media.get("url")
+    if media.get("upload_id"):
+        src = f"assets/media/{media['upload_id']}"
+    return {
+        "kind": media.get("kind", "image"),
+        "src": src,
+        "alt": media.get("alt") or media.get("caption") or "",
+        "caption": media.get("caption") or "",
+    }
+
+
+def _course_payload_from_submission(project: dict[str, Any], content: dict[str, Any]) -> dict[str, Any]:
+    """Convert validated agent-authored course content into the exporter/player payload."""
+    objective_text = {
+        obj.get("id", ""): obj.get("text", "") for obj in content.get("learning_objectives", [])
+    }
+    modules = []
+    for module in content.get("modules", []):
+        lessons = []
+        for lesson in module.get("lessons", []):
+            first_objective = next(iter(lesson.get("objective_ids", [])), "")
+            blocks = []
+            for block in lesson.get("content_blocks", []):
+                block = dict(block)
+                media = _player_media(block.get("media"))
+                if media:
+                    block["media"] = media
+                else:
+                    block.pop("media", None)
+                blocks.append(block)
+            lessons.append(
+                {
+                    "id": lesson.get("id"),
+                    "title": lesson.get("title"),
+                    "duration_minutes": lesson.get("duration_minutes", 10),
+                    "objective_ids": lesson.get("objective_ids", []),
+                    "objective": objective_text.get(first_objective) or lesson.get("title", ""),
+                    "content_blocks": blocks,
+                    "activities": [_player_activity(act) for act in lesson.get("activities", [])],
+                    "quiz_questions": lesson.get("quiz_questions", []),
+                }
+            )
+        modules.append(
+            {
+                "id": module.get("id"),
+                "title": module.get("title"),
+                "duration_minutes": module.get("duration_minutes", 15),
+                "objective_ids": module.get("objective_ids", []),
+                "lessons": lessons,
+                "activities": [_player_activity(act) for act in module.get("activities", [])],
+            }
+        )
+    payload = {
+        "course_title": content.get("course_title", project["course_title"]),
+        "course_slug": content.get("course_slug", project["project_id"].replace("_", "-")),
+        "audience": content.get("audience", project["audience"]),
+        "difficulty": content.get("difficulty", "beginner"),
+        "language": content.get("language", project["language"]),
+        "estimated_duration_minutes": content.get("estimated_duration_minutes", 45),
+        "learning_objectives": content.get("learning_objectives", []),
+        "modules": modules,
+        "final_assessment": content.get("final_assessment"),
+        "source_refs": content.get("source_refs", []),
+    }
+    if content.get("theme"):
+        payload["theme"] = content["theme"]
+    if content.get("game_options"):
+        payload["game_options"] = content["game_options"]
+    return payload
+
+
+def _media_requests_for_content(content: dict[str, Any]) -> list[dict[str, Any]]:
+    """List the places where the course wants an image/video the author has not supplied yet."""
+    requests: list[dict[str, Any]] = []
+    upload_dir = Path(os.getenv("UPLOAD_DIR", "/app/output/uploads"))
+    for module in content.get("modules", []):
+        for lesson in module.get("lessons", []):
+            for block in lesson.get("content_blocks", []):
+                media = block.get("media")
+                if block.get("type") == "media_placeholder" and not media:
+                    requests.append(
+                        {
+                            "lesson_id": lesson.get("id"),
+                            "block_id": block.get("id"),
+                            "request": f"Supply an image or video for '{lesson.get('title')}': {block.get('text', '')[:140]}",
+                        }
+                    )
+                elif media and media.get("upload_id") and not (upload_dir / media["upload_id"]).exists():
+                    requests.append(
+                        {
+                            "lesson_id": lesson.get("id"),
+                            "block_id": block.get("id"),
+                            "request": f"Upload '{media['upload_id']}' so it can be packaged into the course zip.",
+                        }
+                    )
+    return requests
+
+
+def submit_course_content(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Store the full course authored by the calling agent (Claude Code / Codex).
+
+    The MCP server validates structure and quality but never writes the lesson
+    prose itself: the calling agent's subscription does the authoring work.
+    """
+    tool_name = "submit_course_content"
+    assert_tool_allowed(tool_name)
+    req = SubmitCourseContentRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    duration = sum(int(module.get("duration_minutes", 10) or 10) for module in req.modules)
+    course = CourseProjectV2.model_validate(
+        {
+            "course_id": req.project_id,
+            "course_title": project["course_title"],
+            "course_slug": req.project_id.replace("_", "-"),
+            "audience": project["audience"],
+            "difficulty": req.difficulty,
+            "language": project.get("language", "English"),
+            "estimated_duration_minutes": max(10, duration),
+            "status": "content_generated",
+            "learning_objectives": req.learning_objectives,
+            "modules": req.modules,
+            "final_assessment": req.final_assessment,
+        }
+    )
+    content = course.model_dump(mode="json")
+    if req.theme:
+        content["theme"] = req.theme
+    content["game_options"] = GameOptions.model_validate(req.game_options or {}).model_dump(mode="json")
+    add_artifact(project, "course_content", content)
+    quality = validate_course_v2_quality(_course_payload_from_submission(project, content))
+    lesson_count = sum(len(module.lessons) for module in course.modules)
+    activity_count = sum(
+        len(lesson.activities) for module in course.modules for lesson in module.lessons
+    ) + sum(len(module.activities) for module in course.modules)
+    quiz_count = sum(len(lesson.quiz_questions) for module in course.modules for lesson in module.lessons)
+    if course.final_assessment:
+        quiz_count += len(course.final_assessment.questions)
+    output = SubmitCourseContentResult(
+        project_id=req.project_id,
+        module_count=len(course.modules),
+        lesson_count=lesson_count,
+        activity_count=activity_count,
+        quiz_question_count=quiz_count,
+        quality_score=quality["score"],
+        quality_status=quality["status"],
+        quality_issues=quality["issues"],
+        media_requests=_media_requests_for_content(content),
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Agent-authored course content submitted and validated.")
+    return _safe_return(tool_name, context, {"project_id": req.project_id}, output)
+
+
+def submit_course_module(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Accept one authored module at a time so the calling agent can parallelise.
+
+    Modules accumulate in a draft artifact (idempotent by module id). Once every
+    planned module has arrived, the full course is assembled and validated through
+    the same path as submit_course_content.
+    """
+    tool_name = "submit_course_module"
+    assert_tool_allowed(tool_name)
+    req = SubmitCourseModuleRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    from .course_schema_v2 import Module as ModuleModel
+
+    module = ModuleModel.model_validate(req.module).model_dump(mode="json")
+
+    draft_artifact = latest_artifact(project, "course_module_draft")
+    draft = copy.deepcopy((draft_artifact or {}).get("payload")) or {
+        "modules": {},
+        "learning_objectives": {},
+        "final_assessment": None,
+        "difficulty": None,
+        "theme": None,
+        "game_options": None,
+        "expected_module_count": None,
+    }
+    draft["modules"][module["id"]] = module
+    for objective in req.learning_objectives:
+        if isinstance(objective, dict) and objective.get("id"):
+            draft["learning_objectives"][objective["id"]] = objective
+    if req.final_assessment is not None:
+        draft["final_assessment"] = req.final_assessment
+    for field_name in ("difficulty", "theme", "game_options"):
+        value = getattr(req, field_name)
+        if value is not None:
+            draft[field_name] = value
+    if req.expected_module_count:
+        draft["expected_module_count"] = req.expected_module_count
+
+    state = _workflow_state(project)
+    expected = draft.get("expected_module_count") or (
+        len(state.module_outline) if state.module_outline else None
+    )
+    planned_ids = [
+        item.get("module_id") or f"module_{index + 1}"
+        for index, item in enumerate(state.module_outline or [])
+    ]
+    submitted_ids = sorted(draft["modules"])
+    missing = [module_id for module_id in planned_ids if module_id not in submitted_ids]
+    complete = bool(expected) and len(submitted_ids) >= int(expected)
+    add_artifact(project, "course_module_draft", draft)
+
+    if complete:
+        modules_sorted = [draft["modules"][module_id] for module_id in sorted(draft["modules"])]
+        full_payload = {
+            "project_id": req.project_id,
+            "learning_objectives": list(draft["learning_objectives"].values()),
+            "modules": modules_sorted,
+            "final_assessment": draft.get("final_assessment"),
+            "difficulty": draft.get("difficulty") or "beginner",
+            "theme": draft.get("theme"),
+            "game_options": draft.get("game_options") or {},
+        }
+        if not full_payload["theme"]:
+            full_payload.pop("theme")
+        final_result = submit_course_content(full_payload, context)
+        if not final_result.get("ok"):
+            return final_result
+        merged = dict(final_result["data"])
+        merged.update(
+            {
+                "module_id": module["id"],
+                "modules_submitted": len(submitted_ids),
+                "expected_module_count": expected,
+                "complete": True,
+                "missing_module_ids": [],
+            }
+        )
+        _record(context, tool_name, req.project_id, f"Final module {module['id']} submitted; course assembled.")
+        return _safe_return(tool_name, context, {"project_id": req.project_id, "module_id": module["id"]}, merged)
+
+    output = SubmitCourseModuleResult(
+        project_id=req.project_id,
+        module_id=module["id"],
+        modules_submitted=len(submitted_ids),
+        expected_module_count=expected,
+        complete=False,
+        missing_module_ids=missing or [f"{expected - len(submitted_ids)} more module(s)"] if expected else missing,
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, f"Module {module['id']} submitted ({len(submitted_ids)}/{expected or '?'}).")
+    return _safe_return(tool_name, context, {"project_id": req.project_id, "module_id": module["id"]}, output)
+
+
+MEDIA_UPLOAD_MAX_BYTES = 8 * 1024 * 1024
+_VIDEO_EXTENSIONS = {".mp4", ".webm"}
+
+
+def upload_media_asset(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Receive a generated image/video from the calling agent into the controlled upload dir.
+
+    The agent's own subscription generated the asset; the MCP only stores and
+    packages it, so no generation cost lands on the server.
+    """
+    tool_name = "upload_media_asset"
+    assert_tool_allowed(tool_name)
+    req = UploadMediaAssetRequest.model_validate(payload)
+    _project_or_raise(context, req.project_id)
+    raw = req.content_base64
+    if "," in raw[:80]:
+        raw = raw.split(",", 1)[1]
+    try:
+        blob = base64.b64decode(raw, validate=True)
+    except Exception as exc:  # noqa: BLE001
+        return _error_return(tool_name, context, {"project_id": req.project_id}, "invalid_base64", {"message": str(exc)})
+    if len(blob) > MEDIA_UPLOAD_MAX_BYTES:
+        return _error_return(
+            tool_name,
+            context,
+            {"project_id": req.project_id},
+            "file_too_large",
+            {"max_bytes": MEDIA_UPLOAD_MAX_BYTES, "got_bytes": len(blob)},
+        )
+    upload_dir = Path(os.getenv("UPLOAD_DIR", "/app/output/uploads"))
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    target = (upload_dir / req.filename).resolve()
+    if not str(target).startswith(str(upload_dir.resolve())):
+        raise SecurityError("Upload escapes the controlled upload directory")
+    target.write_bytes(blob)
+    suffix = target.suffix.lower()
+    output = UploadMediaAssetResult(
+        project_id=req.project_id,
+        upload_id=req.filename,
+        size_bytes=len(blob),
+        kind="video" if suffix in _VIDEO_EXTENSIONS else "image",
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, f"Media asset uploaded: {req.filename}")
+    return _safe_return(tool_name, context, {"project_id": req.project_id, "filename": req.filename}, output)
+
+
+def get_media_briefs(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Return deterministic image briefs + video slots for the calling agent to fulfil."""
+    tool_name = "get_media_briefs"
+    assert_tool_allowed(tool_name)
+    req = MediaBriefsRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    content_artifact = latest_artifact(project, "course_content")
+    if not content_artifact:
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "content_not_submitted",
+            {"message": "Submit course content first; briefs are composed from the authored lessons."},
+        )
+    briefs = build_media_briefs(content_artifact.get("payload", {}))
+    output = MediaBriefsResult(
+        project_id=req.project_id,
+        image_briefs=briefs["image_briefs"],
+        video_slots=briefs["video_slots"],
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Media briefs composed.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def attach_media(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Attach an uploaded/linked media asset to one content block without resubmitting the course."""
+    tool_name = "attach_media"
+    assert_tool_allowed(tool_name)
+    req = AttachMediaRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+    content_artifact = latest_artifact(project, "course_content")
+    if not content_artifact:
+        return _error_return(tool_name, context, req.model_dump(), "content_not_submitted", {})
+    media = MediaAsset.model_validate(
+        {"kind": req.kind, "upload_id": req.upload_id, "url": req.url, "alt": req.alt, "caption": req.caption}
+    ).model_dump(mode="json")
+    content = copy.deepcopy(content_artifact.get("payload", {}))
+    attached = False
+    for module in content.get("modules", []):
+        for lesson in module.get("lessons", []):
+            for block in lesson.get("content_blocks", []):
+                if isinstance(block, dict) and block.get("id") == req.block_id:
+                    block["media"] = media
+                    attached = True
+    if not attached:
+        return _error_return(tool_name, context, req.model_dump(), "block_not_found", {"block_id": req.block_id})
+    add_artifact(project, "course_content", content)
+    output = AttachMediaResult(
+        project_id=req.project_id, block_id=req.block_id, attached=True, media=media
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, f"Media attached to block {req.block_id}.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
 def _project_course_payload(project: dict[str, Any]) -> dict[str, Any]:
+    content_artifact = latest_artifact(project, "course_content")
+    if content_artifact:
+        return _course_payload_from_submission(project, content_artifact.get("payload", {}))
     lessons_artifact = latest_artifact(project, "lessons")
     assessment_artifact = latest_artifact(project, "assessment")
     activities = [
@@ -1319,6 +1794,15 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
     tool_name = "build_export_package"
     assert_tool_allowed(tool_name)
     req = ExportPackageRequest.model_validate(payload)
+    license_ = License(
+        tenant=context.tenant_id,
+        tier=context.tier,
+        monthly_export_quota=TIER_EXPORT_QUOTAS.get(context.tier, 2),
+    )
+    quota = check_export_quota(license_)
+    if not quota["allowed"]:
+        return _error_return(tool_name, context, req.model_dump(), "quota_exceeded", quota)
+    branding = dict(req.branding or {}) if license_.white_label else {}
     project = _project_or_raise(context, req.project_id)
     template = _project_template(project)
     course_payload = _project_course_payload(project)
@@ -1356,16 +1840,31 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
             os.getenv("OUTPUT_DIR", "/app/output"),
         )
     else:
+        media_files = sorted(
+            {
+                media["src"].removeprefix("assets/media/")
+                for module in course_payload.get("modules", [])
+                for lesson in module.get("lessons", [])
+                for block in lesson.get("content_blocks", [])
+                if isinstance(block, dict)
+                and (media := block.get("media"))
+                and str(media.get("src", "")).startswith("assets/media/")
+            }
+        )
         output = build_scorm_package(
             ScormPackageRequest(
                 course_title=project["course_title"],
                 course_slug=req.project_id.replace("_", "-"),
                 modules=modules,
                 scorm_version=req.scorm_version,
+                media_files=media_files,
+                branding=branding,
             ),
             os.getenv("OUTPUT_DIR", "/app/output"),
         )
     project["status"] = "exported"
+    if context.tier != "admin":
+        record_export(license_)
     output["quality_report"] = quality_report
     output["artifact_metadata"] = store_artifact_metadata(
         project_id=req.project_id,
@@ -1467,6 +1966,8 @@ TOOL_REGISTRY = {
     "save_course_brief": save_course_brief,
     "get_next_course_question": get_next_course_question,
     "save_course_discovery_answer": save_course_discovery_answer,
+    "propose_course_plan": propose_course_plan,
+    "approve_course_plan": approve_course_plan,
     "propose_course_outline": propose_course_outline,
     "update_course_outline": update_course_outline,
     "approve_course_outline": approve_course_outline,
@@ -1480,6 +1981,11 @@ TOOL_REGISTRY = {
     "get_course_workflow_status": get_course_workflow_status,
     "ingest_course_source": ingest_course_source,
     "generate_course_blueprint": generate_course_blueprint,
+    "submit_course_content": submit_course_content,
+    "submit_course_module": submit_course_module,
+    "upload_media_asset": upload_media_asset,
+    "get_media_briefs": get_media_briefs,
+    "attach_media": attach_media,
     "generate_module_pack": generate_module_pack,
     "generate_lesson_pack": generate_lesson_pack,
     "generate_interactive_activity": generate_interactive_activity,

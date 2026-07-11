@@ -2,27 +2,74 @@ from __future__ import annotations
 
 from typing import Any
 
+DURATION_PRESETS: dict[str, dict[str, int]] = {
+    "micro": {"expected_duration": 15, "module_count_preference": 3},
+    "standard": {"expected_duration": 45, "module_count_preference": 6},
+    "deep": {"expected_duration": 90, "module_count_preference": 10},
+}
+
 COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
+    # --- essentials: the only three things the user must actually answer ---
+    {
+        "id": "course_brief_line",
+        "stage": "essentials",
+        "question": (
+            "Describe your course in one line - what topic, and who is it for? "
+            "If you have a PDF, PPT, doc, or website, share it now and I'll build from it."
+        ),
+        "type": "text",
+        "required": True,
+    },
+    {
+        "id": "duration_preset",
+        "stage": "essentials",
+        "question": "How long should the course be? micro (~15 min), standard (~45 min), or deep (~90 min)?",
+        "type": "single_select",
+        "options": ["micro", "standard", "deep"],
+        "default_if_blank": "standard",
+        "required": True,
+    },
+    {
+        "id": "media_plan_mode",
+        "stage": "essentials",
+        "question": (
+            "Images and video: should my agent generate images automatically, will you upload your own, "
+            "or keep it text-only? You can also paste video links now or say 'mark slots' to fill them later."
+        ),
+        "type": "single_select",
+        "options": ["agent_images", "user_uploads", "text_only"],
+        "default_if_blank": "agent_images",
+        "required": True,
+    },
+    {
+        "id": "video_links",
+        "stage": "essentials",
+        "question": "Optional: paste any video links (YouTube/Vimeo/Loom) to include, comma-separated.",
+        "type": "text",
+        "default_if_blank": "",
+        "required": False,
+    },
+    # --- brief: auto-derived from the one-liner or AI-suggested; only ask if the user wants control ---
     {
         "id": "course_title",
         "stage": "brief",
         "question": "What is the course title? Press Enter for AI suggestion.",
         "type": "text",
-        "required": True,
+        "required": False,
     },
     {
         "id": "target_learner",
         "stage": "brief",
         "question": "Who will take this course? Press Enter for AI suggestion.",
         "type": "text",
-        "required": True,
+        "required": False,
     },
     {
         "id": "course_goal",
         "stage": "brief",
         "question": "What should learners be able to do after this course? Press Enter for AI suggestion.",
         "type": "text",
-        "required": True,
+        "required": False,
     },
     {
         "id": "learner_level",
@@ -31,14 +78,15 @@ COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
         "type": "single_select",
         "options": ["beginner", "intermediate", "advanced", "mixed"],
         "default_if_blank": "beginner",
-        "required": True,
+        "required": False,
     },
     {
         "id": "industry_context",
         "stage": "brief",
         "question": "What industry or context is this course for? Press Enter for AI suggestion.",
         "type": "text",
-        "required": True,
+        "default_if_blank": "general workplace",
+        "required": False,
     },
     {
         "id": "course_type",
@@ -47,7 +95,7 @@ COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
         "type": "single_select",
         "options": ["simple course", "interactive course", "scenario-based course", "simulation-style course", "gamified course", "compliance course"],
         "default_if_blank": "interactive course",
-        "required": True,
+        "required": False,
     },
     {
         "id": "expected_duration",
@@ -55,7 +103,7 @@ COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
         "question": "What is the expected course duration in minutes? Press Enter for AI recommendation.",
         "type": "number",
         "default_if_blank": 30,
-        "required": True,
+        "required": False,
     },
     {
         "id": "source_material",
@@ -63,7 +111,7 @@ COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
         "question": "Which source material should be used? Press Enter to use uploaded source chunks.",
         "type": "text",
         "default_if_blank": "Use approved uploaded source chunks.",
-        "required": True,
+        "required": False,
     },
     {
         "id": "module_topic_mode",
@@ -72,7 +120,7 @@ COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
         "type": "single_select",
         "options": ["suggested_modules", "user_topics"],
         "default_if_blank": "suggested_modules",
-        "required": True,
+        "required": False,
     },
     {
         "id": "export_targets",
@@ -80,7 +128,7 @@ COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
         "question": "What export do you need? html, scorm, lms_package. Press Enter for AI recommendation.",
         "type": "multi_select",
         "recommended_options": ["html", "scorm"],
-        "required": True,
+        "required": False,
     },
     {
         "id": "module_count_preference",
@@ -105,7 +153,7 @@ COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
         "type": "single_select",
         "options": ["lesson_quiz", "module_quiz", "final_only", "scenario_based", "mixed"],
         "default_if_blank": "mixed",
-        "required": True,
+        "required": False,
     },
     {
         "id": "question_types",
@@ -122,7 +170,7 @@ COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
         "type": "single_select",
         "options": ["simple", "interactive", "scenario_based", "simulation", "gamified", "compliance"],
         "default_if_blank": "scenario_based",
-        "required": True,
+        "required": False,
     },
     {
         "id": "html_video_enabled",

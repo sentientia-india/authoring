@@ -17,6 +17,14 @@ PLACEHOLDER_PHRASES = {
     "apply the concept",
     "core lesson",
     "lorem ipsum",
+    # Meta-instructions to a course writer that leaked into learner-facing text.
+    "use the source to explain",
+    "ask the learner to",
+    "have the learner",
+    "place the learner in",
+    "require the learner to",
+    "the learner should leave knowing",
+    "present a wrong action and ask",
 }
 
 REQUIRED_LESSON_BLOCKS = {"intro", "explanation", "example", "practice", "summary"}
