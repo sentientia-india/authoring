@@ -50,12 +50,23 @@ def _save(data: dict[str, Any]) -> None:
     _store_path().write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def create_share(package_path: Path | str, *, tenant: str, course_id: str, paid: bool = False) -> dict:
+def create_share(
+    package_path: Path | str,
+    *,
+    tenant: str,
+    course_id: str,
+    paid: bool = False,
+    access_mode: str | None = None,
+) -> dict:
     package = Path(package_path).resolve()
     if not package.is_file() or package.suffix.lower() != ".zip":
         raise HostedLearningError("A valid SCORM ZIP is required")
     package_digest = hashlib.sha256(package.read_bytes()).hexdigest()
     release_id = f"release_{package_digest[:24]}"
+    mode = access_mode or ("paid" if paid else "unlisted")
+    allowed_modes = {"public", "unlisted", "email_verified", "invite_only", "tenant_only", "paid"}
+    if mode not in allowed_modes:
+        raise HostedLearningError("Unsupported share mode")
     token = secrets.token_urlsafe(24)
     target = _root() / ("releases" if database_url() else "shares") / (release_id if database_url() else token)
     target.mkdir(parents=True, exist_ok=True)
@@ -92,24 +103,31 @@ def create_share(package_path: Path | str, *, tenant: str, course_id: str, paid:
             tenant_id=tenant,
             release_id=release["release_id"],
             token=token,
-            mode="paid" if paid else "unlisted",
+            mode=mode,
         )
         return {
             "share_token": token,
             "release_id": release["release_id"],
             "grant_id": grant["grant_id"],
             "launch_path": f"/learn/{token}/index.html",
-            "paid": paid,
+            "paid": mode == "paid",
+            "access_mode": mode,
         }
     data = _load()
     data["shares"][token] = {
         "tenant": tenant,
         "course_id": course_id,
-        "paid": paid,
+        "paid": mode == "paid",
+        "access_mode": mode,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     _save(data)
-    return {"share_token": token, "launch_path": f"/learn/{token}/index.html", "paid": paid}
+    return {
+        "share_token": token,
+        "launch_path": f"/learn/{token}/index.html",
+        "paid": mode == "paid",
+        "access_mode": mode,
+    }
 
 
 def resolve_share_file(token: str, relative_path: str, access_token: str | None = None) -> Path:

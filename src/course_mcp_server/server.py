@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import base64
+import tempfile
+from pathlib import Path
 from typing import Any
 
 try:
@@ -13,7 +16,17 @@ except Exception:  # pragma: no cover - fallback for environments without fastmc
 
 from .licensing import lifecycle_warning, resolve_license
 from .billing import BillingError, handle_stripe_webhook
-from .hosted_learning import HostedLearningError, record_learner_event, resolve_share_file, tutor_reply
+from .hosted_learning import (
+    HostedLearningError,
+    capture_lead,
+    course_dashboard,
+    create_share,
+    grant_paid_access,
+    record_learner_event,
+    resolve_share_file,
+    tutor_reply,
+)
+from .hosted_repository import resolve_grant
 from .security import RequestContext
 from .rate_limit import check_rate_limit
 from .tools import TOOL_REGISTRY, safe_error
@@ -48,6 +61,20 @@ def _context_from_payload(payload: dict[str, Any] | None) -> RequestContext:
     return context
 
 
+def _context_from_request(request) -> RequestContext:  # noqa: ANN001
+    authorization = request.headers.get("authorization", "")
+    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
+    if not token:
+        raise PermissionError("Bearer token required")
+    return _context_from_payload(
+        {
+            "mcp_api_token": token,
+            "user_id": request.headers.get("x-user-id", "hosted-admin"),
+            "request_id": request.headers.get("x-request-id"),
+        }
+    )
+
+
 def create_mcp_server():
     if FastMCP is None:
         raise RuntimeError("fastmcp package is not installed")
@@ -72,6 +99,59 @@ def create_mcp_server():
         safe_result = {key: value for key, value in result.items() if key != "license_key"}
         return JSONResponse({"ok": True, **safe_result})
 
+    @mcp.custom_route("/api/hosted/releases", methods=["POST"], include_in_schema=False)
+    async def publish_hosted_release(request):  # noqa: ANN001
+        temporary: Path | None = None
+        try:
+            context = _context_from_request(request)
+            payload = await request.json()
+            encoded = str(payload.get("package_base64") or "")
+            package = base64.b64decode(encoded, validate=True)
+            if not package or len(package) > 60 * 1024 * 1024:
+                raise ValueError("invalid package")
+            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as handle:
+                handle.write(package)
+                temporary = Path(handle.name)
+            result = create_share(
+                temporary,
+                tenant=context.tenant_id,
+                course_id=str(payload.get("course_id") or ""),
+                access_mode=str(payload.get("access_mode") or "unlisted"),
+            )
+        except (HostedLearningError, ValueError, TypeError, PermissionError):
+            return JSONResponse({"ok": False, "error": "invalid_release"}, status_code=400)
+        finally:
+            if temporary:
+                temporary.unlink(missing_ok=True)
+        return JSONResponse({"ok": True, "release": result}, status_code=201)
+
+    @mcp.custom_route("/api/hosted/{token}/dashboard", methods=["GET"], include_in_schema=False)
+    async def hosted_admin_dashboard(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            token = request.path_params["token"]
+            grant = resolve_grant(token)
+            if not grant or grant["tenant_id"] != context.tenant_id:
+                raise HostedLearningError("Share not found")
+            result = course_dashboard(token)
+        except (HostedLearningError, PermissionError):
+            return JSONResponse({"ok": False, "error": "share_not_found"}, status_code=404)
+        return JSONResponse({"ok": True, "dashboard": result})
+
+    @mcp.custom_route("/api/hosted/{token}/entitlements", methods=["POST"], include_in_schema=False)
+    async def hosted_entitlement(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            token = request.path_params["token"]
+            grant = resolve_grant(token)
+            if not grant or grant["tenant_id"] != context.tenant_id:
+                raise HostedLearningError("Share not found")
+            payload = await request.json()
+            result = grant_paid_access(token, str(payload.get("purchaser") or ""))
+        except (HostedLearningError, PermissionError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "entitlement_failed"}, status_code=400)
+        return JSONResponse({"ok": True, **result}, status_code=201)
+
     @mcp.custom_route("/learn/{token}/{asset_path:path}", methods=["GET"], include_in_schema=False)
     async def hosted_course(request):  # noqa: ANN001
         try:
@@ -91,6 +171,15 @@ def create_mcp_server():
         except (HostedLearningError, ValueError, TypeError):
             return JSONResponse({"ok": False, "error": "invalid_event"}, status_code=400)
         return JSONResponse({"ok": True, "event": result})
+
+    @mcp.custom_route("/learn/{token}/lead", methods=["POST"], include_in_schema=False)
+    async def hosted_lead(request):  # noqa: ANN001
+        try:
+            payload = await request.json()
+            result = capture_lead(request.path_params["token"], str(payload.get("email") or ""))
+        except (HostedLearningError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "invalid_lead"}, status_code=400)
+        return JSONResponse({"ok": True, "lead": result}, status_code=201)
 
     @mcp.custom_route("/learn/{token}/tutor", methods=["POST"], include_in_schema=False)
     async def hosted_tutor(request):  # noqa: ANN001
