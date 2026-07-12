@@ -616,7 +616,7 @@ The IDs below are the execution order. A child task can begin early, but its pha
 - [ ] PROD-006 Pass tracked SCORM Cloud 1.2 and 2004 scenarios.
 - [ ] PROD-007 Build and pass pinned Moodle scenarios.
 - [ ] PROD-008 Make conformance regression checks release-blocking.
-- [ ] PROD-009 Specify canonical tenant/data/event/job models.
+- [x] PROD-009 Specify canonical tenant/data/event/job models. Evidence: `docs/production-data-contract.md`.
 - [ ] PROD-010 Persist production state and binaries in PostgreSQL/object storage.
 - [ ] PROD-011 Add durable queues, idempotency, outbox, and retries.
 - [ ] PROD-012 Pass tenant isolation, backup restore, and threat-model gates.
@@ -713,4 +713,3 @@ Work that does not need external input continues while these gates wait. These i
 Review scope: product strategy, Course Studio UX, architecture, testing, security, reliability, developer experience, competitive readiness, release operations, and external acceptance.
 
 Result: ready for approval as the authoritative production roadmap. Implementation must begin at Phase 0 and may not bypass the P0 or P1 gates.
-
