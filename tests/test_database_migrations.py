@@ -56,3 +56,10 @@ def test_communication_migration_covers_delivery_events_and_suppression():
     for table in ("email_suppressions", "email_deliveries", "email_events"):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in migration
     assert "email_events_append_only" in migration
+
+
+def test_analytics_migration_covers_schedules_and_quality_checks():
+    migration = (ROOT / "migrations" / "0005_analytics.sql").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS scheduled_reports" in migration
+    assert "CREATE TABLE IF NOT EXISTS analytics_quality_checks" in migration
+    assert "scheduled_reports_due_idx" in migration

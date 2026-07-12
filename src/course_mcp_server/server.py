@@ -9,11 +9,12 @@ from typing import Any
 
 try:
     from fastmcp import FastMCP
-    from starlette.responses import FileResponse, JSONResponse
+    from starlette.responses import FileResponse, JSONResponse, Response
 except Exception:  # pragma: no cover - fallback for environments without fastmcp installed
     FastMCP = None  # type: ignore
     JSONResponse = None  # type: ignore
     FileResponse = None  # type: ignore
+    Response = None  # type: ignore
 
 from .licensing import lifecycle_warning, resolve_license
 from .billing import (
@@ -34,6 +35,14 @@ from .hosted_learning import (
 )
 from .hosted_repository import resolve_grant
 from .communication import CommunicationError, record_provider_event
+from .analytics import (
+    account_dashboard,
+    course_analytics,
+    export_csv,
+    funnel_analytics,
+    question_analytics,
+    schedule_report,
+)
 from .security import RequestContext
 from .rate_limit import check_rate_limit
 from .tools import TOOL_REGISTRY, safe_error
@@ -203,6 +212,47 @@ def create_mcp_server():
         except (HostedLearningError, PermissionError, ValueError, TypeError):
             return JSONResponse({"ok": False, "error": "entitlement_failed"}, status_code=400)
         return JSONResponse({"ok": True, **result}, status_code=201)
+
+    @mcp.custom_route("/api/analytics/account", methods=["GET"], include_in_schema=False)
+    async def analytics_account(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            result = account_dashboard(tenant_id=context.tenant_id)
+        except PermissionError:
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+        return JSONResponse({"ok": True, "dashboard": result})
+
+    @mcp.custom_route("/api/analytics/releases/{release_id}", methods=["GET"], include_in_schema=False)
+    async def analytics_release(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            release_id = request.path_params["release_id"]
+            result = {
+                "course": course_analytics(tenant_id=context.tenant_id, release_id=release_id),
+                "questions": question_analytics(tenant_id=context.tenant_id, release_id=release_id),
+                "funnel": funnel_analytics(tenant_id=context.tenant_id, release_id=release_id),
+            }
+        except PermissionError:
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+        if request.query_params.get("format") == "csv":
+            return Response(export_csv([result["course"]]), media_type="text/csv")
+        return JSONResponse({"ok": True, **result})
+
+    @mcp.custom_route("/api/analytics/schedules", methods=["POST"], include_in_schema=False)
+    async def analytics_schedule(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            payload = await request.json()
+            result = schedule_report(
+                tenant_id=context.tenant_id,
+                report_type=str(payload.get("report_type") or "course"),
+                release_id=str(payload.get("release_id") or "") or None,
+                cadence=str(payload.get("cadence") or "weekly"),
+                recipients=[str(value) for value in payload.get("recipients") or []],
+            )
+        except (PermissionError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "invalid_schedule"}, status_code=400)
+        return JSONResponse({"ok": True, "schedule": result}, status_code=201)
 
     @mcp.custom_route("/learn/{token}/{asset_path:path}", methods=["GET"], include_in_schema=False)
     async def hosted_course(request):  # noqa: ANN001

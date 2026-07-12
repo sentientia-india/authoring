@@ -44,7 +44,7 @@ jobs:
           DATABASE_URL: postgresql://course_mcp:course_mcp_ci@127.0.0.1:5432/course_mcp_ci
         run: |
           python scripts/apply_migrations.py
-          python -m pytest tests/test_database_migrations.py tests/test_postgres_repositories.py tests/test_postgres_outbox.py tests/test_postgres_hosted_repository.py tests/test_postgres_billing.py tests/test_postgres_communication.py -q
+          python -m pytest tests/test_database_migrations.py tests/test_postgres_repositories.py tests/test_postgres_outbox.py tests/test_postgres_hosted_repository.py tests/test_postgres_billing.py tests/test_postgres_communication.py tests/test_postgres_analytics.py -q
       - name: Docker build
         run: docker build -t samrat-course-mcp:ci .
 
