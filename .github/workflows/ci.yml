@@ -24,7 +24,7 @@ jobs:
       - name: Security scan
         run: bandit -r src -q
       - name: Dependency audit
-        run: pip-audit || true
+        run: pip-audit .
       - name: Docker build
         run: docker build -t samrat-course-mcp:ci .
 
