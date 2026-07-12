@@ -297,6 +297,9 @@
   function treeNode(options) {
     var node = document.createElement("div");
     node.className = "tree-node" + (options.indent ? " tree-indent-" + options.indent : "") + (options.selected ? " selected" : "");
+    node.tabIndex = 0;
+    node.setAttribute("role", "button");
+    node.setAttribute("aria-current", options.selected ? "true" : "false");
     node.innerHTML =
       (options.draggable ? '<span class="grip" title="Drag to reorder">⋮⋮</span>' : "") +
       '<span class="kind">' + options.kind + "</span>" +
@@ -305,6 +308,10 @@
     node.addEventListener("click", function (event) {
       if (event.target.classList.contains("del")) return;
       options.onSelect();
+    });
+    node.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); options.onSelect(); }
+      if ((event.key === "Delete" || event.key === "Backspace") && options.onDelete) { event.preventDefault(); if (confirm("Delete '" + options.label + "'?")) options.onDelete(); }
     });
     if (options.onDelete) {
       node.querySelector(".del").addEventListener("click", function () {
@@ -1128,6 +1135,7 @@
     tab.addEventListener("click", function () {
       document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
       tab.classList.add("active");
+      document.querySelectorAll(".tab").forEach(function (item) { item.setAttribute("aria-selected", item === tab ? "true" : "false"); });
       $("tab-structure").hidden = tab.dataset.tab !== "structure";
       $("tab-templates").hidden = tab.dataset.tab !== "templates";
       $("tab-review").hidden = tab.dataset.tab !== "review";

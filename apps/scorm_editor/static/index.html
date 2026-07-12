@@ -28,11 +28,11 @@
 
   <main class="layout" id="layout" hidden>
     <aside class="panel left">
-      <nav class="tabs">
-        <button class="tab active" data-tab="structure">Structure</button>
-        <button class="tab" data-tab="templates">Insert</button>
-        <button class="tab" data-tab="review">Review</button>
-        <button class="tab" data-tab="sources">Sources</button>
+      <nav class="tabs" role="tablist" aria-label="Course tools">
+        <button class="tab active" role="tab" aria-selected="true" data-tab="structure">Structure</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="templates">Insert</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="review">Review</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="sources">Sources</button>
       </nav>
       <div id="tab-structure" class="tab-body"></div>
       <div id="tab-templates" class="tab-body" hidden></div>

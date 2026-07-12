@@ -116,6 +116,12 @@ def test_editor_ui_has_authoring_modes_and_preview():
     assert "renderTree" in app_js
     assert "game_options" in app_js
     assert ".media-preview" in css
+    assert "@media (max-width: 900px)" in css
+    assert "@media (max-width: 600px)" in css
+    assert "prefers-reduced-motion" in css
+    assert 'role="tablist"' in index
+    assert 'node.setAttribute("role", "button")' in app_js
+    assert 'event.key === "Enter"' in app_js
     assert "BroadcastChannel" in app_js
     assert "course-studio-recovery:" in app_js
     assert "/api/collaboration/" in app_js
