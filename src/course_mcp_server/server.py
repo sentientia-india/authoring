@@ -15,7 +15,12 @@ except Exception:  # pragma: no cover - fallback for environments without fastmc
     FileResponse = None  # type: ignore
 
 from .licensing import lifecycle_warning, resolve_license
-from .billing import BillingError, handle_stripe_webhook
+from .billing import (
+    BillingError,
+    create_checkout_session,
+    create_customer_portal_session,
+    handle_stripe_webhook,
+)
 from .hosted_learning import (
     HostedLearningError,
     capture_lead,
@@ -100,6 +105,37 @@ def create_mcp_server():
             key: value for key, value in result.items() if key not in {"license_key", "access_token"}
         }
         return JSONResponse({"ok": True, **safe_result})
+
+    @mcp.custom_route("/billing/checkout", methods=["POST"], include_in_schema=False)
+    async def billing_checkout(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            payload = await request.json()
+            result = create_checkout_session(
+                tenant_id=context.tenant_id,
+                price_id=str(payload.get("price_id") or ""),
+                tier=str(payload.get("tier") or "pro"),
+                success_url=str(payload.get("success_url") or ""),
+                cancel_url=str(payload.get("cancel_url") or ""),
+                share_token=str(payload.get("share_token") or "") or None,
+                mode=str(payload.get("mode") or "subscription"),
+            )
+        except (BillingError, PermissionError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "checkout_unavailable"}, status_code=400)
+        return JSONResponse({"ok": True, **result}, status_code=201)
+
+    @mcp.custom_route("/billing/customer-portal", methods=["POST"], include_in_schema=False)
+    async def billing_customer_portal(request):  # noqa: ANN001
+        try:
+            _context_from_request(request)
+            payload = await request.json()
+            result = create_customer_portal_session(
+                customer_id=str(payload.get("customer_id") or ""),
+                return_url=str(payload.get("return_url") or ""),
+            )
+        except (BillingError, PermissionError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "portal_unavailable"}, status_code=400)
+        return JSONResponse({"ok": True, **result}, status_code=201)
 
     @mcp.custom_route("/api/hosted/releases", methods=["POST"], include_in_schema=False)
     async def publish_hosted_release(request):  # noqa: ANN001

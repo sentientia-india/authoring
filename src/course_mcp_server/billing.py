@@ -13,6 +13,9 @@ import os
 import secrets
 import smtplib
 import time
+import base64
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 from email.message import EmailMessage
@@ -25,6 +28,69 @@ from .hosted_learning import grant_paid_access
 
 class BillingError(RuntimeError):
     pass
+
+
+def _stripe_post(path: str, fields: dict[str, Any]) -> dict[str, Any]:
+    secret = os.getenv("STRIPE_SECRET_KEY", "")
+    if not secret.startswith("sk_"):
+        raise BillingError("Stripe secret key is not configured")
+    encoded = urllib.parse.urlencode({key: value for key, value in fields.items() if value is not None}).encode()
+    authorization = base64.b64encode(f"{secret}:".encode()).decode()
+    request = urllib.request.Request(
+        f"https://api.stripe.com/v1/{path.lstrip('/')}",
+        data=encoded,
+        headers={
+            "Authorization": f"Basic {authorization}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:  # nosec B310
+            result = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise BillingError("Stripe API request failed") from exc
+    if not isinstance(result, dict) or not result.get("id"):
+        raise BillingError("Stripe API returned an invalid response")
+    return result
+
+
+def create_checkout_session(
+    *,
+    tenant_id: str,
+    price_id: str,
+    tier: str,
+    success_url: str,
+    cancel_url: str,
+    share_token: str | None = None,
+    mode: str = "subscription",
+) -> dict[str, Any]:
+    if mode not in {"subscription", "payment"} or not price_id.startswith("price_"):
+        raise BillingError("Invalid checkout configuration")
+    if not success_url.startswith("https://") or not cancel_url.startswith("https://"):
+        raise BillingError("Checkout return URLs must use HTTPS")
+    session = _stripe_post(
+        "checkout/sessions",
+        {
+            "mode": mode,
+            "line_items[0][price]": price_id,
+            "line_items[0][quantity]": 1,
+            "success_url": success_url,
+            "cancel_url": cancel_url,
+            "client_reference_id": tenant_id,
+            "metadata[tenant]": tenant_id,
+            "metadata[tier]": tier,
+            "metadata[share_token]": share_token,
+        },
+    )
+    return {"checkout_session_id": session["id"], "checkout_url": session.get("url")}
+
+
+def create_customer_portal_session(*, customer_id: str, return_url: str) -> dict[str, Any]:
+    if not customer_id.startswith("cus_") or not return_url.startswith("https://"):
+        raise BillingError("Invalid customer portal configuration")
+    session = _stripe_post("billing_portal/sessions", {"customer": customer_id, "return_url": return_url})
+    return {"portal_session_id": session["id"], "portal_url": session.get("url")}
 
 
 def verify_stripe_signature(payload: bytes, signature: str, secret: str, tolerance: int = 300) -> None:
