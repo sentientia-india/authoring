@@ -150,7 +150,10 @@ jobs:
             printf 'OPENROUTER_RETRY_BACKOFF_SECONDS=0.5\n'
             printf 'OPENROUTER_APP_TITLE=Samrat Course MCP\n'
           } > .env
-          docker compose up -d --build
+          docker compose up -d postgres redis
+          docker compose build course-mcp scorm-editor
+          docker compose run --rm course-mcp python /app/scripts/apply_migrations.py
+          docker compose up -d course-mcp scorm-editor
           docker compose ps
           for attempt in $(seq 1 20); do
             if docker compose exec -T course-mcp python -m course_mcp_server.healthcheck; then
