@@ -63,3 +63,9 @@ def test_analytics_migration_covers_schedules_and_quality_checks():
     assert "CREATE TABLE IF NOT EXISTS scheduled_reports" in migration
     assert "CREATE TABLE IF NOT EXISTS analytics_quality_checks" in migration
     assert "scheduled_reports_due_idx" in migration
+
+
+def test_data_lifecycle_migration_adds_controlled_retention_override_and_evidence():
+    migration = (ROOT / "migrations" / "0006_data_lifecycle.sql").read_text(encoding="utf-8")
+    assert "course_mcp.retention_operation" in migration
+    assert "CREATE TABLE IF NOT EXISTS deletion_records" in migration

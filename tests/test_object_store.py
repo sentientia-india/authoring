@@ -13,6 +13,8 @@ def test_local_object_store_uses_tenant_key_and_integrity_digest(tmp_path):
     assert result["size_bytes"] == 6
     assert len(result["sha256"]) == 64
     assert (tmp_path / key).read_bytes() == b"course"
+    assert LocalObjectStore(tmp_path).delete_prefix("tenants/tenant-a") == 1
+    assert not (tmp_path / "tenants" / "tenant-a").exists()
 
 
 @pytest.mark.parametrize("filename", ("../secret", "/absolute", "nested/file.zip", "..\\secret"))

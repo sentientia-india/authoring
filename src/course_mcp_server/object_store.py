@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
@@ -48,6 +49,19 @@ class LocalObjectStore:
                 target.write(chunk)
         return {"object_key": key, "sha256": digest.hexdigest(), "size_bytes": size, "backend": "local"}
 
+    def delete_prefix(self, prefix: str) -> int:
+        relative = PurePosixPath(prefix)
+        if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+            raise ObjectStoreError("Unsafe object prefix")
+        target = (self.root / Path(*relative.parts)).resolve()
+        if self.root == target or self.root not in target.parents:
+            raise ObjectStoreError("Object prefix escapes storage root")
+        if not target.exists():
+            return 0
+        count = sum(path.is_file() for path in target.rglob("*"))
+        shutil.rmtree(target)
+        return count
+
 
 class S3ObjectStore:
     def __init__(self, *, bucket: str, endpoint_url: str | None = None) -> None:
@@ -73,6 +87,22 @@ class S3ObjectStore:
             "size_bytes": len(payload),
             "backend": "s3",
         }
+
+    def delete_prefix(self, prefix: str) -> int:
+        deleted = 0
+        continuation = None
+        while True:
+            arguments = {"Bucket": self.bucket, "Prefix": prefix}
+            if continuation:
+                arguments["ContinuationToken"] = continuation
+            page = self.client.list_objects_v2(**arguments)
+            objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+            if objects:
+                self.client.delete_objects(Bucket=self.bucket, Delete={"Objects": objects, "Quiet": True})
+                deleted += len(objects)
+            if not page.get("IsTruncated"):
+                return deleted
+            continuation = page.get("NextContinuationToken")
 
 
 def object_store():
