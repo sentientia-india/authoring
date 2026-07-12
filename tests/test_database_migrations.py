@@ -49,3 +49,10 @@ def test_billing_migration_covers_lifecycle_entitlements_usage_and_reconciliatio
         assert f"CREATE TABLE IF NOT EXISTS {table}" in migration
     assert "billing_events_append_only" in migration
     assert "usage_entries_append_only" in migration
+
+
+def test_communication_migration_covers_delivery_events_and_suppression():
+    migration = (ROOT / "migrations" / "0004_communication.sql").read_text(encoding="utf-8")
+    for table in ("email_suppressions", "email_deliveries", "email_events"):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in migration
+    assert "email_events_append_only" in migration
