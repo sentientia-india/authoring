@@ -28,8 +28,10 @@ COURSE = {
 }
 
 MOODLE_PROBE = """
-<button id="course-mcp-moodle-acceptance" type="button">Run Moodle acceptance</button>
-<p id="course-mcp-moodle-result" role="status"></p>
+<div id="course-mcp-moodle-panel" style="position:fixed;inset:12px auto auto 12px;z-index:2147483647;background:#fff;color:#111;padding:12px;border:3px solid #111">
+<button id="course-mcp-moodle-acceptance" type="button" style="min-height:44px">Run Moodle acceptance</button>
+<p id="course-mcp-moodle-result" role="status" style="margin:8px 0 0"></p>
+</div>
 <script>
 (function () {
   var result = document.getElementById("course-mcp-moodle-result");
