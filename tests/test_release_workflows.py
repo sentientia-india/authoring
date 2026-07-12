@@ -25,7 +25,7 @@ def test_production_deploy_applies_migrations_before_application_start():
     for relative in (".github/workflows/ci.yml", ".github/workflows/deploy.yml"):
         workflow = (ROOT / relative).read_text(encoding="utf-8")
         migration = workflow.index("python /app/scripts/apply_migrations.py")
-        application_start = workflow.index("docker compose up -d course-mcp scorm-editor")
+        application_start = workflow.index("docker compose up -d course-mcp scorm-editor", migration)
         assert migration < application_start
 
 
@@ -35,3 +35,13 @@ def test_ci_runs_a_real_postgres_backup_restore_drill():
     assert "pg_dump" in workflow and "pg_restore" in workflow
     assert "course_mcp_restore" in workflow
     assert "SOURCE_COUNT" in workflow and "RESTORE_COUNT" in workflow
+
+
+def test_deployments_use_immutable_releases_and_rollback_without_in_place_deletion():
+    for relative in (".github/workflows/ci.yml", ".github/workflows/deploy.yml"):
+        workflow = (ROOT / relative).read_text(encoding="utf-8")
+        assert 'RELEASE_PATH="$DEPLOY_PATH/releases/$RELEASE_ID"' in workflow
+        assert 'ln -sfn "$RELEASE_PATH" "$DEPLOY_PATH/current"' in workflow
+        assert "rollback()" in workflow and "trap rollback ERR" in workflow
+        assert "deployment.json" in workflow
+        assert 'find "$DEPLOY_PATH" -mindepth 1' not in workflow

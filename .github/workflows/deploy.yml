@@ -40,24 +40,23 @@ jobs:
         run: |
           test -n "$DEPLOY_PATH"
           DEPLOY_PATH_B64="$(printf '%s' "$DEPLOY_PATH" | base64 -w 0)"
-          tar --exclude='.git' --exclude='.env' -czf /tmp/samrat-course-mcp.tar.gz .
+          RELEASE_ID="$GITHUB_SHA"
+          tar --exclude='.git' --exclude='.env' -czf "/tmp/samrat-course-mcp-$RELEASE_ID.tar.gz" .
           ssh -i ~/.ssh/deploy_key -p "${SERVER_PORT:-22}" "$SERVER_USER@$SERVER_HOST" \
-            "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' bash -s" <<'REMOTE'
+            "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' RELEASE_ID='$RELEASE_ID' bash -s" <<'REMOTE'
           set -euo pipefail
           DEPLOY_PATH="$(printf '%s' "$DEPLOY_PATH_B64" | base64 -d)"
-          mkdir -p "$DEPLOY_PATH"
-          find "$DEPLOY_PATH" -mindepth 1 \
-            ! -name '.env' \
-            ! -path "$DEPLOY_PATH/.env" \
-            -exec rm -rf {} +
+          RELEASE_PATH="$DEPLOY_PATH/releases/$RELEASE_ID"
+          mkdir -p "$RELEASE_PATH"
           REMOTE
-          scp -i ~/.ssh/deploy_key -P "${SERVER_PORT:-22}" /tmp/samrat-course-mcp.tar.gz "$SERVER_USER@$SERVER_HOST:/tmp/samrat-course-mcp.tar.gz"
+          scp -i ~/.ssh/deploy_key -P "${SERVER_PORT:-22}" "/tmp/samrat-course-mcp-$RELEASE_ID.tar.gz" "$SERVER_USER@$SERVER_HOST:/tmp/samrat-course-mcp-$RELEASE_ID.tar.gz"
           ssh -i ~/.ssh/deploy_key -p "${SERVER_PORT:-22}" "$SERVER_USER@$SERVER_HOST" \
-            "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' bash -s" <<'REMOTE'
+            "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' RELEASE_ID='$RELEASE_ID' bash -s" <<'REMOTE'
           set -euo pipefail
           DEPLOY_PATH="$(printf '%s' "$DEPLOY_PATH_B64" | base64 -d)"
-          tar -xzf /tmp/samrat-course-mcp.tar.gz -C "$DEPLOY_PATH"
-          rm -f /tmp/samrat-course-mcp.tar.gz
+          RELEASE_PATH="$DEPLOY_PATH/releases/$RELEASE_ID"
+          tar -xzf "/tmp/samrat-course-mcp-$RELEASE_ID.tar.gz" -C "$RELEASE_PATH"
+          rm -f "/tmp/samrat-course-mcp-$RELEASE_ID.tar.gz"
           REMOTE
 
       - name: Deploy on server
@@ -91,7 +90,24 @@ jobs:
           OPENROUTER_MODEL="$(printf '%s' "$OPENROUTER_MODEL_B64" | base64 -d)"
           OPENROUTER_BASE_URL="$(printf '%s' "$OPENROUTER_BASE_URL_B64" | base64 -d)"
 
-          cd "$DEPLOY_PATH"
+          RELEASE_ID="$GITHUB_SHA"
+          RELEASE_PATH="$DEPLOY_PATH/releases/$RELEASE_ID"
+          PREVIOUS="$(readlink -f "$DEPLOY_PATH/current" 2>/dev/null || true)"
+          if [ -z "$PREVIOUS" ] && [ -f "$DEPLOY_PATH/docker-compose.yml" ]; then PREVIOUS="$DEPLOY_PATH"; fi
+          rollback() {
+            status=$?
+            trap - ERR
+            if [ -n "$PREVIOUS" ] && [ -d "$PREVIOUS" ]; then
+              cd "$PREVIOUS"
+              export COMPOSE_PROJECT_NAME=samrat-course-mcp
+              docker compose build course-mcp scorm-editor
+              docker compose up -d course-mcp scorm-editor
+            fi
+            exit "$status"
+          }
+          trap rollback ERR
+          cd "$RELEASE_PATH"
+          export COMPOSE_PROJECT_NAME=samrat-course-mcp
 
           umask 077
           mkdir -p secrets
@@ -138,4 +154,8 @@ jobs:
             sleep 3
           done
           docker compose exec -T course-mcp python -m course_mcp_server.smoke
+          ln -sfn "$RELEASE_PATH" "$DEPLOY_PATH/current"
+          printf '{"release":"%s","deployed_at":"%s","previous":"%s"}\n' \
+            "$RELEASE_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PREVIOUS" > "$DEPLOY_PATH/deployment.json"
+          trap - ERR
           REMOTE
