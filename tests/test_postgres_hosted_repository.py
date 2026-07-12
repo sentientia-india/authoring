@@ -1,5 +1,6 @@
 import os
 import secrets
+from zipfile import ZipFile
 
 import pytest
 
@@ -13,6 +14,13 @@ from course_mcp_server.hosted_repository import (
     grant_entitlement,
     has_entitlement,
     resolve_grant,
+)
+from course_mcp_server.hosted_learning import (
+    course_dashboard,
+    create_share,
+    grant_paid_access,
+    record_learner_event,
+    resolve_share_file,
 )
 from scripts.apply_migrations import apply
 
@@ -65,3 +73,31 @@ def test_hosted_repository_release_access_events_and_tenant_boundaries():
     assert capture_lead(
         tenant_id="tenant-hosted", release_id=release["release_id"], email="buyer@example.com"
     )["email_hash"]
+
+
+def test_public_hosted_api_uses_postgres_and_object_store(tmp_path, monkeypatch):
+    apply(database_url())
+    monkeypatch.setenv("HOSTED_COURSE_ROOT", str(tmp_path / "hosted"))
+    monkeypatch.setenv("OBJECT_STORE_LOCAL_ROOT", str(tmp_path / "objects"))
+    monkeypatch.delenv("OBJECT_STORE_BUCKET", raising=False)
+    package = tmp_path / "sellable.zip"
+    with ZipFile(package, "w") as archive:
+        archive.writestr("index.html", "<h1>Sellable</h1>")
+
+    share = create_share(package, tenant="tenant-hosted-api", course_id="course_sell", paid=True)
+    access = grant_paid_access(share["share_token"], "buyer@example.com")
+    assert resolve_share_file(share["share_token"], "index.html", access["access_token"]).is_file()
+    record_learner_event(
+        share["share_token"],
+        {"type": "attempt", "learner_id": "buyer", "idempotency_key": "attempt-1"},
+    )
+    record_learner_event(
+        share["share_token"],
+        {"type": "score", "score": 91, "learner_id": "buyer", "idempotency_key": "score-1"},
+    )
+    record_learner_event(
+        share["share_token"],
+        {"type": "completion", "learner_id": "buyer", "idempotency_key": "completion-1"},
+    )
+    assert course_dashboard(share["share_token"])["average_score"] == 91.0
+    assert list((tmp_path / "objects").rglob("sellable.zip"))

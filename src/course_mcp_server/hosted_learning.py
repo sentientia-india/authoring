@@ -13,6 +13,19 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from zipfile import ZipFile
 
+from .database import database_url
+from .hosted_repository import (
+    append_event as append_hosted_event,
+    capture_lead as capture_hosted_lead,
+    create_grant,
+    create_release,
+    dashboard as hosted_dashboard,
+    grant_entitlement,
+    has_entitlement,
+    resolve_grant,
+)
+from .object_store import store_path
+
 
 class HostedLearningError(RuntimeError):
     pass
@@ -41,9 +54,11 @@ def create_share(package_path: Path | str, *, tenant: str, course_id: str, paid:
     package = Path(package_path).resolve()
     if not package.is_file() or package.suffix.lower() != ".zip":
         raise HostedLearningError("A valid SCORM ZIP is required")
+    package_digest = hashlib.sha256(package.read_bytes()).hexdigest()
+    release_id = f"release_{package_digest[:24]}"
     token = secrets.token_urlsafe(24)
-    target = _root() / "shares" / token
-    target.mkdir(parents=True, exist_ok=False)
+    target = _root() / ("releases" if database_url() else "shares") / (release_id if database_url() else token)
+    target.mkdir(parents=True, exist_ok=True)
     with ZipFile(package) as archive:
         for info in archive.infolist():
             member = PurePosixPath(info.filename.replace("\\", "/"))
@@ -58,6 +73,34 @@ def create_share(package_path: Path | str, *, tenant: str, course_id: str, paid:
             destination.write_bytes(archive.read(info))
     if not (target / "index.html").is_file():
         raise HostedLearningError("Package has no index.html launch file")
+    if database_url():
+        stored = store_path(
+            package,
+            tenant_id=tenant,
+            kind="releases",
+            object_id=release_id,
+            filename=package.name,
+        )
+        release = create_release(
+            tenant_id=tenant,
+            course_id=course_id,
+            release_id=release_id,
+            object_key=stored["object_key"],
+            package_sha256=stored["sha256"],
+        )
+        grant = create_grant(
+            tenant_id=tenant,
+            release_id=release["release_id"],
+            token=token,
+            mode="paid" if paid else "unlisted",
+        )
+        return {
+            "share_token": token,
+            "release_id": release["release_id"],
+            "grant_id": grant["grant_id"],
+            "launch_path": f"/learn/{token}/index.html",
+            "paid": paid,
+        }
     data = _load()
     data["shares"][token] = {
         "tenant": tenant,
@@ -72,6 +115,24 @@ def create_share(package_path: Path | str, *, tenant: str, course_id: str, paid:
 def resolve_share_file(token: str, relative_path: str, access_token: str | None = None) -> Path:
     if not re.fullmatch(r"[A-Za-z0-9_-]{20,80}", token):
         raise HostedLearningError("Invalid share token")
+    if database_url():
+        grant = resolve_grant(token)
+        if not grant:
+            raise HostedLearningError("Share not found")
+        if grant["mode"] == "paid" and not has_entitlement(
+            tenant_id=grant["tenant_id"], release_id=grant["release_id"], access_token=access_token
+        ):
+            raise HostedLearningError("Payment entitlement required")
+        relative = PurePosixPath((relative_path or "index.html").replace("\\", "/"))
+        if relative.is_absolute() or ".." in relative.parts:
+            raise HostedLearningError("Invalid share path")
+        root = (_root() / "releases" / grant["release_id"]).resolve()
+        target = (root / Path(*relative.parts)).resolve()
+        if root != target and root not in target.parents:
+            raise HostedLearningError("Share path escapes package")
+        if not target.is_file():
+            raise HostedLearningError("Share asset not found")
+        return target
     data = _load()
     share = data["shares"].get(token)
     if not share:
@@ -93,6 +154,34 @@ def resolve_share_file(token: str, relative_path: str, access_token: str | None 
 
 
 def record_learner_event(token: str, event: dict[str, Any]) -> dict:
+    if database_url():
+        grant = resolve_grant(token)
+        if not grant:
+            raise HostedLearningError("Share not found")
+        allowed = {"completion", "score", "attempt", "interaction"}
+        event_type = str(event.get("type") or "")
+        if event_type not in allowed:
+            raise HostedLearningError("Unsupported analytics event")
+        score = max(0, min(100, int(event.get("score", 0)))) if event_type == "score" else None
+        learner_hash = hashlib.sha256(str(event.get("learner_id", "anonymous")).encode()).hexdigest()
+        row = append_hosted_event(
+            tenant_id=grant["tenant_id"],
+            release_id=grant["release_id"],
+            event_type=event_type,
+            learner_hash=learner_hash,
+            payload={
+                "score": score,
+                "idempotency_key": event.get("idempotency_key"),
+                "interaction": event.get("interaction") if event_type == "interaction" else None,
+            },
+        )
+        return {
+            "share_token": token,
+            "type": event_type,
+            "score": score,
+            "learner_hash": learner_hash,
+            "timestamp": row["occurred_at"].isoformat(),
+        }
     data = _load()
     if token not in data["shares"]:
         raise HostedLearningError("Share not found")
@@ -113,6 +202,11 @@ def record_learner_event(token: str, event: dict[str, Any]) -> dict:
 
 
 def course_dashboard(token: str) -> dict[str, Any]:
+    if database_url():
+        grant = resolve_grant(token)
+        if not grant:
+            raise HostedLearningError("Share not found")
+        return hosted_dashboard(tenant_id=grant["tenant_id"], release_id=grant["release_id"])
     events = [event for event in _load()["events"] if event["share_token"] == token]
     learners = {event["learner_hash"] for event in events}
     scores = [event["score"] for event in events if event["type"] == "score"]
@@ -168,6 +262,18 @@ def tutor_reply(question: str, course_context: str, api_key: str, model: str) ->
 
 
 def grant_paid_access(share_token: str, purchaser: str) -> dict[str, str]:
+    if database_url():
+        grant = resolve_grant(share_token)
+        if not grant:
+            raise HostedLearningError("Share not found")
+        access_token = secrets.token_urlsafe(32)
+        grant_entitlement(
+            tenant_id=grant["tenant_id"],
+            release_id=grant["release_id"],
+            purchaser=purchaser,
+            access_token=access_token,
+        )
+        return {"access_token": access_token, "share_token": share_token}
     data = _load()
     if share_token not in data["shares"]:
         raise HostedLearningError("Share not found")
@@ -183,6 +289,13 @@ def grant_paid_access(share_token: str, purchaser: str) -> dict[str, str]:
 def capture_lead(share_token: str, email: str) -> dict[str, Any]:
     if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
         raise HostedLearningError("Invalid email")
+    if database_url():
+        grant = resolve_grant(share_token)
+        if not grant:
+            raise HostedLearningError("Share not found")
+        return capture_hosted_lead(
+            tenant_id=grant["tenant_id"], release_id=grant["release_id"], email=email
+        )
     data = _load()
     if share_token not in data["shares"]:
         raise HostedLearningError("Share not found")
