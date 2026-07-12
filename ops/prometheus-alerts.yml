@@ -1,0 +1,25 @@
+groups:
+  - name: course-mcp
+    rules:
+      - alert: CourseMCPUnavailable
+        expr: up{job="course-mcp"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "Course MCP is unavailable" }
+      - alert: CourseMCPDependencyUnavailable
+        expr: course_mcp_dependency_ready == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "Course MCP dependency is unavailable" }
+      - alert: CourseMCPHighErrorRate
+        expr: >-
+          sum(rate(course_mcp_tool_requests_total{outcome="error"}[5m]))
+          / clamp_min(sum(rate(course_mcp_tool_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Course MCP tool error rate exceeds 5%" }
+      - alert: CourseMCPBackupStale
+        expr: time() - course_mcp_last_successful_backup_timestamp_seconds > 900
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "Course MCP RPO is at risk" }

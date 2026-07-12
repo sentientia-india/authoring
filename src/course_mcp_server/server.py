@@ -4,6 +4,8 @@ import os
 import base64
 import tempfile
 import hmac
+import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +45,7 @@ from .analytics import (
     question_analytics,
     schedule_report,
 )
+from .observability import dependency_health, increment, prometheus_metrics, structured_log
 from .security import RequestContext
 from .rate_limit import check_rate_limit
 from .tools import TOOL_REGISTRY, safe_error
@@ -98,11 +101,25 @@ def create_mcp_server():
 
     @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
     async def health(_request):  # noqa: ANN001
-        return JSONResponse({"ok": True, "service": "samrat-course-mcp"})
+        dependencies = dependency_health()
+        return JSONResponse(
+            {"ok": dependencies["ready"], "service": "samrat-course-mcp", "dependencies": dependencies},
+            status_code=200 if dependencies["ready"] else 503,
+        )
 
     @mcp.custom_route("/metrics", methods=["GET"], include_in_schema=False)
     async def metrics(_request):  # noqa: ANN001
-        return JSONResponse({"ok": True, "service": "samrat-course-mcp", "status": "ready"})
+        return Response(prometheus_metrics(), media_type="text/plain; version=0.0.4")
+
+    @mcp.custom_route("/status", methods=["GET"], include_in_schema=False)
+    async def public_status(_request):  # noqa: ANN001
+        dependencies = dependency_health()
+        return JSONResponse(
+            {
+                "status": "operational" if dependencies["ready"] else "degraded",
+                "components": {key: value for key, value in dependencies.items() if key != "ready"},
+            }
+        )
 
     @mcp.custom_route("/billing/stripe-webhook", methods=["POST"], include_in_schema=False)
     async def stripe_webhook(request):  # noqa: ANN001
@@ -303,14 +320,24 @@ def create_mcp_server():
             @mcp.tool(name=name)
             def tool(payload: dict[str, Any]) -> dict[str, Any]:
                 try:
+                    started = time.monotonic()
                     context = _context_from_payload(dict(payload or {}))
                     clean_payload = dict(payload or {})
                     clean_payload.pop("mcp_api_token", None)
                     clean_payload.pop("tenant_id", None)
                     clean_payload.pop("user_id", None)
                     clean_payload.pop("request_id", None)
-                    return fn(clean_payload, context)
+                    result = fn(clean_payload, context)
+                    increment("course_mcp_tool_requests_total", tool=name, outcome="success")
+                    increment(
+                        "course_mcp_tool_duration_seconds_total",
+                        time.monotonic() - started,
+                        tool=name,
+                    )
+                    return result
                 except Exception as exc:  # return safe error to client
+                    increment("course_mcp_tool_requests_total", tool=name, outcome="error")
+                    structured_log(logging.ERROR, "tool_failed", tool=name, error_type=exc.__class__.__name__)
                     return safe_error(exc)
             return tool
 

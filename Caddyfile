@@ -15,7 +15,16 @@
   handle /metrics {
     reverse_proxy course-mcp:8777
   }
+  handle /status {
+    reverse_proxy course-mcp:8777
+  }
+  handle /api/* {
+    reverse_proxy course-mcp:8777
+  }
   handle /billing/* {
+    reverse_proxy course-mcp:8777
+  }
+  handle /email/* {
     reverse_proxy course-mcp:8777
   }
   handle /learn/* {
