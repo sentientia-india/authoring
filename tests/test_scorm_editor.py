@@ -118,6 +118,9 @@ def test_editor_ui_has_authoring_modes_and_preview():
     assert "/api/collaboration/" in app_js
     assert "Approve revision" in app_js
     assert 'fetch("/api/new"' in app_js
+    assert "Citation inspector" in app_js
+    assert "Outline approved" in app_js
+    assert "Certificate footer" in app_js
 
 
 def test_editor_versions_saves_and_preserves_revision_history(tmp_path, monkeypatch):

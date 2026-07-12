@@ -883,6 +883,16 @@
       title.textContent = "Course";
       box.appendChild(field("Title", textInput(course.course_title, function (value) { course.course_title = value; save(true); })));
       box.appendChild(field("Theme", selectInput(course.theme || "studio", ["studio", "compliance", "academy"], function (value) { course.theme = value; save(true); })));
+      box.appendChild(sectionLabel("Brand kit"));
+      var branding = course.branding = course.branding || {};
+      box.appendChild(field("Organization", textInput(branding.organization || "", function (value) { branding.organization = value; save(true); })));
+      box.appendChild(field("Logo URL", textInput(branding.logo_url || "", function (value) { branding.logo_url = value; save(true); })));
+      box.appendChild(field("Primary color", textInput(branding.primary_color || "#1f6f5f", function (value) { branding.primary_color = value; save(true); })));
+      box.appendChild(field("Typography", selectInput(branding.typography || "system", ["system", "outfit", "geist", "accessible"], function (value) { branding.typography = value; save(true); })));
+      box.appendChild(field("Certificate footer", textInput(branding.certificate_footer || "", function (value) { branding.certificate_footer = value; save(true); })));
+      box.appendChild(sectionLabel("Workflow"));
+      var workflow = course.authoring_workflow = course.authoring_workflow || {};
+      box.appendChild(switchRow("Outline approved", workflow.outline_approved === true, function (value) { workflow.outline_approved = value; save(false); }));
       box.appendChild(sectionLabel("Game options"));
       var options = course.game_options = course.game_options || {};
       [
@@ -936,6 +946,11 @@
       box.appendChild(field("Title", textInput(lesson.title, function (value) { lesson.title = value; save(true); })));
       box.appendChild(field("Objective", textInput(lesson.objective, function (value) { lesson.objective = value; save(true); }, "area")));
       box.appendChild(field("Duration (minutes)", textInput(lesson.duration_minutes, function (value) { lesson.duration_minutes = Number(value) || 8; save(true); }, "number")));
+      box.appendChild(sectionLabel("Citation inspector"));
+      box.appendChild(field("Source references (one per line)", textInput((lesson.source_refs || []).join("\n"), function (value) {
+        lesson.source_refs = value.split(/\r?\n/).map(function (item) { return item.trim(); }).filter(Boolean);
+        save(false);
+      }, "area")));
       var note = document.createElement("p");
       note.className = "palette-note";
       note.textContent = "Blocks, activities, and questions inside this lesson are listed in the Structure tab. Use the Insert tab to add more.";
