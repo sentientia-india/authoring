@@ -1,5 +1,8 @@
 # Next Layer Roadmap
 
+> Historical roadmap. The proposed production execution authority is
+> [`roadmap-production-best-in-class.md`](roadmap-production-best-in-class.md).
+
 Written 2026-07-11, after the agent-authored pipeline, Level 3.5/4 player, media briefs, 3-question interview, parallel module submission, and licensing shipped (see task-board T-014..T-016). This is the plan for turning a working product into a sellable, defensible one.
 
 Ordering principle: **prove the deliverable → make it editable → make it easy to buy → make it hard to leave.** Each item has an acceptance test; nothing counts as done without it.
