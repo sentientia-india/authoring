@@ -12,8 +12,13 @@ from course_mcp_server.hosted_repository import (
     create_release,
     dashboard,
     grant_entitlement,
+    get_or_create_learner,
     has_entitlement,
+    enroll_learner,
     resolve_grant,
+    revoke_enrollment,
+    revoke_grant,
+    save_attempt_state,
 )
 from course_mcp_server.hosted_learning import (
     course_dashboard,
@@ -101,3 +106,59 @@ def test_public_hosted_api_uses_postgres_and_object_store(tmp_path, monkeypatch)
     )
     assert course_dashboard(share["share_token"])["average_score"] == 91.0
     assert list((tmp_path / "objects").rglob("sellable.zip"))
+
+
+def test_identity_enrollment_resume_and_revocation_lifecycle():
+    apply(database_url())
+    release = create_release(
+        tenant_id="tenant-lifecycle",
+        course_id="course_lifecycle",
+        release_id="release_lifecycle",
+        object_key="tenants/tenant-lifecycle/releases/release_lifecycle/course.zip",
+        package_sha256="b" * 64,
+    )
+    learner = get_or_create_learner(
+        tenant_id="tenant-lifecycle", identity_type="email", identity="Learner@Example.com"
+    )
+    same_learner = get_or_create_learner(
+        tenant_id="tenant-lifecycle", identity_type="email", identity="learner@example.com"
+    )
+    assert learner["learner_id"] == same_learner["learner_id"]
+    enrollment = enroll_learner(
+        tenant_id="tenant-lifecycle",
+        learner_id=learner["learner_id"],
+        release_id=release["release_id"],
+        entitlement_source="invitation",
+    )
+    first = save_attempt_state(
+        tenant_id="tenant-lifecycle",
+        enrollment_id=enrollment["enrollment_id"],
+        attempt_number=1,
+        completion_status="incomplete",
+        location="module-1",
+        suspend_data='{"block":2}',
+        session_seconds=45,
+    )
+    resumed = save_attempt_state(
+        tenant_id="tenant-lifecycle",
+        enrollment_id=enrollment["enrollment_id"],
+        attempt_number=1,
+        completion_status="completed",
+        success_status="passed",
+        score=100,
+        session_seconds=15,
+    )
+    assert resumed["attempt_id"] == first["attempt_id"]
+    assert resumed["location"] == "module-1"
+    assert resumed["suspend_data"] == '{"block":2}'
+    assert resumed["session_seconds"] == 60
+    assert resumed["version"] == 2
+    assert revoke_enrollment(tenant_id="tenant-lifecycle", enrollment_id=enrollment["enrollment_id"])
+
+    token = secrets.token_urlsafe(24)
+    grant = create_grant(
+        tenant_id="tenant-lifecycle", release_id=release["release_id"], token=token, mode="invite_only"
+    )
+    assert resolve_grant(token)
+    assert revoke_grant(tenant_id="tenant-lifecycle", grant_id=grant["grant_id"])
+    assert resolve_grant(token) is None

@@ -172,3 +172,132 @@ def capture_lead(*, tenant_id: str, release_id: str, email: str) -> dict[str, An
             (tenant_id, lead_id, release_id, email_hash),
         ).fetchone()
     return dict(row)
+
+
+def get_or_create_learner(*, tenant_id: str, identity_type: str, identity: str) -> dict[str, Any]:
+    identity_hash = hashlib.sha256(identity.strip().lower().encode()).hexdigest()
+    learner_id = f"learner_{identity_hash[:24]}"
+    with connection() as active:
+        ensure_tenant(active, tenant_id)
+        active.execute(
+            """
+            INSERT INTO learner_identities (tenant_id, learner_id, identity_type, identity_hash)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (tenant_id, identity_type, identity_hash) DO NOTHING
+            """,
+            (tenant_id, learner_id, identity_type, identity_hash),
+        )
+        row = active.execute(
+            """
+            SELECT tenant_id, learner_id, identity_type, created_at
+            FROM learner_identities
+            WHERE tenant_id = %s AND identity_type = %s AND identity_hash = %s
+            """,
+            (tenant_id, identity_type, identity_hash),
+        ).fetchone()
+    return dict(row)
+
+
+def enroll_learner(
+    *, tenant_id: str, learner_id: str, release_id: str, entitlement_source: str
+) -> dict[str, Any]:
+    raw = f"{tenant_id}:{learner_id}:{release_id}:{entitlement_source}".encode()
+    enrollment_id = f"enroll_{hashlib.sha256(raw).hexdigest()[:24]}"
+    with connection() as active:
+        active.execute(
+            """
+            INSERT INTO enrollments
+                (tenant_id, enrollment_id, learner_id, release_id, entitlement_source)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (tenant_id, learner_id, release_id, entitlement_source) DO NOTHING
+            """,
+            (tenant_id, enrollment_id, learner_id, release_id, entitlement_source),
+        )
+        row = active.execute(
+            """
+            SELECT tenant_id, enrollment_id, learner_id, release_id, entitlement_source, status, enrolled_at
+            FROM enrollments
+            WHERE tenant_id = %s AND learner_id = %s AND release_id = %s AND entitlement_source = %s
+            """,
+            (tenant_id, learner_id, release_id, entitlement_source),
+        ).fetchone()
+    return dict(row)
+
+
+def save_attempt_state(
+    *,
+    tenant_id: str,
+    enrollment_id: str,
+    attempt_number: int,
+    completion_status: str | None = None,
+    success_status: str | None = None,
+    score: float | None = None,
+    location: str | None = None,
+    suspend_data: str | None = None,
+    session_seconds: int = 0,
+) -> dict[str, Any]:
+    raw = f"{tenant_id}:{enrollment_id}:{attempt_number}".encode()
+    attempt_id = f"attempt_{hashlib.sha256(raw).hexdigest()[:24]}"
+    with connection() as active:
+        active.execute(
+            """
+            INSERT INTO learner_attempts
+                (tenant_id, attempt_id, enrollment_id, attempt_number, completion_status,
+                 success_status, score, location, suspend_data, session_seconds)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (tenant_id, enrollment_id, attempt_number) DO UPDATE
+            SET completion_status = COALESCE(EXCLUDED.completion_status, learner_attempts.completion_status),
+                success_status = COALESCE(EXCLUDED.success_status, learner_attempts.success_status),
+                score = COALESCE(EXCLUDED.score, learner_attempts.score),
+                location = COALESCE(EXCLUDED.location, learner_attempts.location),
+                suspend_data = COALESCE(EXCLUDED.suspend_data, learner_attempts.suspend_data),
+                session_seconds = learner_attempts.session_seconds + EXCLUDED.session_seconds,
+                updated_at = now(), version = learner_attempts.version + 1
+            """,
+            (
+                tenant_id,
+                attempt_id,
+                enrollment_id,
+                attempt_number,
+                completion_status,
+                success_status,
+                score,
+                location,
+                suspend_data,
+                max(0, session_seconds),
+            ),
+        )
+        row = active.execute(
+            """
+            SELECT tenant_id, attempt_id, enrollment_id, attempt_number, completion_status,
+                   success_status, score, location, suspend_data, session_seconds, version
+            FROM learner_attempts
+            WHERE tenant_id = %s AND enrollment_id = %s AND attempt_number = %s
+            """,
+            (tenant_id, enrollment_id, attempt_number),
+        ).fetchone()
+    return dict(row)
+
+
+def revoke_enrollment(*, tenant_id: str, enrollment_id: str) -> bool:
+    with connection() as active:
+        result = active.execute(
+            """
+            UPDATE enrollments SET status = 'revoked', revoked_at = now()
+            WHERE tenant_id = %s AND enrollment_id = %s AND revoked_at IS NULL
+            """,
+            (tenant_id, enrollment_id),
+        )
+    return result.rowcount == 1
+
+
+def revoke_grant(*, tenant_id: str, grant_id: str) -> bool:
+    with connection() as active:
+        result = active.execute(
+            """
+            UPDATE share_grants SET revoked_at = now()
+            WHERE tenant_id = %s AND grant_id = %s AND revoked_at IS NULL
+            """,
+            (tenant_id, grant_id),
+        )
+    return result.rowcount == 1
