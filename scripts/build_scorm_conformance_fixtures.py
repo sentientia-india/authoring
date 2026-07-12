@@ -40,17 +40,21 @@ MOODLE_PROBE = """
     window.CourseScorm.getSuspendData().marker === "course-mcp-moodle";
   if (restored) acceptanceButton.textContent = "Restored acceptance marker";
   acceptanceButton.addEventListener("click", function () {
+    if (restored) {
+      var completed = window.CourseScorm.markComplete(true) && window.CourseScorm.commit();
+      result.textContent = completed ? "Completion accepted" : "Completion failed";
+      return;
+    }
     var outcomes = [
       window.CourseScorm.initialize(),
       window.CourseScorm.setLocation("acceptance-complete"),
       window.CourseScorm.setSuspendData({marker: "course-mcp-moodle"}),
       window.CourseScorm.setScore(100, 0, 100),
       window.CourseScorm.recordInteraction("final-check", "choice", "safe-exit", "correct", "Moodle acceptance"),
-      window.CourseScorm.markComplete(true),
       window.CourseScorm.commit()
     ];
     result.textContent = outcomes.every(function (value) { return value === true || value === "true"; })
-      ? "Acceptance complete" : "Acceptance failed";
+      ? "Acceptance checkpoint saved" : "Acceptance failed";
   });
 }());
 </script>
