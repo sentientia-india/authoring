@@ -8,7 +8,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  moodle-conformance:
+    uses: ./.github/workflows/moodle-conformance.yml
+
   deploy:
+    needs: moodle-conformance
     runs-on: ubuntu-latest
     environment: production
 

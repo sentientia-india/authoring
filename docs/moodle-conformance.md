@@ -11,7 +11,7 @@ The Moodle acceptance environment is reproducible through
 - PHP 8.3
 - Chrome/Selenium capability enabled for tracked learner scenarios
 
-The workflow is manual because the full LMS environment is expensive and is a release-conformance gate, not a unit-test dependency. It builds fresh SCORM 1.2 and 2004 packages, validates them before import, boots and installs Moodle, imports both packages through Moodle's SCORM activity generator, and runs the tracked learner scenarios in Moodle's Chrome/Behat environment. The run leaves and relaunches each activity to prove persisted location and suspend data, then archives the exact packages, hashes, validation reports, acceptance summary, and container diagnostics.
+The workflow can be run manually for diagnosis and is also called by both production deployment workflows. A production deployment cannot start unless this reusable gate passes. It builds fresh SCORM 1.2 and 2004 packages, validates them before import, boots and installs Moodle, imports both packages through Moodle's SCORM activity generator, and runs the tracked learner scenarios in Moodle's Chrome/Behat environment. The run leaves and relaunches each activity to prove persisted location and suspend data, then archives the exact packages, hashes, validation reports, acceptance summary, and container diagnostics.
 
 ## Required tracked scenarios
 

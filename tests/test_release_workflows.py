@@ -19,6 +19,16 @@ def test_moodle_conformance_environment_is_commit_pinned():
     assert "MOODLE_DOCKER_COMMIT: 81a20665c2d2322469dc491c1f972ebde90ec014" in workflow
     assert "MOODLE_COMMIT: da7446c6c7b786f7f7588537f1cd48b3709c5439" in workflow
     assert "workflow_dispatch" in workflow
+    assert "workflow_call" in workflow
+
+
+def test_production_deployments_require_moodle_conformance():
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    manual = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    assert "uses: ./.github/workflows/moodle-conformance.yml" in ci
+    assert "needs: [test, moodle-conformance]" in ci
+    assert "uses: ./.github/workflows/moodle-conformance.yml" in manual
+    assert "needs: moodle-conformance" in manual
 
 
 def test_production_deploy_applies_migrations_before_application_start():

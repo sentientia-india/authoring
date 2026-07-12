@@ -59,9 +59,14 @@ jobs:
       - name: Docker build
         run: docker build -t samrat-course-mcp:ci .
 
-  deploy:
+  moodle-conformance:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: test
+    uses: ./.github/workflows/moodle-conformance.yml
+
+  deploy:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [test, moodle-conformance]
     runs-on: ubuntu-latest
     environment: production
     concurrency:
