@@ -45,6 +45,8 @@ def test_deployments_use_immutable_releases_and_rollback_without_in_place_deleti
         assert "rollback()" in workflow and "trap rollback ERR" in workflow
         assert "deployment.json" in workflow
         assert 'find "$DEPLOY_PATH" -mindepth 1' not in workflow
+        assert "RELEASE_ID='$RELEASE_ID' MCP_API_TOKEN_B64" in workflow
+        assert 'test -n "$RELEASE_ID"' in workflow
 
 
 def test_deployments_run_a_bounded_canary_load_gate_before_promotion():
