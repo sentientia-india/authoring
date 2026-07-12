@@ -57,6 +57,13 @@
       <span class="brand-mark big">◆</span>
       <h1>Edit the course exactly as learners see it</h1>
       <p>Import a SCORM zip exported by the Course MCP. The canvas is the real course player — every edit is true to the final output.</p>
+      <form id="new-course-form" class="review-form">
+        <label>Course title<input id="new-course-title" required minlength="3" maxlength="300" placeholder="Customer onboarding"></label>
+        <label>Audience<input id="new-course-audience" required minlength="2" maxlength="200" placeholder="New customer administrators"></label>
+        <label>Starting template<select id="new-course-template"><option value="blank">Structured blank course</option><option value="scenario">Scenario-led course</option></select></label>
+        <button class="primary" type="submit">Create a new course</button>
+      </form>
+      <p class="hint">Or continue from an existing Course MCP package.</p>
       <label class="primary file-button big">Import a SCORM zip<input id="zip-input-empty" type="file" accept=".zip,application/zip"></label>
       <p id="import-error" class="error" role="alert"></p>
     </div>

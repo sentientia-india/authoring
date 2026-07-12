@@ -227,6 +227,49 @@ def import_package(blob: bytes) -> dict:
     return {"session": sid, "course": course, "files": names, "version": 1}
 
 
+def create_course(title: str, audience: str = "General learners", template: str = "blank") -> dict:
+    from course_mcp_server.exporters.scorm import build_scorm_package
+    from course_mcp_server.schemas import ScormPackageRequest
+
+    title = str(title or "").strip()
+    if len(title) < 3 or len(title) > 300:
+        raise ValueError("Course title must be between 3 and 300 characters")
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:70] or "new-course"
+    lesson = {
+        "title": "Welcome",
+        "objective": f"Explain what learners will accomplish in {title}.",
+        "content": f"Start authoring {title} for {audience}. Replace this guidance with source-grounded content.",
+        "content_blocks": [
+            {"id": "block_welcome", "type": "text", "title": "Course introduction", "body": "Add the essential context learners need."}
+        ],
+        "activities": [],
+        "quiz_questions": [],
+    }
+    if template == "scenario":
+        lesson["activities"] = [
+            {
+                "activity_id": "activity_first_decision",
+                "activity_type": "scenario_decision_tree",
+                "title": "First decision",
+                "objective": "Apply the course guidance to a realistic decision.",
+                "items": [{"scenario": "Describe the situation.", "choices": [{"label": "Best action", "result": "best", "feedback": "Explain why."}]}],
+            }
+        ]
+    modules = [{"title": "Getting started", "lessons": [lesson]}]
+    with tempfile.TemporaryDirectory(prefix="course-studio-new-") as directory:
+        result = build_scorm_package(
+            ScormPackageRequest(
+                course_title=title,
+                course_slug=slug,
+                modules=modules,
+                scorm_version="1.2",
+                reference_style="interaction_game" if template == "scenario" else "rise_block",
+            ),
+            directory,
+        )
+        return import_package(Path(result["package_path"]).read_bytes())
+
+
 def save_course(
     sid: str,
     course: dict,
@@ -510,6 +553,15 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._body()
                 result = import_package(_decode_blob(body.get("zip", "")))
                 self._json(HTTPStatus.OK, {"ok": True, **result})
+                return
+            if route == "/api/new":
+                body = self._body()
+                result = create_course(
+                    str(body.get("title") or ""),
+                    str(body.get("audience") or "General learners")[:200],
+                    str(body.get("template") or "blank"),
+                )
+                self._json(HTTPStatus.CREATED, {"ok": True, **result})
                 return
             if route.startswith("/api/media/"):
                 sid = route.removeprefix("/api/media/")

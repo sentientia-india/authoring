@@ -255,6 +255,20 @@
       .catch(function (error) { toast(error.message); });
   }
 
+  function createNewCourse(event) {
+    event.preventDefault();
+    setSaveStatus("Creating course…");
+    fetch("/api/new", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: $("new-course-title").value, audience: $("new-course-audience").value, template: $("new-course-template").value }),
+    }).then(function (res) { return res.json(); }).then(function (data) {
+      if (!data.ok) throw new Error(data.error || "Course creation failed");
+      openSession(data.session, data.course, data.version);
+      history.replaceState(null, "", "?session=" + encodeURIComponent(data.session));
+      toast("New course ready to author.");
+    }).catch(function (error) { setSaveStatus("Course creation failed"); $("import-error").textContent = error.message; });
+  }
+
   /* ================= selection ================= */
 
   function select(sel) {
@@ -1144,6 +1158,7 @@
   }
 
   $("btn-export").addEventListener("click", exportZip);
+  $("new-course-form").addEventListener("submit", createNewCourse);
   $("btn-reload").addEventListener("click", reloadCanvas);
   $("btn-undo").addEventListener("click", undo);
   $("btn-redo").addEventListener("click", redo);

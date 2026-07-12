@@ -9,6 +9,7 @@ from apps.scorm_editor.server import (
     _import_package,
     collaboration_state,
     compare_revisions,
+    create_course,
     export_package,
     get_revision,
     import_package,
@@ -105,6 +106,7 @@ def test_editor_ui_has_authoring_modes_and_preview():
     assert 'id="inspector"' in index
     assert 'id="canvas"' in index
     assert 'id="btn-export"' in index
+    assert 'id="new-course-form"' in index
     assert "/api/import" in app_js
     assert "/api/export/" in app_js
     assert "renderInspector" in app_js
@@ -115,6 +117,7 @@ def test_editor_ui_has_authoring_modes_and_preview():
     assert "course-studio-recovery:" in app_js
     assert "/api/collaboration/" in app_js
     assert "Approve revision" in app_js
+    assert 'fetch("/api/new"' in app_js
 
 
 def test_editor_versions_saves_and_preserves_revision_history(tmp_path, monkeypatch):
@@ -164,3 +167,15 @@ def test_editor_revision_comparison_comments_roles_and_approvals(tmp_path, monke
     assert state["roles"]["lee"] == "reviewer"
     assert state["approvals"][0]["version"] == 2
     assert collaboration_state(imported["session"])["approvals"][0]["decision"] == "approved"
+
+
+def test_editor_creates_new_scenario_course_without_json_or_import(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Customer Escalation Practice", "Support specialists", "scenario")
+    assert created["version"] == 1
+    assert created["course"]["course_title"] == "Customer Escalation Practice"
+    activity = created["course"]["modules"][0]["lessons"][0]["activities"][0]
+    assert activity["activity_type"] == "scenario_decision_tree"
+    with ZipFile(BytesIO(export_package(created["session"]))) as package:
+        assert "imsmanifest.xml" in package.namelist()
+        assert "assets/scorm_api.js" in package.namelist()
