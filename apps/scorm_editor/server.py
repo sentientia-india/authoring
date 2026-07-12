@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
@@ -38,6 +39,17 @@ MAX_EXTRACTED_BYTES = 300 * 1024 * 1024
 MAX_ZIP_FILES = 5_000
 MAX_COMPRESSION_RATIO = 200
 COURSE_DATA_RE = re.compile(r'(<script id="course-data" type="application/json">)(.*?)(</script>)', re.S)
+SESSION_TTL_SECONDS = int(os.getenv("EDITOR_SESSION_TTL_SECONDS", "86400"))
+
+
+class SessionExpiredError(FileNotFoundError):
+    pass
+
+
+class EditConflictError(RuntimeError):
+    def __init__(self, current_version: int) -> None:
+        super().__init__("Course changed in another tab")
+        self.current_version = current_version
 
 
 def _zip_members(package: ZipFile) -> list[str]:
@@ -120,7 +132,38 @@ def _workspace(sid: str) -> Path:
     path = workspace_root() / _safe_session(sid)
     if not path.is_dir():
         raise FileNotFoundError("Unknown session")
+    meta_path = path / ".editor-meta.json"
+    if meta_path.is_file():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if time.time() - float(meta.get("last_accessed_at", meta.get("created_at", 0))) > SESSION_TTL_SECONDS:
+            raise SessionExpiredError("Editor session expired")
+        meta["last_accessed_at"] = time.time()
+        _write_json_atomic(meta_path, meta)
     return path
+
+
+def _write_json_atomic(path: Path, value: dict) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    temporary.replace(path)
+
+
+def _meta(workspace: Path) -> dict:
+    path = workspace / ".editor-meta.json"
+    if not path.is_file():
+        value = {"version": 1, "created_at": time.time(), "last_accessed_at": time.time()}
+        _write_json_atomic(path, value)
+        return value
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _snapshot(workspace: Path, version: int, course: dict, actor: str, reason: str) -> None:
+    revisions = workspace / ".revisions"
+    revisions.mkdir(exist_ok=True)
+    _write_json_atomic(
+        revisions / f"{version:08d}.json",
+        {"version": version, "created_at": time.time(), "actor": actor, "reason": reason, "course": course},
+    )
 
 
 def _decode_blob(value: str) -> bytes:
@@ -177,14 +220,31 @@ def import_package(blob: bytes) -> dict:
         shutil.rmtree(target, ignore_errors=True)
         raise ValueError("Missing data/course.json - this editor works with courses exported by the Course MCP.")
     course = json.loads((target / "data" / "course.json").read_text(encoding="utf-8"))
-    return {"session": sid, "course": course, "files": names}
+    now = time.time()
+    _write_json_atomic(target / ".editor-meta.json", {"version": 1, "created_at": now, "last_accessed_at": now})
+    _snapshot(target, 1, course, "import", "Imported SCORM package")
+    _write_json_atomic(target / ".collaboration.json", {"comments": [], "approvals": [], "roles": {}})
+    return {"session": sid, "course": course, "files": names, "version": 1}
 
 
-def save_course(sid: str, course: dict) -> dict:
+def save_course(
+    sid: str,
+    course: dict,
+    expected_version: int | None = None,
+    actor: str = "author",
+    reason: str = "Autosave",
+) -> dict:
     """Persist course.json and refresh the embedded course-data in all page shells."""
     workspace = _workspace(sid)
+    meta = _meta(workspace)
+    current_version = int(meta["version"])
+    if expected_version is not None and expected_version != current_version:
+        raise EditConflictError(current_version)
     payload = json.dumps(course, indent=2)
-    (workspace / "data" / "course.json").write_text(payload, encoding="utf-8")
+    course_path = workspace / "data" / "course.json"
+    temporary = course_path.with_suffix(".json.tmp")
+    temporary.write_text(payload, encoding="utf-8")
+    temporary.replace(course_path)
     embedded = payload.replace("</", "<\\/")
     for page in [workspace / "index.html", *sorted(workspace.glob("module-*.html"))]:
         if not page.is_file():
@@ -200,7 +260,28 @@ def save_course(sid: str, course: dict) -> dict:
             html = index.read_text(encoding="utf-8")
             html = re.sub(r'data-theme="[^"]*"', f'data-theme="{theme}"', html, count=1)
             index.write_text(html, encoding="utf-8")
-    return {"session": sid, "saved": True}
+    version = current_version + 1
+    meta.update({"version": version, "last_accessed_at": time.time()})
+    _write_json_atomic(workspace / ".editor-meta.json", meta)
+    _snapshot(workspace, version, course, actor, reason)
+    return {"session": sid, "saved": True, "version": version}
+
+
+def list_revisions(sid: str) -> list[dict]:
+    workspace = _workspace(sid)
+    revisions = []
+    for path in sorted((workspace / ".revisions").glob("*.json"), reverse=True):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record.pop("course", None)
+        revisions.append(record)
+    return revisions
+
+
+def get_revision(sid: str, version: int) -> dict:
+    path = _workspace(sid) / ".revisions" / f"{version:08d}.json"
+    if not path.is_file():
+        raise FileNotFoundError("Revision not found")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def add_media(sid: str, filename: str, blob: bytes) -> dict:
@@ -237,7 +318,8 @@ def export_package(sid: str) -> bytes:
     buffer = BytesIO()
     with ZipFile(buffer, "w", ZIP_DEFLATED) as package:
         for path in sorted(workspace.rglob("*")):
-            if path.is_file():
+            relative = path.relative_to(workspace)
+            if path.is_file() and not any(part.startswith(".") for part in relative.parts):
                 package.write(path, str(path.relative_to(workspace)).replace("\\", "/"))
     return buffer.getvalue()
 
@@ -289,9 +371,20 @@ class Handler(BaseHTTPRequestHandler):
                         return
             if route.startswith("/api/course/"):
                 sid = route.removeprefix("/api/course/")
-                course = json.loads((_workspace(sid) / "data" / "course.json").read_text(encoding="utf-8"))
-                self._json(HTTPStatus.OK, {"session": sid, "course": course})
+                workspace = _workspace(sid)
+                course = json.loads((workspace / "data" / "course.json").read_text(encoding="utf-8"))
+                self._json(HTTPStatus.OK, {"session": sid, "course": course, "version": _meta(workspace)["version"]})
                 return
+            if route.startswith("/api/revisions/"):
+                parts = route.removeprefix("/api/revisions/").split("/")
+                if len(parts) == 1:
+                    self._json(HTTPStatus.OK, {"session": parts[0], "revisions": list_revisions(parts[0])})
+                else:
+                    self._json(HTTPStatus.OK, get_revision(parts[0], int(parts[1])))
+                return
+        except SessionExpiredError as exc:
+            self._json(HTTPStatus.GONE, {"ok": False, "error": "session_expired", "message": str(exc)})
+            return
         except (ValueError, FileNotFoundError) as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
             return
@@ -303,9 +396,25 @@ class Handler(BaseHTTPRequestHandler):
             if route.startswith("/api/course/"):
                 sid = route.removeprefix("/api/course/")
                 body = self._body()
-                result = save_course(sid, body.get("course") or {})
+                expected = body.get("version")
+                result = save_course(
+                    sid,
+                    body.get("course") or {},
+                    int(expected) if expected is not None else None,
+                    str(body.get("actor") or "author")[:120],
+                    str(body.get("reason") or "Autosave")[:240],
+                )
                 self._json(HTTPStatus.OK, {"ok": True, **result})
                 return
+        except EditConflictError as exc:
+            self._json(
+                HTTPStatus.CONFLICT,
+                {"ok": False, "error": "edit_conflict", "current_version": exc.current_version},
+            )
+            return
+        except SessionExpiredError as exc:
+            self._json(HTTPStatus.GONE, {"ok": False, "error": "session_expired", "message": str(exc)})
+            return
         except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
             return

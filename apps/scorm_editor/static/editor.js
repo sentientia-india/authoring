@@ -6,6 +6,9 @@
   var state = {
     session: null,
     course: null,
+    version: null,
+    saving: false,
+    conflicted: false,
     history: [],
     historyIndex: -1,
     selected: { kind: "course" },
@@ -29,6 +32,16 @@
   }
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
+
+  function setSaveStatus(message) { $("save-status").textContent = message; }
+
+  function recoveryKey() { return state.session ? "course-studio-recovery:" + state.session : null; }
+
+  function persistRecovery() {
+    if (recoveryKey()) localStorage.setItem(recoveryKey(), JSON.stringify({ course: state.course, version: state.version, savedAt: Date.now() }));
+  }
+
+  function clearRecovery() { if (recoveryKey()) localStorage.removeItem(recoveryKey()); }
 
   function escapeHtml(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
@@ -125,20 +138,39 @@
   }
 
   function save(structural, recorded) {
+    if (state.conflicted) { toast("Reload the newer revision before saving."); return Promise.resolve(); }
     if (!recorded) pushHistory();
+    persistRecovery();
+    state.saving = true;
+    setSaveStatus(navigator.onLine ? "Saving…" : "Offline · recovery saved");
     return fetch("/api/course/" + state.session, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ course: state.course }),
+      body: JSON.stringify({ course: state.course, version: state.version }),
     })
-      .then(function (res) { return res.json(); })
+      .then(function (res) { return res.json().then(function (data) { data.httpStatus = res.status; return data; }); })
       .then(function (data) {
+        if (data.httpStatus === 409) {
+          state.conflicted = true;
+          $("conflict-banner").hidden = false;
+          setSaveStatus("Conflict · reload required");
+          throw new Error("Another tab saved a newer revision");
+        }
+        if (data.httpStatus === 410) {
+          setSaveStatus("Session expired · recovery available");
+          throw new Error("Session expired");
+        }
         if (!data.ok) throw new Error(data.error || "Save failed");
+        state.version = data.version;
+        state.saving = false;
+        clearRecovery();
+        setSaveStatus("Saved · revision " + data.version);
+        if (state.channel) state.channel.postMessage({ session: state.session, version: state.version });
         if (structural) reloadCanvas();
         renderTree();
         $("course-name").textContent = state.course.course_title || "Untitled course";
       })
-      .catch(function (error) { toast("Save failed: " + error.message); });
+      .catch(function (error) { state.saving = false; persistRecovery(); if (!state.conflicted) setSaveStatus("Recovery saved locally"); toast("Save failed: " + error.message); });
   }
 
   function reloadCanvas() {
@@ -158,7 +190,7 @@
         .then(function (res) { return res.json(); })
         .then(function (data) {
           if (!data.ok) throw new Error(data.error || "Import failed");
-          openSession(data.session, data.course);
+          openSession(data.session, data.course, data.version);
           toast("Course imported — the canvas is the real player.");
         })
         .catch(function (error) {
@@ -1028,9 +1060,24 @@
     });
   });
 
-  function openSession(sid, course) {
+  function openSession(sid, course, version) {
     state.session = sid;
     state.course = course;
+    state.version = version || 1;
+    state.conflicted = false;
+    $("conflict-banner").hidden = true;
+    setSaveStatus("Saved · revision " + state.version);
+    if (window.BroadcastChannel) {
+      if (state.channel) state.channel.close();
+      state.channel = new BroadcastChannel("course-studio:" + sid);
+      state.channel.onmessage = function (event) {
+        if (event.data && event.data.version > state.version) {
+          state.conflicted = true;
+          $("conflict-banner").hidden = false;
+          setSaveStatus("Newer revision in another tab");
+        }
+      };
+    }
     state.history = [];
     state.historyIndex = -1;
     pushHistory();
@@ -1050,7 +1097,8 @@
     fetch("/api/course/" + params.get("session"))
       .then(function (res) { return res.json(); })
       .then(function (data) {
-        if (data.course) openSession(data.session, data.course);
+        if (data.course) openSession(data.session, data.course, data.version);
+        else if (data.error === "session_expired") setSaveStatus("Session expired");
       })
       .catch(function () {});
   }
@@ -1063,4 +1111,7 @@
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey) { event.preventDefault(); undo(); }
     if ((event.ctrlKey || event.metaKey) && (event.key.toLowerCase() === "y" || (event.shiftKey && event.key.toLowerCase() === "z"))) { event.preventDefault(); redo(); }
   });
+  window.addEventListener("offline", function () { persistRecovery(); setSaveStatus("Offline · recovery saved"); });
+  window.addEventListener("online", function () { setSaveStatus(state.conflicted ? "Conflict · reload required" : "Online · ready to save"); });
+  window.addEventListener("beforeunload", function (event) { if (state.saving) { persistRecovery(); event.preventDefault(); event.returnValue = ""; } });
 })();

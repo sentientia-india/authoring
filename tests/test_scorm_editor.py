@@ -1,7 +1,18 @@
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from apps.scorm_editor.server import _build_zip, _import_package
+import pytest
+
+from apps.scorm_editor.server import (
+    EditConflictError,
+    _build_zip,
+    _import_package,
+    export_package,
+    get_revision,
+    import_package,
+    list_revisions,
+    save_course,
+)
 
 
 def _sample_zip_bytes() -> bytes:
@@ -96,3 +107,29 @@ def test_editor_ui_has_authoring_modes_and_preview():
     assert "renderTree" in app_js
     assert "game_options" in app_js
     assert ".media-preview" in css
+    assert "BroadcastChannel" in app_js
+    assert "course-studio-recovery:" in app_js
+
+
+def test_editor_versions_saves_and_preserves_revision_history(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    imported = import_package(_sample_zip_bytes())
+    assert imported["version"] == 1
+    course = imported["course"]
+    course["course_title"] = "Revision two"
+    saved = save_course(imported["session"], course, expected_version=1, actor="reviewer", reason="Review edit")
+    assert saved["version"] == 2
+    revisions = list_revisions(imported["session"])
+    assert [item["version"] for item in revisions] == [2, 1]
+    assert get_revision(imported["session"], 2)["course"]["course_title"] == "Revision two"
+    with pytest.raises(EditConflictError) as conflict:
+        save_course(imported["session"], course, expected_version=1)
+    assert conflict.value.current_version == 2
+
+
+def test_editor_export_excludes_internal_revision_metadata(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    imported = import_package(_sample_zip_bytes())
+    exported = export_package(imported["session"])
+    with ZipFile(BytesIO(exported)) as package:
+        assert not any(part.startswith(".") for name in package.namelist() for part in name.split("/"))

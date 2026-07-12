@@ -17,6 +17,7 @@
       </div>
     </div>
     <div class="topbar-actions">
+      <span id="save-status" class="brand-sub" role="status" aria-live="polite">Ready</span>
       <button id="btn-undo" class="ghost" title="Undo (Ctrl+Z)" disabled>&#8630; Undo</button>
       <button id="btn-redo" class="ghost" title="Redo (Ctrl+Y)" disabled>&#8631; Redo</button>
       <span class="divider"></span>
@@ -60,6 +61,7 @@
   </section>
 
   <div id="toast" class="toast" hidden></div>
+  <div id="conflict-banner" class="toast" role="alert" hidden>Another tab saved a newer revision. Reload before continuing to prevent lost work.</div>
   <script src="/static/editor.js"></script>
 </body>
 </html>
