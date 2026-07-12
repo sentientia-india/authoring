@@ -12,6 +12,10 @@ def test_hosted_selling_routes_are_rest_only_and_authenticated_where_required():
     assert '"/api/hosted/{token}/dashboard"' in server
     assert '"/api/hosted/{token}/entitlements"' in server
     assert '"/learn/{token}/lead"' in server
+    assert '"/api/hosted/domains"' in server
+    assert '"/api/hosted/domains/verify"' in server
+    assert '"/api/hosted/collections"' in server
+    assert '"/api/hosted/collections/{collection_id}/items"' in server
     assert "_context_from_request(request)" in server
     assert "publish_hosted_release" not in tools
     assert "grant_paid_access" not in tools

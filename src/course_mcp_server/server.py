@@ -35,7 +35,14 @@ from .hosted_learning import (
     resolve_share_file,
     tutor_reply,
 )
-from .hosted_repository import resolve_grant
+from .hosted_repository import (
+    add_collection_item,
+    create_collection,
+    get_collection,
+    request_custom_domain,
+    resolve_grant,
+    verify_custom_domain,
+)
 from .communication import CommunicationError, record_provider_event
 from .analytics import (
     account_dashboard,
@@ -270,6 +277,76 @@ def create_mcp_server():
         except (PermissionError, ValueError, TypeError):
             return JSONResponse({"ok": False, "error": "invalid_schedule"}, status_code=400)
         return JSONResponse({"ok": True, "schedule": result}, status_code=201)
+
+    @mcp.custom_route("/api/hosted/domains", methods=["POST"], include_in_schema=False)
+    async def hosted_domain_request(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            payload = await request.json()
+            result = request_custom_domain(
+                tenant_id=context.tenant_id,
+                hostname=str(payload.get("hostname") or ""),
+                release_id=str(payload.get("release_id") or "") or None,
+            )
+        except (PermissionError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "invalid_custom_domain"}, status_code=400)
+        return JSONResponse({"ok": True, "domain": result}, status_code=201)
+
+    @mcp.custom_route("/api/hosted/domains/verify", methods=["POST"], include_in_schema=False)
+    async def hosted_domain_verify(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            payload = await request.json()
+            result = verify_custom_domain(
+                tenant_id=context.tenant_id,
+                hostname=str(payload.get("hostname") or ""),
+                observed_token=str(payload.get("observed_token") or ""),
+            )
+        except (PermissionError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "domain_verification_failed"}, status_code=400)
+        return JSONResponse({"ok": True, "domain": result})
+
+    @mcp.custom_route("/api/hosted/collections", methods=["POST"], include_in_schema=False)
+    async def hosted_collection_create(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            payload = await request.json()
+            result = create_collection(
+                tenant_id=context.tenant_id,
+                title=str(payload.get("title") or ""),
+                slug=str(payload.get("slug") or ""),
+                description=str(payload.get("description") or ""),
+            )
+        except (PermissionError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "invalid_collection"}, status_code=400)
+        return JSONResponse({"ok": True, "collection": result}, status_code=201)
+
+    @mcp.custom_route("/api/hosted/collections/{collection_id}", methods=["GET"], include_in_schema=False)
+    async def hosted_collection_get(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            result = get_collection(tenant_id=context.tenant_id, collection_id=request.path_params["collection_id"])
+        except PermissionError:
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+        if not result:
+            return JSONResponse({"ok": False, "error": "collection_not_found"}, status_code=404)
+        return JSONResponse({"ok": True, "collection": result})
+
+    @mcp.custom_route("/api/hosted/collections/{collection_id}/items", methods=["POST"], include_in_schema=False)
+    async def hosted_collection_item_create(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            payload = await request.json()
+            result = add_collection_item(
+                tenant_id=context.tenant_id,
+                collection_id=request.path_params["collection_id"],
+                release_id=str(payload.get("release_id") or ""),
+                position=int(payload.get("position") or 0),
+                prerequisite_release_id=str(payload.get("prerequisite_release_id") or "") or None,
+            )
+        except (PermissionError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "invalid_collection_item"}, status_code=400)
+        return JSONResponse({"ok": True, "item": result}, status_code=201)
 
     @mcp.custom_route("/learn/{token}/{asset_path:path}", methods=["GET"], include_in_schema=False)
     async def hosted_course(request):  # noqa: ANN001
