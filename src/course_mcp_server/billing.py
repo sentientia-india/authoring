@@ -24,6 +24,7 @@ from .licensing import issue_license
 from .database import database_url
 from .billing_repository import previous_event, record_event, set_plan_entitlement, upsert_subscription
 from .hosted_learning import grant_paid_access
+from .communication import queue_email
 
 
 class BillingError(RuntimeError):
@@ -182,6 +183,18 @@ def process_checkout_event(event: dict[str, Any]) -> dict[str, Any]:
             access = grant_paid_access(share_token, email)
             receipt["hosted_access_provisioned"] = True
             receipt["access_token"] = access["access_token"]
+        if email:
+            queue_email(
+                tenant_id=tenant,
+                recipient=email,
+                template="receipt",
+                data={
+                    "product_name": str(metadata.get("product_name") or f"{tier} subscription"),
+                    "amount": str(session.get("amount_total") or "paid"),
+                    "action_url": str(metadata.get("receipt_url") or metadata.get("account_url") or "https://example.invalid/account"),
+                },
+                idempotency_key=f"receipt:{event_id}",
+            )
         record_event(event, receipt, tenant)
     else:
         events["processed"][event_id] = receipt
@@ -253,6 +266,15 @@ def _process_subscription_event(event: dict[str, Any]) -> dict[str, Any]:
         "subscription_status": status,
         "entitlement_active": active,
     }
+    email = str(obj.get("customer_email") or metadata.get("email") or "")
+    if event_type == "invoice.payment_failed" and email:
+        queue_email(
+            tenant_id=tenant,
+            recipient=email,
+            template="dunning",
+            data={"action_url": str(metadata.get("account_url") or "https://example.invalid/account")},
+            idempotency_key=f"dunning:{event['id']}",
+        )
     record_event(event, result, tenant)
     return result
 

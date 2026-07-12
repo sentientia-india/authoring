@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import base64
 import tempfile
+import hmac
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ from .hosted_learning import (
     tutor_reply,
 )
 from .hosted_repository import resolve_grant
+from .communication import CommunicationError, record_provider_event
 from .security import RequestContext
 from .rate_limit import check_rate_limit
 from .tools import TOOL_REGISTRY, safe_error
@@ -136,6 +138,18 @@ def create_mcp_server():
         except (BillingError, PermissionError, ValueError, TypeError):
             return JSONResponse({"ok": False, "error": "portal_unavailable"}, status_code=400)
         return JSONResponse({"ok": True, **result}, status_code=201)
+
+    @mcp.custom_route("/email/provider-webhook", methods=["POST"], include_in_schema=False)
+    async def email_provider_webhook(request):  # noqa: ANN001
+        expected = os.getenv("EMAIL_WEBHOOK_SECRET", "")
+        supplied = request.headers.get("x-email-webhook-secret", "")
+        if not expected or not hmac.compare_digest(expected, supplied):
+            return JSONResponse({"ok": False, "error": "invalid_webhook"}, status_code=401)
+        try:
+            result = record_provider_event(await request.json())
+        except (CommunicationError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "invalid_event"}, status_code=400)
+        return JSONResponse({"ok": True, **result})
 
     @mcp.custom_route("/api/hosted/releases", methods=["POST"], include_in_schema=False)
     async def publish_hosted_release(request):  # noqa: ANN001
