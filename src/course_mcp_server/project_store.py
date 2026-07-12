@@ -7,6 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from psycopg.types.json import Jsonb
+
+from .database import connection, database_url, ensure_tenant
+
 
 def _store_path() -> Path:
     default_dir = Path(os.getenv("OUTPUT_DIR", "course_mcp_output"))
@@ -44,16 +48,8 @@ def create_project(
     language: str,
     compliance_domain: str | None,
 ) -> dict[str, Any]:
-    projects = _read_projects()
     project_id = stable_project_id(tenant_id=tenant_id, course_title=course_title, audience=audience)
-    existing = next(
-        (
-            project
-            for project in projects
-            if project.get("tenant_id") == tenant_id and project.get("project_id") == project_id
-        ),
-        None,
-    )
+    existing = get_project(tenant_id=tenant_id, project_id=project_id)
     if existing:
         return existing
     project = {
@@ -70,12 +66,17 @@ def create_project(
         "created_at": _now(),
         "updated_at": _now(),
     }
-    projects.append(project)
-    _write_projects(projects)
-    return project
+    return save_project(project)
 
 
 def get_project(*, tenant_id: str, project_id: str) -> dict[str, Any] | None:
+    if database_url():
+        with connection() as active:
+            row = active.execute(
+                "SELECT payload FROM projects WHERE tenant_id = %s AND project_id = %s",
+                (tenant_id, project_id),
+            ).fetchone()
+            return dict(row["payload"]) if row else None
     for project in _read_projects():
         if project.get("tenant_id") == tenant_id and project.get("project_id") == project_id:
             return project
@@ -83,8 +84,25 @@ def get_project(*, tenant_id: str, project_id: str) -> dict[str, Any] | None:
 
 
 def save_project(project: dict[str, Any]) -> dict[str, Any]:
-    projects = _read_projects()
     project["updated_at"] = _now()
+    if database_url():
+        tenant_id = str(project["tenant_id"])
+        project_id = str(project["project_id"])
+        with connection() as active:
+            ensure_tenant(active, tenant_id)
+            active.execute(
+                """
+                INSERT INTO projects (tenant_id, project_id, payload)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (tenant_id, project_id) DO UPDATE
+                SET payload = EXCLUDED.payload,
+                    updated_at = now(),
+                    version = projects.version + 1
+                """,
+                (tenant_id, project_id, Jsonb(project)),
+            )
+        return project
+    projects = _read_projects()
     updated = False
     for index, existing in enumerate(projects):
         if (
