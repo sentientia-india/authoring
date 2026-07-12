@@ -8,17 +8,22 @@ from course_mcp_server.database import database_url
 from course_mcp_server.hosted_repository import (
     append_event,
     capture_lead,
+    add_collection_item,
+    create_collection,
     create_grant,
     create_release,
     dashboard,
     grant_entitlement,
     get_or_create_learner,
+    get_collection,
     has_entitlement,
     enroll_learner,
     resolve_grant,
     revoke_enrollment,
     revoke_grant,
+    request_custom_domain,
     save_attempt_state,
+    verify_custom_domain,
 )
 from course_mcp_server.hosted_learning import (
     course_dashboard,
@@ -162,3 +167,34 @@ def test_identity_enrollment_resume_and_revocation_lifecycle():
     assert resolve_grant(token)
     assert revoke_grant(tenant_id="tenant-lifecycle", grant_id=grant["grant_id"])
     assert resolve_grant(token) is None
+
+
+def test_custom_domain_and_learning_collection_are_tenant_scoped():
+    apply(database_url())
+    tenant = f"tenant-catalog-{secrets.token_hex(4)}"
+    release = create_release(
+        tenant_id=tenant,
+        course_id="course_catalog",
+        release_id="release_catalog",
+        object_key=f"tenants/{tenant}/releases/release_catalog/course.zip",
+        package_sha256="c" * 64,
+    )
+    requested = request_custom_domain(
+        tenant_id=tenant, hostname=f"academy-{secrets.token_hex(4)}.example.com", release_id=release["release_id"]
+    )
+    verified = verify_custom_domain(
+        tenant_id=tenant,
+        hostname=requested["hostname"],
+        observed_token=requested["dns_record"]["value"],
+    )
+    assert verified["status"] == "verified"
+    collection = create_collection(tenant_id=tenant, title="Customer Academy", slug="customer-academy")
+    add_collection_item(
+        tenant_id=tenant,
+        collection_id=collection["collection_id"],
+        release_id=release["release_id"],
+        position=1,
+    )
+    loaded = get_collection(tenant_id=tenant, collection_id=collection["collection_id"])
+    assert loaded["items"][0]["release_id"] == release["release_id"]
+    assert get_collection(tenant_id="tenant-other", collection_id=collection["collection_id"]) is None

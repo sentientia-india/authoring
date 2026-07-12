@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import re
+import secrets
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -301,3 +303,94 @@ def revoke_grant(*, tenant_id: str, grant_id: str) -> bool:
             (tenant_id, grant_id),
         )
     return result.rowcount == 1
+
+
+def request_custom_domain(*, tenant_id: str, hostname: str, release_id: str | None = None) -> dict[str, Any]:
+    hostname = hostname.strip().lower().rstrip(".")
+    if not re.fullmatch(r"(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", hostname):
+        raise ValueError("Invalid custom domain")
+    token = f"course-mcp-verify-{secrets.token_urlsafe(24)}"
+    domain_id = f"domain_{hashlib.sha256(f'{tenant_id}:{hostname}'.encode()).hexdigest()[:24]}"
+    with connection() as active:
+        ensure_tenant(active, tenant_id)
+        row = active.execute(
+            """
+            INSERT INTO custom_domains
+                (tenant_id, domain_id, hostname, verification_token_hash, release_id)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (hostname) DO UPDATE
+            SET verification_token_hash = EXCLUDED.verification_token_hash,
+                release_id = EXCLUDED.release_id, status = 'pending', verified_at = NULL, removed_at = NULL
+            RETURNING tenant_id, domain_id, hostname, status, release_id, created_at
+            """,
+            (tenant_id, domain_id, hostname, token_hash(token), release_id),
+        ).fetchone()
+    return {**dict(row), "dns_record": {"type": "TXT", "name": f"_course-mcp.{hostname}", "value": token}}
+
+
+def verify_custom_domain(*, tenant_id: str, hostname: str, observed_token: str) -> dict[str, Any]:
+    with connection() as active:
+        row = active.execute(
+            """
+            UPDATE custom_domains
+            SET status = 'verified', verified_at = now()
+            WHERE tenant_id = %s AND hostname = %s AND verification_token_hash = %s AND status = 'pending'
+            RETURNING tenant_id, domain_id, hostname, status, release_id, verified_at
+            """,
+            (tenant_id, hostname.strip().lower().rstrip("."), token_hash(observed_token)),
+        ).fetchone()
+    if not row:
+        raise ValueError("Custom domain verification failed")
+    return dict(row)
+
+
+def create_collection(*, tenant_id: str, title: str, slug: str, description: str = "") -> dict[str, Any]:
+    normalized = re.sub(r"[^a-z0-9-]", "", slug.strip().lower())
+    if len(title.strip()) < 3 or not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,79}", normalized):
+        raise ValueError("Invalid collection title or slug")
+    collection_id = f"collection_{uuid4().hex}"
+    with connection() as active:
+        ensure_tenant(active, tenant_id)
+        row = active.execute(
+            """
+            INSERT INTO learning_collections (tenant_id, collection_id, title, slug, description)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING tenant_id, collection_id, title, slug, description, status, created_at
+            """,
+            (tenant_id, collection_id, title.strip(), normalized, description[:4000]),
+        ).fetchone()
+    return dict(row)
+
+
+def add_collection_item(
+    *, tenant_id: str, collection_id: str, release_id: str, position: int, prerequisite_release_id: str | None = None
+) -> dict[str, Any]:
+    with connection() as active:
+        row = active.execute(
+            """
+            INSERT INTO learning_collection_items
+                (tenant_id, collection_id, release_id, position, prerequisite_release_id)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING tenant_id, collection_id, release_id, position, prerequisite_release_id, required
+            """,
+            (tenant_id, collection_id, release_id, position, prerequisite_release_id),
+        ).fetchone()
+    return dict(row)
+
+
+def get_collection(*, tenant_id: str, collection_id: str) -> dict[str, Any] | None:
+    with connection() as active:
+        collection = active.execute(
+            "SELECT tenant_id, collection_id, title, slug, description, status FROM learning_collections WHERE tenant_id = %s AND collection_id = %s",
+            (tenant_id, collection_id),
+        ).fetchone()
+        if not collection:
+            return None
+        items = active.execute(
+            """
+            SELECT release_id, position, prerequisite_release_id, required
+            FROM learning_collection_items WHERE tenant_id = %s AND collection_id = %s ORDER BY position
+            """,
+            (tenant_id, collection_id),
+        ).fetchall()
+    return {**dict(collection), "items": [dict(item) for item in items]}

@@ -69,3 +69,11 @@ def test_data_lifecycle_migration_adds_controlled_retention_override_and_evidenc
     migration = (ROOT / "migrations" / "0006_data_lifecycle.sql").read_text(encoding="utf-8")
     assert "course_mcp.retention_operation" in migration
     assert "CREATE TABLE IF NOT EXISTS deletion_records" in migration
+
+
+def test_hosted_catalog_migration_adds_domains_collections_and_paths():
+    migration = (ROOT / "migrations" / "0007_hosted_catalog.sql").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS custom_domains" in migration
+    assert "CREATE TABLE IF NOT EXISTS learning_collections" in migration
+    assert "CREATE TABLE IF NOT EXISTS learning_collection_items" in migration
+    assert "prerequisite_release_id" in migration
