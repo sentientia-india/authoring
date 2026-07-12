@@ -15,6 +15,7 @@ COPY pyproject.toml README.md /app/
 COPY src /app/src
 COPY migrations /app/migrations
 COPY scripts/apply_migrations.py /app/scripts/apply_migrations.py
+COPY scripts/load_test.py /app/scripts/load_test.py
 
 RUN pip install --upgrade pip \
     && pip install -e .

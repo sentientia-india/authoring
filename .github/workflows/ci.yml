@@ -206,6 +206,8 @@ jobs:
             sleep 3
           done
           docker compose exec -T course-mcp python -m course_mcp_server.smoke
+          docker compose exec -T course-mcp python /app/scripts/load_test.py \
+            http://127.0.0.1:8777/health --requests 50 --concurrency 5 --max-error-rate 0 --max-p95 0.4
           ln -sfn "$RELEASE_PATH" "$DEPLOY_PATH/current"
           printf '{"release":"%s","deployed_at":"%s","previous":"%s"}\n' \
             "$RELEASE_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PREVIOUS" > "$DEPLOY_PATH/deployment.json"
