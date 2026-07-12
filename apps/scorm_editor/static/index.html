@@ -3,61 +3,63 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SCORM Editor</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <title>Course Studio — WYSIWYG SCORM editor</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/editor.css">
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <p class="eyebrow">SCORM editor</p>
-      <h1>Course authoring workspace</h1>
+    <div class="brand">
+      <span class="brand-mark">◆</span>
+      <div>
+        <strong>Course Studio</strong>
+        <span id="course-name" class="brand-sub">No course loaded</span>
+      </div>
     </div>
-    <nav class="mode-tabs" aria-label="Editor mode">
-      <button class="mode-tab active" type="button" data-mode="outline">Outline</button>
-      <button class="mode-tab" type="button" data-mode="lesson">Lesson</button>
-      <button class="mode-tab" type="button" data-mode="theme">Theme</button>
-      <button class="mode-tab" type="button" data-mode="assessment">Assessment</button>
-      <button class="mode-tab" type="button" data-mode="media">Media</button>
-    </nav>
-    <label class="upload">
-      <input id="zip-input" type="file" accept=".zip,application/zip">
-      <span>Select SCORM ZIP</span>
-    </label>
-    <span id="save-status" class="save-status">Autosave ready</span>
+    <div class="topbar-actions">
+      <button id="btn-undo" class="ghost" title="Undo (Ctrl+Z)" disabled>&#8630; Undo</button>
+      <button id="btn-redo" class="ghost" title="Redo (Ctrl+Y)" disabled>&#8631; Redo</button>
+      <span class="divider"></span>
+      <label class="ghost file-button">Import zip<input id="zip-input" type="file" accept=".zip,application/zip"></label>
+      <button id="btn-export" class="primary" disabled>Export SCORM zip</button>
+    </div>
   </header>
-  <main class="layout">
-    <section class="panel dropzone" id="dropzone">
-      <strong>Drop a SCORM ZIP here</strong>
-      <p>Import the package, edit the outline, then export a rebuilt ZIP.</p>
-      <div id="import-status" class="status">No package loaded.</div>
-      <div class="sample-list" id="sample-list" aria-label="Reference SCORM samples"></div>
-    </section>
-    <section class="panel">
-      <div class="panel-head">
-        <strong>Outline</strong>
-        <button id="export-btn" disabled>Export ZIP</button>
+
+  <main class="layout" id="layout" hidden>
+    <aside class="panel left">
+      <nav class="tabs">
+        <button class="tab active" data-tab="structure">Structure</button>
+        <button class="tab" data-tab="templates">Insert</button>
+      </nav>
+      <div id="tab-structure" class="tab-body"></div>
+      <div id="tab-templates" class="tab-body" hidden></div>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div class="canvas-bar">
+        <span class="hint">Click anything to select &middot; double-click text to edit in place</span>
+        <button id="btn-reload" class="ghost small">&#8635; Refresh preview</button>
       </div>
-      <div id="outline" class="tree"></div>
+      <iframe id="canvas" title="Live course preview"></iframe>
     </section>
-    <section class="panel">
-      <div class="panel-head">
-        <strong>Editor</strong>
-        <span id="selection-label">Nothing selected</span>
-      </div>
-      <div id="editor"></div>
-    </section>
-    <section class="panel preview-panel">
-      <div class="panel-head">
-        <strong>Preview</strong>
-        <div class="viewport-tabs" aria-label="Preview size">
-          <button class="viewport-tab active" type="button" data-viewport="desktop">Desktop</button>
-          <button class="viewport-tab" type="button" data-viewport="tablet">Tablet</button>
-          <button class="viewport-tab" type="button" data-viewport="mobile">Mobile</button>
-        </div>
-      </div>
-      <div id="preview" class="preview-frame"></div>
-    </section>
+
+    <aside class="panel right">
+      <div class="panel-head"><strong id="inspector-title">Course</strong></div>
+      <div id="inspector" class="inspector"></div>
+    </aside>
   </main>
-  <script src="/static/app.js"></script>
+
+  <section id="empty-state" class="empty-state">
+    <div class="empty-card">
+      <span class="brand-mark big">◆</span>
+      <h1>Edit the course exactly as learners see it</h1>
+      <p>Import a SCORM zip exported by the Course MCP. The canvas is the real course player — every edit is true to the final output.</p>
+      <label class="primary file-button big">Import a SCORM zip<input id="zip-input-empty" type="file" accept=".zip,application/zip"></label>
+      <p id="import-error" class="error" role="alert"></p>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="/static/editor.js"></script>
 </body>
 </html>

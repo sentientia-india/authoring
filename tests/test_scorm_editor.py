@@ -82,19 +82,17 @@ def test_build_zip_replaces_media_and_preserves_protected_branding():
 
 def test_editor_ui_has_authoring_modes_and_preview():
     index = open("apps/scorm_editor/static/index.html", encoding="utf-8").read()
-    app_js = open("apps/scorm_editor/static/app.js", encoding="utf-8").read()
-    css = open("apps/scorm_editor/static/style.css", encoding="utf-8").read()
+    app_js = open("apps/scorm_editor/static/editor.js", encoding="utf-8").read()
+    css = open("apps/scorm_editor/static/editor.css", encoding="utf-8").read()
 
-    assert 'data-mode="outline"' in index
-    assert 'data-mode="lesson"' in index
-    assert 'data-mode="theme"' in index
-    assert 'data-mode="assessment"' in index
-    assert 'data-mode="media"' in index
-    assert 'id="preview"' in index
-    assert "ensureBlocks" in app_js
-    assert "renderAssessmentEditor" in app_js
-    assert "renderPreview" in app_js
-    assert "localStorage" in app_js
+    assert 'id="tab-structure"' in index
+    assert 'id="tab-templates"' in index
+    assert 'id="inspector"' in index
+    assert 'id="canvas"' in index
+    assert 'id="btn-export"' in index
+    assert "/api/import" in app_js
+    assert "/api/export/" in app_js
+    assert "renderInspector" in app_js
+    assert "renderTree" in app_js
     assert "game_options" in app_js
-    assert "Edit JSON blocks directly" not in app_js
-    assert ".preview-frame" in css
+    assert ".media-preview" in css
