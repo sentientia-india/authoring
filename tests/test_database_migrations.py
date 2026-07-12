@@ -41,3 +41,11 @@ def test_hosted_migration_defines_immutable_releases_access_and_learning_state()
     assert "learner_events_append_only" in migration
     assert "UNIQUE (tenant_id, enrollment_id, attempt_number)" in migration
     assert "UNIQUE (access_token_hash)" in migration
+
+
+def test_billing_migration_covers_lifecycle_entitlements_usage_and_reconciliation():
+    migration = (ROOT / "migrations" / "0003_billing.sql").read_text(encoding="utf-8")
+    for table in ("billing_events", "subscriptions", "entitlements", "usage_entries", "reconciliation_runs"):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in migration
+    assert "billing_events_append_only" in migration
+    assert "usage_entries_append_only" in migration

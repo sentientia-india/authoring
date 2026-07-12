@@ -18,6 +18,9 @@ from typing import Any
 from email.message import EmailMessage
 
 from .licensing import issue_license
+from .database import database_url
+from .billing_repository import previous_event, record_event, set_plan_entitlement, upsert_subscription
+from .hosted_learning import grant_paid_access
 
 
 class BillingError(RuntimeError):
@@ -60,11 +63,17 @@ def process_checkout_event(event: dict[str, Any]) -> dict[str, Any]:
     event_id = str(event.get("id") or "")
     if not event_id:
         raise BillingError("Stripe event has no id")
-    events = _load_events()
-    if event_id in events["processed"]:
-        return {"processed": False, "duplicate": True, **events["processed"][event_id]}
-    if event.get("type") != "checkout.session.completed":
-        return {"processed": False, "ignored": True}
+    if database_url():
+        previous = previous_event(event_id)
+        if previous:
+            return {"processed": False, "duplicate": True, **previous}
+    else:
+        events = _load_events()
+        if event_id in events["processed"]:
+            return {"processed": False, "duplicate": True, **events["processed"][event_id]}
+    event_type = str(event.get("type") or "")
+    if event_type != "checkout.session.completed":
+        return _process_subscription_event(event)
 
     session = event.get("data", {}).get("object", {})
     metadata = session.get("metadata") or {}
@@ -87,9 +96,99 @@ def process_checkout_event(event: dict[str, Any]) -> dict[str, Any]:
         "created": int(time.time()),
         "delivered": delivery_mode == "smtp",
     }
-    events["processed"][event_id] = receipt
-    _save_events(events)
+    subscription_id = str(session.get("subscription") or f"checkout:{session.get('id') or event_id}")
+    if database_url():
+        subscription = upsert_subscription(
+            tenant_id=tenant,
+            provider_subscription_id=subscription_id,
+            customer_id=session.get("customer"),
+            tier=tier,
+            status="active",
+            price_id=metadata.get("price_id"),
+            product_id=metadata.get("product_id"),
+            snapshot_version=int(event.get("created") or 0),
+        )
+        set_plan_entitlement(
+            tenant_id=tenant, subscription_id=subscription["subscription_id"], tier=tier, active=True
+        )
+        share_token = str(metadata.get("share_token") or "")
+        if share_token and email:
+            access = grant_paid_access(share_token, email)
+            receipt["hosted_access_provisioned"] = True
+            receipt["access_token"] = access["access_token"]
+        record_event(event, receipt, tenant)
+    else:
+        events["processed"][event_id] = receipt
+        _save_events(events)
     return {"processed": True, "duplicate": False, "license_key": license_key, **receipt}
+
+
+def _process_subscription_event(event: dict[str, Any]) -> dict[str, Any]:
+    event_type = str(event.get("type") or "")
+    supported = {
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+        "invoice.payment_succeeded",
+        "invoice.payment_failed",
+        "charge.refunded",
+        "charge.dispute.created",
+    }
+    if event_type not in supported:
+        result = {"processed": False, "ignored": True, "event_type": event_type}
+        if database_url():
+            record_event(event, result, None)
+        return result
+    obj = event.get("data", {}).get("object", {})
+    metadata = obj.get("metadata") or {}
+    tenant = str(metadata.get("tenant") or "").strip()
+    provider_subscription_id = str(obj.get("subscription") or obj.get("id") or "")
+    if not tenant or not provider_subscription_id:
+        result = {"processed": False, "ignored": True, "event_type": event_type, "reason": "missing_identity"}
+        if database_url():
+            record_event(event, result, tenant or None)
+        return result
+    tier = str(metadata.get("tier") or "pro")
+    status = str(obj.get("status") or "active")
+    if event_type == "customer.subscription.deleted":
+        status = "canceled"
+    elif event_type == "invoice.payment_failed":
+        status = "past_due"
+    elif event_type == "invoice.payment_succeeded":
+        status = "active"
+    elif event_type == "charge.refunded":
+        status = "refunded"
+    elif event_type == "charge.dispute.created":
+        status = "disputed"
+    allowed = {"trialing", "active", "past_due", "paused", "canceled", "refunded", "disputed"}
+    status = status if status in allowed else "past_due"
+    if not database_url():
+        return {"processed": False, "ignored": True, "event_type": event_type}
+    subscription = upsert_subscription(
+        tenant_id=tenant,
+        provider_subscription_id=provider_subscription_id,
+        customer_id=obj.get("customer"),
+        tier=tier,
+        status=status,
+        snapshot_version=int(event.get("created") or 0),
+    )
+    active = status in {"trialing", "active"}
+    set_plan_entitlement(
+        tenant_id=tenant,
+        subscription_id=subscription["subscription_id"],
+        tier=tier,
+        active=active,
+    )
+    result = {
+        "processed": True,
+        "duplicate": False,
+        "tenant": tenant,
+        "tier": tier,
+        "subscription_status": status,
+        "entitlement_active": active,
+    }
+    record_event(event, result, tenant)
+    return result
 
 
 def _deliver_license_email(email: str, tenant: str, tier: str, license_key: str) -> None:

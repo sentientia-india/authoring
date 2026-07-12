@@ -96,7 +96,9 @@ def create_mcp_server():
             )
         except (BillingError, ValueError):
             return JSONResponse({"ok": False, "error": "invalid_webhook"}, status_code=400)
-        safe_result = {key: value for key, value in result.items() if key != "license_key"}
+        safe_result = {
+            key: value for key, value in result.items() if key not in {"license_key", "access_token"}
+        }
         return JSONResponse({"ok": True, **safe_result})
 
     @mcp.custom_route("/api/hosted/releases", methods=["POST"], include_in_schema=False)
