@@ -30,13 +30,21 @@ services:
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_api_key
       DATABASE_URL: postgresql://course_mcp:course_mcp@postgres:5432/course_mcp
       REDIS_URL: redis://redis:6379/0
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-course-mcp}
+      OBJECT_STORE_ENDPOINT: http://minio:9000
+      OBJECT_STORE_ACCESS_KEY: ${OBJECT_STORE_ACCESS_KEY:-course-mcp}
+      OBJECT_STORE_SECRET_KEY: ${OBJECT_STORE_SECRET_KEY:-course-mcp-development-only}
     ports:
       - "127.0.0.1:8777:8777"
     networks:
       - course-mcp-net
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
     volumes:
       - course_mcp_output:/app/output
     secrets:
@@ -106,6 +114,35 @@ services:
       - course_mcp_redis:/data
     restart: unless-stopped
 
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORE_ACCESS_KEY:-course-mcp}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORE_SECRET_KEY:-course-mcp-development-only}
+    networks:
+      - course-mcp-net
+    volumes:
+      - course_mcp_objects:/data
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      - minio
+    environment:
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-course-mcp}
+      OBJECT_STORE_ACCESS_KEY: ${OBJECT_STORE_ACCESS_KEY:-course-mcp}
+      OBJECT_STORE_SECRET_KEY: ${OBJECT_STORE_SECRET_KEY:-course-mcp-development-only}
+    networks:
+      - course-mcp-net
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        until mc alias set local http://minio:9000 "$$OBJECT_STORE_ACCESS_KEY" "$$OBJECT_STORE_SECRET_KEY"; do sleep 2; done;
+        mc mb --ignore-existing "local/$$OBJECT_STORE_BUCKET"
+
 networks:
   course-mcp-net:
     driver: bridge
@@ -114,6 +151,7 @@ volumes:
   course_mcp_output:
   course_mcp_postgres:
   course_mcp_redis:
+  course_mcp_objects:
   caddy_data:
   caddy_config:
 
