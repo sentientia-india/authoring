@@ -10,7 +10,7 @@ Ordering principle: **prove the deliverable → make it editable → make it eas
 ## Delivery status — 2026-07-11
 
 - Implemented and locally verified: A3, B1 decision, B2, B3 automated preservation coverage, C1 application/TLS configuration, C2 tutorial/landing/gallery foundations, D1 webhook/license automation, D2 anti-abuse/provenance, and E1–E4 hosted service primitives.
-- Requires external acceptance evidence before it can truthfully be marked done: A1 tracked Moodle runtime runs; A2 three pilot-designer sign-offs; C1 public domain/TLS connection; C2 independent new-user timing; C3 registry publication; D1 live Stripe checkout; E1–E4 hosted paying-tier demo runs. SCORM Cloud acceptance was removed from scope on 2026-07-13.
+- Requires external acceptance evidence before it can truthfully be marked done: A1 tracked Moodle runtime runs; A2 three pilot-designer sign-offs; C1 public domain/TLS connection; C2 independent new-user timing; C3 registry publication; D1 live Stripe checkout; E1–E4 hosted paying-tier demo runs. The SCORM Cloud cross-check is paused until all other production gates pass, then runs last.
 - Local automation cannot substitute for those third-party accounts or human acceptance tests. The repository contains the test harnesses, deployment configuration, and operational instructions needed to execute them once access is supplied.
 
 ---
@@ -20,6 +20,8 @@ Ordering principle: **prove the deliverable → make it editable → make it eas
 **A1. SCORM conformance on real LMSes.**
 Upload exported zips (1.2 and 2004) to Moodle Docker. Fix any runtime findings (completion, score, suspend/resume, interactions). Add a conformance checklist to CI (extend `validate_scorm_package`).
 *Done when: a demo course reports completion + score correctly on Moodle with zero runtime errors.*
+
+SCORM Cloud remains a final cross-check but is paused until every other production gate passes.
 
 **A2. Three real pilot courses.**
 Build pilots from real source PDFs in three domains (compliance, sales, software onboarding) using the full 3-question flow. Capture designer feedback; tune quality-gate thresholds against real content instead of fixtures.
