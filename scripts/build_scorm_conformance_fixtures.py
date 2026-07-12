@@ -35,10 +35,11 @@ MOODLE_PROBE = """
 <script>
 (function () {
   var result = document.getElementById("course-mcp-moodle-result");
+  var acceptanceButton = document.getElementById("course-mcp-moodle-acceptance");
   var restored = window.CourseScorm.getLocation() === "acceptance-complete" &&
     window.CourseScorm.getSuspendData().marker === "course-mcp-moodle";
-  if (restored) result.textContent = "Restored acceptance marker";
-  document.getElementById("course-mcp-moodle-acceptance").addEventListener("click", function () {
+  if (restored) acceptanceButton.textContent = "Restored acceptance marker";
+  acceptanceButton.addEventListener("click", function () {
     var outcomes = [
       window.CourseScorm.initialize(),
       window.CourseScorm.setLocation("acceptance-complete"),
