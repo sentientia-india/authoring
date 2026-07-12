@@ -394,3 +394,73 @@ def get_collection(*, tenant_id: str, collection_id: str) -> dict[str, Any] | No
             (tenant_id, collection_id),
         ).fetchall()
     return {**dict(collection), "items": [dict(item) for item in items]}
+
+
+def create_badge_definition(
+    *, tenant_id: str, badge_id: str, name: str, description: str, criteria: dict[str, Any]
+) -> dict[str, Any]:
+    if not re.fullmatch(r"badge_[a-z0-9_-]{2,80}", badge_id):
+        raise ValueError("Invalid badge id")
+    with connection() as active:
+        ensure_tenant(active, tenant_id)
+        row = active.execute(
+            """
+            INSERT INTO badge_definitions (tenant_id, badge_id, name, description, criteria)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (tenant_id, badge_id) DO UPDATE
+            SET name = EXCLUDED.name, description = EXCLUDED.description, criteria = EXCLUDED.criteria
+            RETURNING tenant_id, badge_id, name, description, criteria, created_at
+            """,
+            (tenant_id, badge_id, name[:200], description[:2000], Jsonb(criteria)),
+        ).fetchone()
+    return dict(row)
+
+
+def award_badge(
+    *, tenant_id: str, badge_id: str, learner_id: str, release_id: str, evidence: dict[str, Any]
+) -> dict[str, Any]:
+    raw = f"{tenant_id}:{badge_id}:{learner_id}:{release_id}".encode()
+    award_id = f"award_{hashlib.sha256(raw).hexdigest()[:24]}"
+    with connection() as active:
+        active.execute(
+            """
+            INSERT INTO badge_awards (tenant_id, award_id, badge_id, learner_id, release_id, evidence)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (tenant_id, badge_id, learner_id, release_id) DO NOTHING
+            """,
+            (tenant_id, award_id, badge_id, learner_id, release_id, Jsonb(evidence)),
+        )
+        row = active.execute(
+            """
+            SELECT tenant_id, award_id, badge_id, learner_id, release_id, evidence, awarded_at, revoked_at
+            FROM badge_awards WHERE tenant_id = %s AND badge_id = %s AND learner_id = %s AND release_id = %s
+            """,
+            (tenant_id, badge_id, learner_id, release_id),
+        ).fetchone()
+    return dict(row)
+
+
+def issue_learner_certificate(
+    *, tenant_id: str, learner_id: str, release_id: str, attempt_id: str
+) -> dict[str, Any]:
+    raw = f"{tenant_id}:{learner_id}:{release_id}:{attempt_id}".encode()
+    certificate_id = f"cert_{hashlib.sha256(raw).hexdigest()[:24]}"
+    verification_hash = hashlib.sha256(f"verify:{certificate_id}:{secrets.token_hex(16)}".encode()).hexdigest()
+    with connection() as active:
+        active.execute(
+            """
+            INSERT INTO learner_certificates
+                (tenant_id, certificate_id, learner_id, release_id, attempt_id, verification_hash)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (tenant_id, attempt_id) DO NOTHING
+            """,
+            (tenant_id, certificate_id, learner_id, release_id, attempt_id, verification_hash),
+        )
+        row = active.execute(
+            """
+            SELECT tenant_id, certificate_id, learner_id, release_id, attempt_id, verification_hash, issued_at, revoked_at
+            FROM learner_certificates WHERE tenant_id = %s AND attempt_id = %s
+            """,
+            (tenant_id, attempt_id),
+        ).fetchone()
+    return dict(row)

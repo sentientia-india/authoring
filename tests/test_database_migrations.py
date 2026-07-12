@@ -77,3 +77,11 @@ def test_hosted_catalog_migration_adds_domains_collections_and_paths():
     assert "CREATE TABLE IF NOT EXISTS learning_collections" in migration
     assert "CREATE TABLE IF NOT EXISTS learning_collection_items" in migration
     assert "prerequisite_release_id" in migration
+
+
+def test_credentials_migration_adds_persistent_badges_and_certificates():
+    migration = (ROOT / "migrations" / "0008_credentials.sql").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS badge_definitions" in migration
+    assert "CREATE TABLE IF NOT EXISTS badge_awards" in migration
+    assert "CREATE TABLE IF NOT EXISTS learner_certificates" in migration
+    assert "verification_hash" in migration

@@ -39,6 +39,9 @@ TENANT_TABLES = (
     "scheduled_reports",
     "analytics_quality_checks",
     "billing_events",
+    "badge_definitions",
+    "badge_awards",
+    "learner_certificates",
 )
 
 
@@ -48,6 +51,9 @@ DELETE_ORDER = (
     "captured_leads",
     "email_deliveries",
     "learner_events",
+    "learner_certificates",
+    "badge_awards",
+    "badge_definitions",
     "learner_attempts",
     "enrollments",
     "learner_identities",

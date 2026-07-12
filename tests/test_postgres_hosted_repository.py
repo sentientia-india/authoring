@@ -9,7 +9,9 @@ from course_mcp_server.hosted_repository import (
     append_event,
     capture_lead,
     add_collection_item,
+    award_badge,
     create_collection,
+    create_badge_definition,
     create_grant,
     create_release,
     dashboard,
@@ -17,6 +19,7 @@ from course_mcp_server.hosted_repository import (
     get_or_create_learner,
     get_collection,
     has_entitlement,
+    issue_learner_certificate,
     enroll_learner,
     resolve_grant,
     revoke_enrollment,
@@ -198,3 +201,66 @@ def test_custom_domain_and_learning_collection_are_tenant_scoped():
     loaded = get_collection(tenant_id=tenant, collection_id=collection["collection_id"])
     assert loaded["items"][0]["release_id"] == release["release_id"]
     assert get_collection(tenant_id="tenant-other", collection_id=collection["collection_id"]) is None
+
+
+def test_badges_and_certificates_are_persistent_and_idempotent():
+    apply(database_url())
+    tenant = f"tenant-credentials-{secrets.token_hex(4)}"
+    release = create_release(
+        tenant_id=tenant,
+        course_id="course_credentials",
+        release_id="release_credentials",
+        object_key=f"tenants/{tenant}/releases/release_credentials/course.zip",
+        package_sha256="d" * 64,
+    )
+    learner = get_or_create_learner(tenant_id=tenant, identity_type="email", identity="credential@example.com")
+    enrollment = enroll_learner(
+        tenant_id=tenant,
+        learner_id=learner["learner_id"],
+        release_id=release["release_id"],
+        entitlement_source="invitation",
+    )
+    attempt = save_attempt_state(
+        tenant_id=tenant,
+        enrollment_id=enrollment["enrollment_id"],
+        attempt_number=1,
+        completion_status="completed",
+        success_status="passed",
+        score=96,
+    )
+    create_badge_definition(
+        tenant_id=tenant,
+        badge_id="badge_mastery",
+        name="Course mastery",
+        description="Completed with mastery",
+        criteria={"minimum_score": 85},
+    )
+    first_award = award_badge(
+        tenant_id=tenant,
+        badge_id="badge_mastery",
+        learner_id=learner["learner_id"],
+        release_id=release["release_id"],
+        evidence={"attempt_id": attempt["attempt_id"], "score": 96},
+    )
+    repeated_award = award_badge(
+        tenant_id=tenant,
+        badge_id="badge_mastery",
+        learner_id=learner["learner_id"],
+        release_id=release["release_id"],
+        evidence={"attempt_id": attempt["attempt_id"], "score": 96},
+    )
+    assert repeated_award["award_id"] == first_award["award_id"]
+    certificate = issue_learner_certificate(
+        tenant_id=tenant,
+        learner_id=learner["learner_id"],
+        release_id=release["release_id"],
+        attempt_id=attempt["attempt_id"],
+    )
+    repeated = issue_learner_certificate(
+        tenant_id=tenant,
+        learner_id=learner["learner_id"],
+        release_id=release["release_id"],
+        attempt_id=attempt["attempt_id"],
+    )
+    assert repeated["certificate_id"] == certificate["certificate_id"]
+    assert len(certificate["verification_hash"]) == 64
