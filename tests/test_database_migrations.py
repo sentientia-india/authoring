@@ -22,3 +22,22 @@ def test_migration_runner_uses_sorted_sql_files_and_requires_database_url():
     assert 'sorted(migrations_dir.glob("*.sql"))' in runner
     assert 'os.getenv("DATABASE_URL")' in runner
     assert "psycopg.connect" in runner
+
+
+def test_hosted_migration_defines_immutable_releases_access_and_learning_state():
+    migration = (ROOT / "migrations" / "0002_hosted_learning.sql").read_text(encoding="utf-8")
+
+    for table in (
+        "hosted_releases",
+        "share_grants",
+        "learner_identities",
+        "enrollments",
+        "learner_attempts",
+        "learner_events",
+        "hosted_entitlements",
+        "captured_leads",
+    ):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in migration
+    assert "learner_events_append_only" in migration
+    assert "UNIQUE (tenant_id, enrollment_id, attempt_number)" in migration
+    assert "UNIQUE (access_token_hash)" in migration
