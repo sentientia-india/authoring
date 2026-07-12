@@ -177,6 +177,43 @@
     canvas.contentWindow.location.reload();
   }
 
+  function postCollaboration(action, payload) {
+    payload = payload || {};
+    payload.action = action;
+    payload.actor = payload.actor || "author";
+    return fetch("/api/collaboration/" + state.session, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    }).then(function (res) { return res.json(); }).then(function (data) {
+      if (!data.ok) throw new Error(data.error || "Review update failed");
+      renderReview();
+      return data;
+    });
+  }
+
+  function renderReview() {
+    var box = $("tab-review");
+    if (!state.session || !box) return;
+    Promise.all([
+      fetch("/api/revisions/" + state.session).then(function (res) { return res.json(); }),
+      fetch("/api/collaboration/" + state.session).then(function (res) { return res.json(); }),
+    ]).then(function (rows) {
+      var revisions = rows[0].revisions || [];
+      var collaboration = rows[1].collaboration || { comments: [], approvals: [], roles: {} };
+      box.replaceChildren();
+      var heading = document.createElement("h3"); heading.textContent = "Review & approval"; box.appendChild(heading);
+      var form = document.createElement("form"); form.className = "review-form";
+      var input = document.createElement("textarea"); input.setAttribute("aria-label", "New review comment"); input.placeholder = "Add a review comment";
+      var submit = document.createElement("button"); submit.className = "primary"; submit.type = "submit"; submit.textContent = "Comment";
+      form.append(input, submit); form.addEventListener("submit", function (event) { event.preventDefault(); postCollaboration("comment", { message: input.value, target: state.selected.kind || "course" }).catch(function (error) { toast(error.message); }); }); box.appendChild(form);
+      var actions = document.createElement("div"); actions.className = "review-actions";
+      [["approved", "Approve revision"], ["changes_requested", "Request changes"]].forEach(function (choice) { var button=document.createElement("button"); button.className="ghost"; button.textContent=choice[1]; button.addEventListener("click", function () { postCollaboration("approval", { decision: choice[0] }).catch(function (error) { toast(error.message); }); }); actions.appendChild(button); }); box.appendChild(actions);
+      var revisionTitle=document.createElement("h4"); revisionTitle.textContent="Revision history"; box.appendChild(revisionTitle);
+      revisions.forEach(function (revision) { var row=document.createElement("p"); row.className="review-row"; row.textContent="Revision "+revision.version+" · "+revision.reason+" · "+revision.actor; box.appendChild(row); });
+      var commentTitle=document.createElement("h4"); commentTitle.textContent="Comments"; box.appendChild(commentTitle);
+      collaboration.comments.forEach(function (comment) { var row=document.createElement("p"); row.className="review-row"; row.textContent=(comment.resolved?"Resolved · ":"")+comment.actor+": "+comment.message; box.appendChild(row); });
+    }).catch(function (error) { box.textContent = "Review data unavailable: " + error.message; });
+  }
+
   /* ================= import / export ================= */
 
   function importZip(file) {
@@ -1049,6 +1086,8 @@
       tab.classList.add("active");
       $("tab-structure").hidden = tab.dataset.tab !== "structure";
       $("tab-templates").hidden = tab.dataset.tab !== "templates";
+      $("tab-review").hidden = tab.dataset.tab !== "review";
+      if (tab.dataset.tab === "review") renderReview();
     });
   });
 
@@ -1088,6 +1127,7 @@
     canvas.src = "/course/" + sid + "/index.html";
     renderTree();
     renderPalette();
+    renderReview();
     select({ kind: "course" });
   }
 

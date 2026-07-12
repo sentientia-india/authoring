@@ -284,6 +284,79 @@ def get_revision(sid: str, version: int) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def compare_revisions(sid: str, before_version: int, after_version: int) -> dict:
+    before = get_revision(sid, before_version)["course"]
+    after = get_revision(sid, after_version)["course"]
+    changes: list[dict] = []
+
+    def walk(left, right, path: str) -> None:  # noqa: ANN001
+        if isinstance(left, dict) and isinstance(right, dict):
+            for key in sorted(set(left) | set(right)):
+                walk(left.get(key), right.get(key), f"{path}.{key}" if path else key)
+        elif isinstance(left, list) and isinstance(right, list):
+            for index in range(max(len(left), len(right))):
+                walk(
+                    left[index] if index < len(left) else None,
+                    right[index] if index < len(right) else None,
+                    f"{path}[{index}]",
+                )
+        elif left != right:
+            changes.append({"path": path, "before": left, "after": right})
+
+    walk(before, after, "")
+    return {"before_version": before_version, "after_version": after_version, "changes": changes}
+
+
+def collaboration_state(sid: str) -> dict:
+    path = _workspace(sid) / ".collaboration.json"
+    if not path.is_file():
+        _write_json_atomic(path, {"comments": [], "approvals": [], "roles": {}})
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def update_collaboration(sid: str, action: str, payload: dict) -> dict:
+    workspace = _workspace(sid)
+    path = workspace / ".collaboration.json"
+    state = collaboration_state(sid)
+    actor = str(payload.get("actor") or "author")[:120]
+    if action == "comment":
+        message = str(payload.get("message") or "").strip()[:4000]
+        if not message:
+            raise ValueError("Comment is required")
+        state["comments"].append(
+            {
+                "id": f"comment_{uuid4().hex}",
+                "actor": actor,
+                "target": str(payload.get("target") or "course")[:240],
+                "message": message,
+                "created_at": time.time(),
+                "resolved": False,
+            }
+        )
+    elif action == "resolve_comment":
+        comment_id = str(payload.get("comment_id") or "")
+        match = next((item for item in state["comments"] if item["id"] == comment_id), None)
+        if not match:
+            raise ValueError("Comment not found")
+        match.update({"resolved": True, "resolved_by": actor, "resolved_at": time.time()})
+    elif action == "role":
+        role = str(payload.get("role") or "")
+        if role not in {"owner", "author", "reviewer", "viewer"}:
+            raise ValueError("Invalid role")
+        state["roles"][str(payload.get("user") or "")[:120]] = role
+    elif action == "approval":
+        decision = str(payload.get("decision") or "")
+        if decision not in {"approved", "changes_requested", "withdrawn"}:
+            raise ValueError("Invalid approval decision")
+        state["approvals"].append(
+            {"actor": actor, "decision": decision, "version": _meta(workspace)["version"], "created_at": time.time()}
+        )
+    else:
+        raise ValueError("Invalid collaboration action")
+    _write_json_atomic(path, state)
+    return state
+
+
 def add_media(sid: str, filename: str, blob: bytes) -> dict:
     workspace = _workspace(sid)
     name = Path(filename.replace("\\", "/")).name
@@ -382,6 +455,16 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     self._json(HTTPStatus.OK, get_revision(parts[0], int(parts[1])))
                 return
+            if route.startswith("/api/compare/"):
+                parts = route.removeprefix("/api/compare/").split("/")
+                if len(parts) != 3:
+                    raise ValueError("Comparison requires two revisions")
+                self._json(HTTPStatus.OK, compare_revisions(parts[0], int(parts[1]), int(parts[2])))
+                return
+            if route.startswith("/api/collaboration/"):
+                sid = route.removeprefix("/api/collaboration/")
+                self._json(HTTPStatus.OK, {"session": sid, "collaboration": collaboration_state(sid)})
+                return
         except SessionExpiredError as exc:
             self._json(HTTPStatus.GONE, {"ok": False, "error": "session_expired", "message": str(exc)})
             return
@@ -443,6 +526,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(blob)))
                 self.end_headers()
                 self.wfile.write(blob)
+                return
+            if route.startswith("/api/collaboration/"):
+                sid = route.removeprefix("/api/collaboration/")
+                body = self._body()
+                result = update_collaboration(sid, str(body.get("action") or ""), body)
+                self._json(HTTPStatus.OK, {"ok": True, "collaboration": result})
                 return
         except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
