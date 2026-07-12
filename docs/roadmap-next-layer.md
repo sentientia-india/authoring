@@ -10,7 +10,7 @@ Ordering principle: **prove the deliverable → make it editable → make it eas
 ## Delivery status — 2026-07-11
 
 - Implemented and locally verified: A3, B1 decision, B2, B3 automated preservation coverage, C1 application/TLS configuration, C2 tutorial/landing/gallery foundations, D1 webhook/license automation, D2 anti-abuse/provenance, and E1–E4 hosted service primitives.
-- Requires external acceptance evidence before it can truthfully be marked done: A1 tracked SCORM Cloud and Moodle runtime runs (both package formats now import cleanly in SCORM Cloud; see `docs/scorm-cloud-validation.md`); A2 three pilot-designer sign-offs; C1 public domain/TLS connection; C2 independent new-user timing; C3 registry publication; D1 live Stripe checkout; E1–E4 hosted paying-tier demo runs.
+- Requires external acceptance evidence before it can truthfully be marked done: A1 tracked Moodle runtime runs; A2 three pilot-designer sign-offs; C1 public domain/TLS connection; C2 independent new-user timing; C3 registry publication; D1 live Stripe checkout; E1–E4 hosted paying-tier demo runs. SCORM Cloud acceptance was removed from scope on 2026-07-13.
 - Local automation cannot substitute for those third-party accounts or human acceptance tests. The repository contains the test harnesses, deployment configuration, and operational instructions needed to execute them once access is supplied.
 
 ---
@@ -18,8 +18,8 @@ Ordering principle: **prove the deliverable → make it editable → make it eas
 ## Track A — Prove the deliverable (first)
 
 **A1. SCORM conformance on real LMSes.**
-Upload exported zips (1.2 and 2004) to SCORM Cloud and at least one real LMS (Moodle docker). Fix any runtime findings (completion, score, suspend/resume, interactions). Add a conformance checklist to CI (extend `validate_scorm_package`).
-*Done when: a demo course reports completion + score correctly on SCORM Cloud with zero runtime errors.*
+Upload exported zips (1.2 and 2004) to Moodle Docker. Fix any runtime findings (completion, score, suspend/resume, interactions). Add a conformance checklist to CI (extend `validate_scorm_package`).
+*Done when: a demo course reports completion + score correctly on Moodle with zero runtime errors.*
 
 **A2. Three real pilot courses.**
 Build pilots from real source PDFs in three domains (compliance, sales, software onboarding) using the full 3-question flow. Capture designer feedback; tune quality-gate thresholds against real content instead of fixtures.
@@ -82,7 +82,7 @@ The features deferred because they host learner traffic — MCG/Coursebox parity
 
 ## Suggested next session (top 5, in order)
 
-1. A1 SCORM Cloud conformance run (highest risk to the whole value proposition)
+1. A1 Moodle conformance run (highest risk to the whole value proposition)
 2. A3 pypdf extraction switch (cheap, big quality lift for PDF-driven courses)
 3. B1 Adapt go/no-go spike (unblocks the editor decision)
 4. C2 ten-minute tutorial + gallery (needed for any pilot/customer conversation)

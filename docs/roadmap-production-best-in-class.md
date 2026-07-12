@@ -30,7 +30,7 @@ The target is not feature-count parity. The target is a better end-to-end outcom
 |---|---|---|
 | Generation | Source-grounded course in under 5 minutes | Faster and more defensible than generic AI drafting |
 | Authoring | Real learner player is the editing canvas | Stronger output fidelity than separate editor/preview systems |
-| SCORM | 1.2 and 2004 conformance on SCORM Cloud and Moodle | Primary wedge and trust advantage |
+| SCORM | 1.2 and 2004 conformance on Moodle | Primary wedge and trust advantage |
 | Hosted delivery | Public, verified, invited, embedded, and paid access | Close the main Mini Course Generator delivery gap |
 | Interactivity | Native activities plus optional compatible adapters | Match common course-builder interactions without locking the core to a third party |
 | Analytics | Course, learner, attempt, question, and funnel reporting | Actionable evidence, not vanity counts |
@@ -77,14 +77,14 @@ Before that gate, position the product as better for SCORM-first, MCP-driven, so
 - Licensing, rate limiting, billing primitives, provenance, analytics, certificates, and hosted-learning primitives.
 - PostgreSQL and Redis service foundations.
 - Docker isolation, Caddy TLS profile, CI, security scanning, health checks, smoke tests, and automatic production deployment.
-- SCORM Cloud parser-clean uploads for both formats.
+- Local parser and tracked runtime validation for both formats.
 
 ### 4.2 Critical baseline risks
 
 | Risk | Impact | Required treatment |
 |---|---|---|
 | Course Studio redesign is uncommitted and replaces legacy static assets | Accidental deployment or merge can lose work or ship an incomplete editor | Stabilize and verify as Phase 0 before unrelated editor changes |
-| SCORM Cloud completion/score remain unproven with tracked packages | Core value proposition is not externally proven | Phase 1 launch blocker |
+| Moodle completion/score/resume remain unproven with tracked packages | Core value proposition is not externally proven | Phase 1 launch blocker |
 | Hosted primitives are not a complete multi-tenant product | Data leakage, inconsistent billing, and unreliable analytics risk | Phase 2 architecture gate |
 | CI treats dependency-audit failure as non-blocking | Known vulnerable dependencies can reach production | Make high/critical findings blocking with an exception process |
 | Deployment replaces the server directory in place | Failed rollout can increase recovery time | Add immutable releases and automatic rollback |
@@ -113,7 +113,7 @@ Authors / Developers
                       +-----------------------------+--------------------+
                       |                             |                    |
                SCORM Exports                 Hosted Learning       Integrations
-              Cloud / Moodle / LMS       links / embeds / paywall  Stripe/email/webhooks
+                    Moodle / LMS          links / embeds / paywall  Stripe/email/webhooks
                                                     |
                                              Analytics Pipeline
                                        learner / attempt / event / funnel
@@ -193,7 +193,6 @@ Objective: establish that the exported deliverable works outside this repository
 ### Deliverables
 
 - Regenerate SCORM 1.2 and 2004 validation packages using the current runtime.
-- Run tracked SCORM Cloud attempts for initialize, location, score, completion, success, session time, interactions, suspend data, terminate, relaunch, and resume.
 - Run the same scenarios in a pinned Moodle Docker environment.
 - Add a Moodle test harness and documented fixture account.
 - Capture parser results, runtime logs, registration state, launch history, screenshots, package hashes, exporter version, and test date.
@@ -202,7 +201,6 @@ Objective: establish that the exported deliverable works outside this repository
 
 ### Exit gate P1
 
-- Both formats record score, completion, success, time, and resume state in SCORM Cloud.
 - Both formats pass the defined Moodle scenarios.
 - Zero unresolved runtime errors.
 - Evidence is stored in `docs/` and linked from the release record.
@@ -502,7 +500,7 @@ Do not copy competitor presentation, trademarks, proprietary interactions, or un
 | Integration | PostgreSQL, Redis, object storage, queues, Stripe test mode, email sandbox |
 | Security | authorization matrix, tenant isolation, ZIP attacks, XSS/CSP, CSRF, SSRF, webhook replay, secret redaction |
 | Round-trip | generate/import/edit/export/re-import plus canonical model comparison |
-| Conformance | SCORM Cloud and Moodle tracked scenarios |
+| Conformance | Moodle tracked scenarios |
 | End-to-end | author, reviewer, learner, buyer, analyst, support workflows |
 | Accessibility | automated checks plus manual keyboard/screen-reader sample |
 | Visual | editor/player supported viewports and themes |
@@ -613,7 +611,7 @@ The IDs below are the execution order. A child task can begin early, but its pha
 - [ ] PROD-003 Complete editor security, accessibility, responsive, and conflict behavior.
 - [ ] PROD-004 Pass the complete editor round-trip suite.
 - [ ] PROD-005 Regenerate SCORM validation packages from the corrected runtime.
-- [ ] PROD-006 Pass tracked SCORM Cloud 1.2 and 2004 scenarios.
+- [x] PROD-006 SCORM Cloud acceptance removed from scope by product decision on 2026-07-13.
 - [ ] PROD-007 Build and pass pinned Moodle scenarios.
 - [ ] PROD-008 Make conformance regression checks release-blocking.
 - [x] PROD-009 Specify canonical tenant/data/event/job models. Evidence: `docs/production-data-contract.md`.
@@ -666,11 +664,10 @@ This is the exact first sequence after approval of this roadmap:
 5. Commit the authoring platform as an isolated logical change.
 6. Deploy it to staging and run desktop/mobile, keyboard, malicious import, autosave recovery, and export validation.
 7. Regenerate both SCORM validation packages.
-8. Run SCORM Cloud tracked tests and record evidence.
-9. Build the pinned Moodle test environment and repeat the conformance suite.
-10. Update the conformance matrix and make proven behaviors regression gates.
-11. Write the multi-tenant data/event/job contract before expanding hosted features.
-12. Implement Phase 2 behind migrations and integration tests.
+8. Build the pinned Moodle test environment and run the conformance suite.
+9. Update the conformance matrix and make proven behaviors regression gates.
+10. Write the multi-tenant data/event/job contract before expanding hosted features.
+11. Implement Phase 2 behind migrations and integration tests.
 
 ## 15. External and human gates
 
@@ -678,7 +675,6 @@ Work that does not need external input continues while these gates wait. These i
 
 | Gate | Dependency | Work that continues meanwhile |
 |---|---|---|
-| SCORM Cloud overwrite/upload | Browser-safe local file selection or SCORM Cloud API credentials | Package generation, Moodle tests, validator coverage |
 | Public TLS/domain | Domain ownership and DNS access | Staging TLS, Caddy tests, domain-verification implementation |
 | Live Stripe | Approved Stripe account and live-mode configuration | Test-mode lifecycle, entitlements, reconciliation |
 | Production email | Verified sending domain/provider | Email templates, queue, bounce/complaint logic in sandbox |
