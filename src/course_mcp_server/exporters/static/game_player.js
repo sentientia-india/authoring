@@ -510,6 +510,7 @@
     } else if (slide.kind === "block") {
       var block = slide.block;
       var parts = segmentText(block.text || "", 900);
+      stage.dataset.cbId = block.id || "";
       stage.innerHTML =
         '<p class="sp-kicker">' + escapeHtml(blockTitle(block.type)) + "</p>" +
         '<div class="sp-body">' +

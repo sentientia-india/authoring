@@ -1264,7 +1264,7 @@ function normalizeLessonDisplay(lesson) {
 function renderTextBlock(block, label) {
   const parts = segmentText(block.text);
   return `
-    <section class="lesson-block">
+    <section class="lesson-block" data-cb-id="${escapeHtml(block.id || "")}">
       <strong>${escapeHtml(label || blockTitle(block.type))}</strong>
       ${parts.map((part) => `<p>${escapeHtml(part)}</p>`).join("")}
     </section>
@@ -1606,6 +1606,7 @@ function renderNativeActivity(activity, course, index, state) {
   const activityId = activity.activity_id || `activity-${index}`;
   const completedActivity = gameDefaults(state).completedActivities.includes(activityId);
   card.className = `activity-card ${completedActivity ? "completed" : ""}`;
+  card.dataset.activityId = activityId;
   const type = String(activity.activity_type || activity.type || "").toLowerCase();
   const items = activity.items || activity.cards || activity.steps || [];
   card.innerHTML = `
@@ -1877,7 +1878,7 @@ function renderAssessmentOrEmptyState(course) {
       </div>
       <form id="quiz-form">
         ${questions.map((question, index) => `
-          <fieldset class="quiz-question-card ${index === activeQuestion ? "" : "is-hidden"}" data-question-index="${index}">
+          <fieldset class="quiz-question-card ${index === activeQuestion ? "" : "is-hidden"}" data-question-index="${index}" data-question-id="${escapeHtml(question.id || `q_${index + 1}`)}">
             <div class="quiz-progress-text">Question ${index + 1} of ${questions.length}</div>
             <legend>${escapeHtml(question.question || "Question")}</legend>
             ${(question.options || []).map((option, optionIndex) => `
