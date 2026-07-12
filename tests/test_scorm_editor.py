@@ -13,7 +13,9 @@ from apps.scorm_editor.server import (
     export_package,
     get_revision,
     import_package,
+    ingest_source,
     list_revisions,
+    list_sources,
     save_course,
     update_collaboration,
 )
@@ -103,6 +105,7 @@ def test_editor_ui_has_authoring_modes_and_preview():
     assert 'id="tab-structure"' in index
     assert 'id="tab-templates"' in index
     assert 'id="tab-review"' in index
+    assert 'id="tab-sources"' in index
     assert 'id="inspector"' in index
     assert 'id="canvas"' in index
     assert 'id="btn-export"' in index
@@ -121,6 +124,7 @@ def test_editor_ui_has_authoring_modes_and_preview():
     assert "Citation inspector" in app_js
     assert "Outline approved" in app_js
     assert "Certificate footer" in app_js
+    assert "/api/sources/" in app_js
 
 
 def test_editor_versions_saves_and_preserves_revision_history(tmp_path, monkeypatch):
@@ -182,3 +186,18 @@ def test_editor_creates_new_scenario_course_without_json_or_import(tmp_path, mon
     with ZipFile(BytesIO(export_package(created["session"]))) as package:
         assert "imsmanifest.xml" in package.namelist()
         assert "assets/scorm_api.js" in package.namelist()
+
+
+def test_editor_source_intake_is_digest_verified_and_excluded_from_export(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Evidence-led onboarding")
+    source = ingest_source(
+        created["session"],
+        "Customer handbook",
+        "Page 1: Always verify the account owner before changing administrative access.",
+    )
+    assert source["source_id"].startswith("source_")
+    assert len(source["sha256"]) == 64
+    assert list_sources(created["session"])[0]["title"] == "Customer handbook"
+    with ZipFile(BytesIO(export_package(created["session"]))) as package:
+        assert not any("sources" in name for name in package.namelist())

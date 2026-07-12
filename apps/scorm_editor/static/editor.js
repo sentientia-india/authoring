@@ -214,6 +214,21 @@
     }).catch(function (error) { box.textContent = "Review data unavailable: " + error.message; });
   }
 
+  function renderSources() {
+    var box = $("tab-sources");
+    if (!state.session || !box) return;
+    fetch("/api/sources/" + state.session).then(function (res) { return res.json(); }).then(function (data) {
+      box.replaceChildren();
+      var heading=document.createElement("h3"); heading.textContent="Source intake"; box.appendChild(heading);
+      var form=document.createElement("form"); form.className="review-form";
+      var title=document.createElement("input"); title.required=true; title.placeholder="Source title"; title.setAttribute("aria-label","Source title");
+      var text=document.createElement("textarea"); text.required=true; text.minLength=20; text.placeholder="Paste source text. It remains in the authoring workspace and is not added to the exported course."; text.setAttribute("aria-label","Source text");
+      var button=document.createElement("button"); button.className="primary"; button.type="submit"; button.textContent="Add source";
+      form.append(title,text,button); form.addEventListener("submit",function(event){event.preventDefault();fetch("/api/sources/"+state.session,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:title.value,text:text.value})}).then(function(res){return res.json();}).then(function(result){if(!result.ok)throw new Error(result.error||"Source intake failed");toast("Source added. Use its ID in lesson citations.");renderSources();}).catch(function(error){toast(error.message);});}); box.appendChild(form);
+      (data.sources||[]).forEach(function(source){var row=document.createElement("p");row.className="review-row";row.textContent=source.title+" · "+source.source_id+" · "+source.character_count+" characters";box.appendChild(row);});
+    }).catch(function(error){box.textContent="Sources unavailable: "+error.message;});
+  }
+
   /* ================= import / export ================= */
 
   function importZip(file) {
@@ -1116,7 +1131,9 @@
       $("tab-structure").hidden = tab.dataset.tab !== "structure";
       $("tab-templates").hidden = tab.dataset.tab !== "templates";
       $("tab-review").hidden = tab.dataset.tab !== "review";
+      $("tab-sources").hidden = tab.dataset.tab !== "sources";
       if (tab.dataset.tab === "review") renderReview();
+      if (tab.dataset.tab === "sources") renderSources();
     });
   });
 
@@ -1157,6 +1174,7 @@
     renderTree();
     renderPalette();
     renderReview();
+    renderSources();
     select({ kind: "course" });
   }
 

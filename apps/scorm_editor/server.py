@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+import hashlib
 import json
 import mimetypes
 import os
@@ -400,6 +401,45 @@ def update_collaboration(sid: str, action: str, payload: dict) -> dict:
     return state
 
 
+def ingest_source(sid: str, title: str, text: str) -> dict:
+    workspace = _workspace(sid)
+    title = str(title or "").strip()[:200]
+    text = str(text or "").strip()
+    if len(title) < 2:
+        raise ValueError("Source title is required")
+    if len(text) < 20 or len(text) > 250_000:
+        raise ValueError("Source text must be between 20 and 250000 characters")
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    source_id = f"source_{digest[:16]}"
+    directory = workspace / ".sources"
+    directory.mkdir(exist_ok=True)
+    path = directory / f"{source_id}.json"
+    record = {
+        "source_id": source_id,
+        "title": title,
+        "sha256": digest,
+        "character_count": len(text),
+        "created_at": time.time(),
+        "text": text,
+    }
+    _write_json_atomic(path, record)
+    public = dict(record)
+    public.pop("text")
+    return public
+
+
+def list_sources(sid: str) -> list[dict]:
+    directory = _workspace(sid) / ".sources"
+    if not directory.is_dir():
+        return []
+    records = []
+    for path in sorted(directory.glob("*.json")):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record.pop("text", None)
+        records.append(record)
+    return records
+
+
 def add_media(sid: str, filename: str, blob: bytes) -> dict:
     workspace = _workspace(sid)
     name = Path(filename.replace("\\", "/")).name
@@ -508,6 +548,10 @@ class Handler(BaseHTTPRequestHandler):
                 sid = route.removeprefix("/api/collaboration/")
                 self._json(HTTPStatus.OK, {"session": sid, "collaboration": collaboration_state(sid)})
                 return
+            if route.startswith("/api/sources/"):
+                sid = route.removeprefix("/api/sources/")
+                self._json(HTTPStatus.OK, {"session": sid, "sources": list_sources(sid)})
+                return
         except SessionExpiredError as exc:
             self._json(HTTPStatus.GONE, {"ok": False, "error": "session_expired", "message": str(exc)})
             return
@@ -584,6 +628,12 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._body()
                 result = update_collaboration(sid, str(body.get("action") or ""), body)
                 self._json(HTTPStatus.OK, {"ok": True, "collaboration": result})
+                return
+            if route.startswith("/api/sources/"):
+                sid = route.removeprefix("/api/sources/")
+                body = self._body()
+                result = ingest_source(sid, str(body.get("title") or ""), str(body.get("text") or ""))
+                self._json(HTTPStatus.CREATED, {"ok": True, "source": result})
                 return
         except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
