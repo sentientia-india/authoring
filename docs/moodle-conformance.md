@@ -11,7 +11,7 @@ The Moodle acceptance environment is reproducible through
 - PHP 8.3
 - Chrome/Selenium capability enabled for tracked learner scenarios
 
-The workflow is manual because the full LMS environment is expensive and is a release-conformance gate, not a unit-test dependency. It builds fresh SCORM 1.2 and 2004 packages, validates them before import, boots and installs Moodle, verifies the login endpoint, and archives the exact packages, hashes, validation reports, and container diagnostics.
+The workflow is manual because the full LMS environment is expensive and is a release-conformance gate, not a unit-test dependency. It builds fresh SCORM 1.2 and 2004 packages, validates them before import, boots and installs Moodle, imports both packages through Moodle's SCORM activity generator, and runs the tracked learner scenarios in Moodle's Chrome/Behat environment. The run leaves and relaunches each activity to prove persisted location and suspend data, then archives the exact packages, hashes, validation reports, acceptance summary, and container diagnostics.
 
 ## Required tracked scenarios
 
@@ -30,4 +30,8 @@ For each package, the final acceptance run must record:
 | Commit | `LMSCommit` | `Commit` | returns success |
 | Terminate | `LMSFinish` | `Terminate` | returns success |
 
-The environment bootstrap is complete when its workflow is green. Moodle acceptance is complete only after both packages also pass every tracked learner scenario above and the resulting evidence is attached to this document.
+The environment bootstrap is complete when Moodle becomes healthy. Moodle acceptance is complete only when the `@course_mcp_acceptance` browser scenarios pass for both packages and the resulting workflow artifacts are linked below. A green parser-only run is not acceptance evidence.
+
+## Acceptance evidence
+
+- Current tracked run: pending after the browser acceptance workflow change.

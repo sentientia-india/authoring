@@ -45,6 +45,8 @@ jobs:
           git clone --filter=blob:none https://github.com/moodle/moodle.git "$MOODLE_DOCKER_WWWROOT"
           git -C "$MOODLE_DOCKER_WWWROOT" checkout "$MOODLE_COMMIT"
           cp .moodle-conformance/moodle-docker/config.docker-template.php "$MOODLE_DOCKER_WWWROOT/config.php"
+          cp .moodle-conformance/packages/*.zip "$MOODLE_DOCKER_WWWROOT/mod/scorm/tests/packages/"
+          cp .github/moodle/course_mcp_scorm_acceptance.feature "$MOODLE_DOCKER_WWWROOT/mod/scorm/tests/behat/course_mcp_scorm_acceptance.feature"
 
       - name: Start pinned Moodle
         working-directory: .moodle-conformance/moodle-docker
@@ -74,6 +76,22 @@ jobs:
       - name: Validate generated packages before LMS import
         run: python scripts/build_scorm_conformance_fixtures.py --output .moodle-conformance/packages --verify-only
 
+      - name: Initialize Moodle browser acceptance environment
+        working-directory: .moodle-conformance/moodle-docker
+        run: bin/moodle-docker-compose exec -T webserver php admin/tool/behat/cli/init.php
+
+      - name: Import, run, relaunch, and verify both SCORM packages
+        working-directory: .moodle-conformance/moodle-docker
+        run: |
+          mkdir -p ../evidence
+          bin/moodle-docker-compose exec -T -u www-data webserver \
+            php admin/tool/behat/cli/run.php --tags=@course_mcp_acceptance --format=progress --out=std
+          printf '%s\n' \
+            'Moodle Chrome acceptance passed for SCORM 1.2 and SCORM 2004.' \
+            'Verified: initialize, score, completion, success, location, suspend data, interaction, commit, session time, terminate, and relaunch.' \
+            > ../evidence/acceptance-summary.txt
+          cp ../packages/conformance.json ../evidence/package-validation.json
+
       - name: Archive conformance inputs
         uses: actions/upload-artifact@v4
         with:
@@ -81,6 +99,7 @@ jobs:
           path: |
             .moodle-conformance/packages/*.zip
             .moodle-conformance/packages/conformance.json
+            .moodle-conformance/evidence/*
           if-no-files-found: error
           retention-days: 30
 

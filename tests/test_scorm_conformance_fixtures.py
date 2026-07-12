@@ -1,3 +1,5 @@
+import zipfile
+
 from scripts.build_scorm_conformance_fixtures import build
 
 
@@ -10,6 +12,10 @@ def test_conformance_fixture_builder_generates_valid_hashed_packages(tmp_path):
         assert (tmp_path / item["file"]).is_file()
         assert len(item["sha256"]) == 64
         assert item["validation"]["valid"] is True
+        with zipfile.ZipFile(tmp_path / item["file"]) as package:
+            index = package.read("index.html").decode("utf-8")
+        assert "Run Moodle acceptance" in index
+        assert "CourseScorm.recordInteraction" in index
 
     verified = build(tmp_path, verify_only=True)
     assert [item["sha256"] for item in verified["packages"]] == [

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import zipfile
 from pathlib import Path
 
 from course_mcp_server.exporters.scorm import build_scorm_package, validate_scorm_package
@@ -26,6 +27,32 @@ COURSE = {
     ],
 }
 
+MOODLE_PROBE = """
+<button id="course-mcp-moodle-acceptance" type="button">Run Moodle acceptance</button>
+<p id="course-mcp-moodle-result" role="status"></p>
+<script>
+(function () {
+  var result = document.getElementById("course-mcp-moodle-result");
+  var restored = window.CourseScorm.getLocation() === "acceptance-complete" &&
+    window.CourseScorm.getSuspendData().marker === "course-mcp-moodle";
+  if (restored) result.textContent = "Restored acceptance marker";
+  document.getElementById("course-mcp-moodle-acceptance").addEventListener("click", function () {
+    var outcomes = [
+      window.CourseScorm.initialize(),
+      window.CourseScorm.setLocation("acceptance-complete"),
+      window.CourseScorm.setSuspendData({marker: "course-mcp-moodle"}),
+      window.CourseScorm.setScore(100, 0, 100),
+      window.CourseScorm.recordInteraction("final-check", "choice", "safe-exit", "correct", "Moodle acceptance"),
+      window.CourseScorm.markComplete(true),
+      window.CourseScorm.commit()
+    ];
+    result.textContent = outcomes.every(function (value) { return value === true || value === "true"; })
+      ? "Acceptance complete" : "Acceptance failed";
+  });
+}());
+</script>
+""".strip()
+
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -33,6 +60,18 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _inject_moodle_probe(package: Path) -> None:
+    replacement = package.with_suffix(".probe.zip")
+    with zipfile.ZipFile(package, "r") as source, zipfile.ZipFile(replacement, "w", zipfile.ZIP_DEFLATED) as target:
+        for item in source.infolist():
+            payload = source.read(item.filename)
+            if item.filename == "index.html":
+                html = payload.decode("utf-8")
+                payload = html.replace("</body>", f"{MOODLE_PROBE}\n</body>").encode("utf-8")
+            target.writestr(item, payload)
+    replacement.replace(package)
 
 
 def build(output: Path, verify_only: bool = False) -> dict:
@@ -51,6 +90,7 @@ def build(output: Path, verify_only: bool = False) -> dict:
                 str(output / "build" / version.replace(".", "")),
             )
             Path(result["package_path"]).replace(expected)
+            _inject_moodle_probe(expected)
             required = result["files"]
         else:
             if not expected.is_file():
