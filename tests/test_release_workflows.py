@@ -27,3 +27,11 @@ def test_production_deploy_applies_migrations_before_application_start():
         migration = workflow.index("python /app/scripts/apply_migrations.py")
         application_start = workflow.index("docker compose up -d course-mcp scorm-editor")
         assert migration < application_start
+
+
+def test_ci_runs_a_real_postgres_backup_restore_drill():
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "Backup and restore drill" in workflow
+    assert "pg_dump" in workflow and "pg_restore" in workflow
+    assert "course_mcp_restore" in workflow
+    assert "SOURCE_COUNT" in workflow and "RESTORE_COUNT" in workflow

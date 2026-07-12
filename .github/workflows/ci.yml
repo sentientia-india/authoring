@@ -45,6 +45,17 @@ jobs:
         run: |
           python scripts/apply_migrations.py
           python -m pytest tests/test_database_migrations.py tests/test_postgres_repositories.py tests/test_postgres_outbox.py tests/test_postgres_hosted_repository.py tests/test_postgres_billing.py tests/test_postgres_communication.py tests/test_postgres_analytics.py -q
+      - name: Backup and restore drill
+        run: |
+          PG_CONTAINER="${{ job.services.postgres.id }}"
+          docker exec "$PG_CONTAINER" pg_dump -U course_mcp -Fc course_mcp_ci > /tmp/course-mcp-ci.dump
+          test -s /tmp/course-mcp-ci.dump
+          docker exec "$PG_CONTAINER" createdb -U course_mcp course_mcp_restore
+          docker exec -i "$PG_CONTAINER" pg_restore -U course_mcp -d course_mcp_restore < /tmp/course-mcp-ci.dump
+          SOURCE_COUNT="$(docker exec "$PG_CONTAINER" psql -U course_mcp -d course_mcp_ci -Atc 'select count(*) from schema_migrations')"
+          RESTORE_COUNT="$(docker exec "$PG_CONTAINER" psql -U course_mcp -d course_mcp_restore -Atc 'select count(*) from schema_migrations')"
+          test "$SOURCE_COUNT" = "$RESTORE_COUNT"
+          test "$RESTORE_COUNT" -ge 5
       - name: Docker build
         run: docker build -t samrat-course-mcp:ci .
 
