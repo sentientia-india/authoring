@@ -72,7 +72,7 @@ Before that gate, position the product as better for SCORM-first, MCP-driven, so
 - Course discovery, ingestion, generation, quality gates, approval, export, and delivery modules.
 - SCORM 1.2 and SCORM 2004 export and validation.
 - Source-grounded PDF ingestion with page-aware references.
-- H5P and Adapt export adapters.
+- H5P export adapter; Course Studio remains the supported visual authoring path.
 - Course Studio import, actual-player preview, editing, media, interactions, autosave, undo/redo, and re-export work in progress.
 - Licensing, rate limiting, billing primitives, provenance, analytics, certificates, and hosted-learning primitives.
 - PostgreSQL and Redis service foundations.

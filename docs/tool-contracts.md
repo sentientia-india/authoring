@@ -285,7 +285,7 @@ Checks should cover objective quality, Bloom level, lesson alignment, quiz align
 
 Builds an export package from generated project artifacts.
 
-Supported export formats: `scorm`, `h5p`, `adapt` (an Adapt Authoring "Import source" zip so the course can be polished in the WYSIWYG editor — see docs/editor-setup.md).
+Supported export formats: `scorm`, `h5p`. Visual editing of exported courses happens in the bundled WYSIWYG editor (see docs/editor-setup.md), which renders the actual course player as its canvas.
 
 Supported SCORM versions: `1.2`, `2004`.
 
