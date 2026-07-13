@@ -30,11 +30,14 @@ def test_email_queue_is_idempotent_and_suppresses_bounces():
     assert first["delivery_id"] == second["delivery_id"]
     with connection() as active:
         stored = active.execute(
-            "SELECT recipient_ciphertext FROM email_deliveries WHERE tenant_id = %s AND delivery_id = %s",
+            "SELECT recipient_ciphertext, template_data, template_data_ciphertext FROM email_deliveries WHERE tenant_id = %s AND delivery_id = %s",
             ("tenant-email", first["delivery_id"]),
         ).fetchone()
     assert stored["recipient_ciphertext"].startswith("v1:")
     assert "learner@example.com" not in stored["recipient_ciphertext"]
+    assert stored["template_data"] == {"encrypted": True}
+    assert stored["template_data_ciphertext"].startswith("v1:")
+    assert "https://example.com/course" not in stored["template_data_ciphertext"]
     assert record_provider_event(
         {"id": "mail-event-1", "provider": "test", "type": "bounce", "email": "learner@example.com"}
     )["suppressed"] is True

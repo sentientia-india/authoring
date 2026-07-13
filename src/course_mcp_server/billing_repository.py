@@ -66,6 +66,7 @@ def upsert_subscription(
                 provider_snapshot_version = GREATEST(subscriptions.provider_snapshot_version, EXCLUDED.provider_snapshot_version),
                 updated_at = now()
             WHERE subscriptions.tenant_id = EXCLUDED.tenant_id
+              AND EXCLUDED.provider_snapshot_version >= subscriptions.provider_snapshot_version
             RETURNING tenant_id, subscription_id, tier, status, provider_subscription_id
             """,
             (
@@ -80,9 +81,18 @@ def upsert_subscription(
                 snapshot_version,
             ),
         ).fetchone()
-        if not row:
+        if row:
+            return {**dict(row), "applied": True}
+        existing = active.execute(
+            """
+            SELECT tenant_id, subscription_id, tier, status, provider_subscription_id
+            FROM subscriptions WHERE provider = 'stripe' AND provider_subscription_id = %s
+            """,
+            (provider_subscription_id,),
+        ).fetchone()
+        if not existing or existing["tenant_id"] != tenant_id:
             raise PermissionError("Subscription belongs to another tenant")
-    return dict(row)
+    return {**dict(existing), "applied": False}
 
 
 def set_plan_entitlement(*, tenant_id: str, subscription_id: str, tier: str, active: bool) -> None:

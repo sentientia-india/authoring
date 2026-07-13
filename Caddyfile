@@ -1,3 +1,9 @@
+{
+  on_demand_tls {
+    ask http://course-mcp:8777/internal/caddy/domain-allowed
+  }
+}
+
 {$PUBLIC_DOMAIN} {
   encode zstd gzip
   header {
@@ -38,4 +44,12 @@
     root * /srv/apps/landing
     file_server
   }
+}
+
+https:// {
+  tls {
+    on_demand
+  }
+  rewrite * /domain/{host}{uri}
+  reverse_proxy course-mcp:8777
 }

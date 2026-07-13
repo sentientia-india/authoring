@@ -30,9 +30,11 @@ from .hosted_learning import (
     capture_lead,
     course_dashboard,
     create_share,
+    embed_document,
     grant_paid_access,
     grant_share_access,
     record_learner_event,
+    resolve_domain_file,
     resolve_share_file,
     tutor_reply,
 )
@@ -41,7 +43,9 @@ from .hosted_repository import (
     create_collection,
     get_collection,
     request_custom_domain,
+    remove_custom_domain,
     resolve_grant,
+    resolve_verified_domain,
     verify_custom_domain,
 )
 from .communication import CommunicationError, record_provider_event
@@ -366,6 +370,20 @@ def create_mcp_server():
             return JSONResponse({"ok": False, "error": "domain_verification_failed"}, status_code=400)
         return JSONResponse({"ok": True, "domain": result})
 
+    @mcp.custom_route("/api/hosted/domains", methods=["DELETE"], include_in_schema=False)
+    async def hosted_domain_remove(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            payload = await request.json()
+            removed = remove_custom_domain(
+                tenant_id=context.tenant_id, hostname=str(payload.get("hostname") or "")
+            )
+        except (PermissionError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "domain_removal_failed"}, status_code=400)
+        if not removed:
+            return JSONResponse({"ok": False, "error": "domain_not_found"}, status_code=404)
+        return JSONResponse({"ok": True, "removed": True})
+
     @mcp.custom_route("/api/hosted/collections", methods=["POST"], include_in_schema=False)
     async def hosted_collection_create(request):  # noqa: ANN001
         try:
@@ -418,6 +436,35 @@ def create_mcp_server():
             )
         except HostedLearningError:
             return JSONResponse({"ok": False, "error": "share_not_found"}, status_code=404)
+        return FileResponse(target)
+
+    @mcp.custom_route("/embed/{token}", methods=["GET"], include_in_schema=False)
+    async def hosted_embed(request):  # noqa: ANN001
+        try:
+            body, headers = embed_document(
+                request.path_params["token"], request.query_params.get("access_token")
+            )
+        except HostedLearningError:
+            return JSONResponse({"ok": False, "error": "embed_not_found"}, status_code=404)
+        return Response(body, media_type="text/html", headers=headers)
+
+    @mcp.custom_route(
+        "/internal/caddy/domain-allowed", methods=["GET"], include_in_schema=False
+    )
+    async def caddy_domain_allowed(request):  # noqa: ANN001
+        domain = resolve_verified_domain(request.query_params.get("domain") or "")
+        return Response("allowed" if domain else "denied", status_code=200 if domain else 403)
+
+    @mcp.custom_route(
+        "/domain/{hostname}/{asset_path:path}", methods=["GET"], include_in_schema=False
+    )
+    async def hosted_custom_domain(request):  # noqa: ANN001
+        try:
+            target = resolve_domain_file(
+                request.path_params["hostname"], request.path_params.get("asset_path") or "index.html"
+            )
+        except HostedLearningError:
+            return JSONResponse({"ok": False, "error": "custom_domain_not_found"}, status_code=404)
         return FileResponse(target)
 
     @mcp.custom_route("/learn/{token}/events", methods=["POST"], include_in_schema=False)

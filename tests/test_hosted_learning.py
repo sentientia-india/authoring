@@ -7,6 +7,7 @@ from course_mcp_server.hosted_learning import (
     capture_lead,
     course_dashboard,
     create_share,
+    embed_document,
     grade_open_answer,
     grant_paid_access,
     grant_share_access,
@@ -64,6 +65,35 @@ def test_restricted_share_modes_fail_closed_and_require_matching_evidence(tmp_pa
             grant_share_access(share["share_token"], "learner@example.com", "purchase")
         access = grant_share_access(share["share_token"], "learner@example.com", source)
         assert resolve_share_file(share["share_token"], "index.html", access["access_token"]).is_file()
+
+
+def test_embed_requires_https_origin_allowlist_and_emits_consent_resize_contract(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOSTED_COURSE_ROOT", str(tmp_path / "hosted"))
+    package = tmp_path / "embed.zip"
+    _package(package)
+    share = create_share(
+        package,
+        tenant="acme",
+        course_id="course-embed",
+        access_mode="unlisted",
+        origin_allowlist=["https://academy.example.com"],
+    )
+    body, headers = embed_document(share["share_token"])
+    assert "This course records learning progress after you consent" in body
+    assert "course-mcp:resize" in body
+    assert "https://academy.example.com" in headers["Content-Security-Policy"]
+    share_without_origins = create_share(
+        package, tenant="acme", course_id="course-no-embed", access_mode="unlisted"
+    )
+    with pytest.raises(HostedLearningError, match="allowlist"):
+        embed_document(share_without_origins["share_token"])
+    with pytest.raises(HostedLearningError, match="HTTPS origins"):
+        create_share(
+            package,
+            tenant="acme",
+            course_id="course-unsafe-embed",
+            origin_allowlist=["https://academy.example.com/path"],
+        )
 
 
 def test_open_answer_grading_requires_human_review_when_partial():

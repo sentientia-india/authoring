@@ -22,9 +22,11 @@ from course_mcp_server.hosted_repository import (
     issue_learner_certificate,
     enroll_learner,
     resolve_grant,
+    resolve_verified_domain,
     revoke_enrollment,
     revoke_grant,
     request_custom_domain,
+    remove_custom_domain,
     save_attempt_state,
     verify_custom_domain,
 )
@@ -34,6 +36,7 @@ from course_mcp_server.hosted_learning import (
     create_share,
     grant_paid_access,
     record_learner_event,
+    resolve_domain_file,
     resolve_share_file,
 )
 from scripts.apply_migrations import apply
@@ -115,6 +118,18 @@ def test_public_hosted_api_uses_postgres_and_object_store(tmp_path, monkeypatch)
     )
     assert course_dashboard(share["share_token"])["average_score"] == 91.0
     assert list((tmp_path / "objects").rglob("sellable.zip"))
+    requested = request_custom_domain(
+        tenant_id="tenant-hosted-api",
+        hostname=f"academy-{secrets.token_hex(4)}.example.com",
+        release_id=share["release_id"],
+    )
+    verify_custom_domain(
+        tenant_id="tenant-hosted-api",
+        hostname=requested["hostname"],
+        observed_token=requested["dns_record"]["value"],
+    )
+    assert resolve_verified_domain(requested["hostname"])["release_id"] == share["release_id"]
+    assert resolve_domain_file(requested["hostname"], "index.html").is_file()
 
 
 def test_every_restricted_share_mode_requires_matching_entitlement(tmp_path, monkeypatch):
@@ -230,6 +245,8 @@ def test_custom_domain_and_learning_collection_are_tenant_scoped():
     requested = request_custom_domain(
         tenant_id=tenant, hostname=f"academy-{secrets.token_hex(4)}.example.com", release_id=release["release_id"]
     )
+    with pytest.raises(PermissionError, match="another tenant"):
+        request_custom_domain(tenant_id="tenant-domain-attacker", hostname=requested["hostname"])
     verified = verify_custom_domain(
         tenant_id=tenant,
         hostname=requested["hostname"],
@@ -246,6 +263,8 @@ def test_custom_domain_and_learning_collection_are_tenant_scoped():
     loaded = get_collection(tenant_id=tenant, collection_id=collection["collection_id"])
     assert loaded["items"][0]["release_id"] == release["release_id"]
     assert get_collection(tenant_id="tenant-other", collection_id=collection["collection_id"]) is None
+    assert remove_custom_domain(tenant_id=tenant, hostname=requested["hostname"])
+    assert resolve_verified_domain(requested["hostname"]) is None
 
 
 def test_badges_and_certificates_are_persistent_and_idempotent():

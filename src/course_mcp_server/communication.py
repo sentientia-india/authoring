@@ -64,8 +64,8 @@ def queue_email(
             """
             INSERT INTO email_deliveries
                 (tenant_id, delivery_id, template, recipient_hash, recipient_ciphertext,
-                 template_data, idempotency_key, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                 template_data, template_data_ciphertext, idempotency_key, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
             """,
             (
@@ -74,7 +74,8 @@ def queue_email(
                 template,
                 recipient_hash,
                 encrypt_pii(recipient.strip().lower(), tenant_id=tenant_id),
-                Jsonb(data),
+                Jsonb({"encrypted": True}),
+                encrypt_pii(json.dumps(data, sort_keys=True), tenant_id=tenant_id),
                 idempotency_key,
                 status,
             ),
@@ -104,7 +105,7 @@ def deliver_email(*, tenant_id: str, delivery_id: str) -> dict[str, Any]:
     with connection() as active:
         row = active.execute(
             """
-            SELECT recipient_ciphertext, template, template_data, status
+            SELECT recipient_ciphertext, template, template_data, template_data_ciphertext, status
             FROM email_deliveries WHERE tenant_id = %s AND delivery_id = %s FOR UPDATE
             """,
             (tenant_id, delivery_id),
@@ -115,7 +116,12 @@ def deliver_email(*, tenant_id: str, delivery_id: str) -> dict[str, Any]:
             "UPDATE email_deliveries SET status = 'sending', attempt_count = attempt_count + 1 WHERE tenant_id = %s AND delivery_id = %s",
             (tenant_id, delivery_id),
         )
-    subject, body = render_template(row["template"], dict(row["template_data"]))
+    template_data = (
+        json.loads(decrypt_pii(row["template_data_ciphertext"], tenant_id=tenant_id))
+        if row["template_data_ciphertext"]
+        else dict(row["template_data"])
+    )
+    subject, body = render_template(row["template"], template_data)
     sender = os.getenv("TRANSACTIONAL_FROM_EMAIL", "")
     host = os.getenv("SMTP_HOST", "")
     if not sender or not host:

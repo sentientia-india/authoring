@@ -82,6 +82,7 @@ def create_checkout_session(
             "metadata[tenant]": tenant_id,
             "metadata[tier]": tier,
             "metadata[share_token]": share_token,
+            "metadata[checkout_mode]": mode,
         },
     )
     return {"checkout_session_id": session["id"], "checkout_url": session.get("url")}
@@ -148,9 +149,39 @@ def process_checkout_event(event: dict[str, Any]) -> dict[str, Any]:
     tier = str(metadata.get("tier") or "pro")
     if not tenant:
         raise BillingError("Checkout session has no tenant/customer identity")
+    email = str((session.get("customer_details") or {}).get("email") or metadata.get("email") or "")
+    share_token = str(metadata.get("share_token") or "")
+    checkout_mode = str(metadata.get("checkout_mode") or session.get("mode") or "subscription")
+    if checkout_mode == "payment" and share_token:
+        if not database_url() or not email:
+            raise BillingError("Paid course checkout requires persistence and purchaser email")
+        access = grant_paid_access(share_token, email)
+        base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+        if not base_url.startswith("https://"):
+            raise BillingError("Public HTTPS base URL is required for paid course delivery")
+        queue_email(
+            tenant_id=tenant,
+            recipient=email,
+            template="enrollment",
+            data={
+                "course_title": str(metadata.get("product_name") or "your course"),
+                "action_url": f"{base_url}/learn/{share_token}/index.html?access_token={access['access_token']}",
+            },
+            idempotency_key=f"paid-enrollment:{event_id}",
+        )
+        receipt = {
+            "tenant": tenant,
+            "customer": session.get("customer"),
+            "created": int(time.time()),
+            "hosted_access_provisioned": True,
+            "delivered": True,
+            "purchase_type": "hosted_course",
+        }
+        record_event(event, receipt, tenant)
+        return {"processed": True, "duplicate": False, **receipt}
+
     license_key = "smr_" + secrets.token_urlsafe(32)
     issue_license(license_key, tenant=tenant, tier=tier)
-    email = str((session.get("customer_details") or {}).get("email") or metadata.get("email") or "")
     delivery_mode = os.getenv("LICENSE_DELIVERY_MODE", "smtp")
     if delivery_mode == "smtp":
         _deliver_license_email(email, tenant, tier, license_key)
@@ -178,11 +209,10 @@ def process_checkout_event(event: dict[str, Any]) -> dict[str, Any]:
         set_plan_entitlement(
             tenant_id=tenant, subscription_id=subscription["subscription_id"], tier=tier, active=True
         )
-        share_token = str(metadata.get("share_token") or "")
         if share_token and email:
             access = grant_paid_access(share_token, email)
             receipt["hosted_access_provisioned"] = True
-            receipt["access_token"] = access["access_token"]
+            receipt["hosted_access_delivery"] = "encrypted_email"
         if email:
             queue_email(
                 tenant_id=tenant,
@@ -221,7 +251,11 @@ def _process_subscription_event(event: dict[str, Any]) -> dict[str, Any]:
     obj = event.get("data", {}).get("object", {})
     metadata = obj.get("metadata") or {}
     tenant = str(metadata.get("tenant") or "").strip()
-    provider_subscription_id = str(obj.get("subscription") or obj.get("id") or "")
+    provider_subscription_id = str(
+        obj.get("id")
+        if event_type.startswith("customer.subscription.")
+        else obj.get("subscription") or metadata.get("subscription_id") or ""
+    )
     if not tenant or not provider_subscription_id:
         result = {"processed": False, "ignored": True, "event_type": event_type, "reason": "missing_identity"}
         if database_url():
@@ -251,20 +285,23 @@ def _process_subscription_event(event: dict[str, Any]) -> dict[str, Any]:
         status=status,
         snapshot_version=int(event.get("created") or 0),
     )
-    active = status in {"trialing", "active"}
+    effective_status = str(subscription["status"])
+    effective_tier = str(subscription["tier"])
+    active = effective_status in {"trialing", "active"}
     set_plan_entitlement(
         tenant_id=tenant,
         subscription_id=subscription["subscription_id"],
-        tier=tier,
+        tier=effective_tier,
         active=active,
     )
     result = {
         "processed": True,
         "duplicate": False,
         "tenant": tenant,
-        "tier": tier,
-        "subscription_status": status,
+        "tier": effective_tier,
+        "subscription_status": effective_status,
         "entitlement_active": active,
+        "stale_event": not subscription["applied"],
     }
     email = str(obj.get("customer_email") or metadata.get("email") or "")
     if event_type == "invoice.payment_failed" and email:

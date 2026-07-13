@@ -19,6 +19,7 @@ from course_mcp_server.security import SecurityError
 
 @pytest.fixture()
 def license_store(tmp_path, monkeypatch):
+    monkeypatch.setattr("course_mcp_server.licensing.database_url", lambda: None)
     store = tmp_path / "licenses.json"
     monkeypatch.setenv("LICENSE_STORE_PATH", str(store))
     monkeypatch.setenv("MCP_API_TOKEN", "admin-bootstrap-token")

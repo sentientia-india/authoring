@@ -84,6 +84,13 @@ def test_outbox_dead_letter_migration_is_tenant_scoped_and_redrivable():
     assert "redriven_at" in migration
 
 
+def test_commerce_security_migration_persists_licenses_and_encrypts_email_payloads():
+    migration = (ROOT / "migrations" / "0011_commerce_security.sql").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS product_licenses" in migration
+    assert "template_data_ciphertext" in migration
+    assert "UNIQUE (key_hash)" in migration
+
+
 def test_hosted_catalog_migration_adds_domains_collections_and_paths():
     migration = (ROOT / "migrations" / "0007_hosted_catalog.sql").read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS custom_domains" in migration

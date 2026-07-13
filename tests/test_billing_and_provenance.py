@@ -16,6 +16,8 @@ def _stripe_signature(payload: bytes, secret: str, timestamp: int) -> str:
 
 
 def test_checkout_webhook_provisions_license_idempotently(tmp_path, monkeypatch):
+    monkeypatch.setattr("course_mcp_server.licensing.database_url", lambda: None)
+    monkeypatch.setattr("course_mcp_server.billing.database_url", lambda: None)
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
     monkeypatch.setenv("LICENSE_STORE_PATH", str(tmp_path / "licenses.json"))
     monkeypatch.setenv("BILLING_EVENT_STORE_PATH", str(tmp_path / "billing.json"))

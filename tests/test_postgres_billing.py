@@ -52,6 +52,11 @@ def test_checkout_subscription_lifecycle_and_reconciliation(tmp_path, monkeypatc
         "type": "invoice.payment_succeeded",
     }
     assert process_checkout_event(restored)["entitlement_active"] is True
+    stale = {**failed, "id": "evt_stale_pg", "created": 99}
+    stale_result = process_checkout_event(stale)
+    assert stale_result["stale_event"] is True
+    assert stale_result["subscription_status"] == "active"
+    assert stale_result["entitlement_active"] is True
     report = reconcile()
     assert report["unexplained_differences"] == 0
 

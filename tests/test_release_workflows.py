@@ -80,3 +80,14 @@ def test_deployments_preserve_a_stable_pii_encryption_key_outside_releases():
         assert "openssl rand -base64 32" in workflow
         assert "cp \"$DEPLOY_PATH/shared/secrets/pii_encryption_key.txt\"" in workflow
         assert "docker compose up -d course-mcp scorm-editor outbox-worker analytics-worker" in workflow
+
+
+def test_custom_domain_tls_is_restricted_to_verified_database_records():
+    caddy = (ROOT / "Caddyfile").read_text(encoding="utf-8")
+    server = (ROOT / "src" / "course_mcp_server" / "server.py").read_text(encoding="utf-8")
+    assert "on_demand_tls" in caddy
+    assert "ask http://course-mcp:8777/internal/caddy/domain-allowed" in caddy
+    assert "rewrite * /domain/{host}{uri}" in caddy
+    assert '"/internal/caddy/domain-allowed"' in server
+    assert '"/domain/{hostname}/{asset_path:path}"' in server
+    assert '"/embed/{token}"' in server

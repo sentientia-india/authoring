@@ -637,7 +637,7 @@ The IDs below are the execution order. A child task can begin early, but its pha
 
 - [x] PROD-201 Implement immutable hosted releases and share modes. Evidence: content-addressed PostgreSQL releases/object-store packages; public, unlisted, email-verified, invite-only, tenant-only, and paid grants; mode-specific entitlement enforcement; revocable hashed tokens; PostgreSQL and portable tests.
 - [x] PROD-202 Implement identity, enrollment, resume, and revocation. Evidence: tenant-scoped learner identity, idempotent enrollment, versioned attempt state, cross-device location/suspend data, enrollment/grant revocation, and PostgreSQL lifecycle tests.
-- [ ] PROD-203 Implement embeds and custom domains.
+- [x] PROD-203 Implement embeds and custom domains. Evidence: per-share HTTPS origin allowlists, browser-enforced `frame-ancestors`, explicit tracking consent, resize messaging, authenticated access modes, verified-domain routing, safe removal, and Caddy on-demand TLS restricted by a database-backed authorization endpoint. Live DNS/certificate issuance remains an external launch gate.
 - [x] PROD-204 Implement collections, paths, badges, and certificates. Evidence: tenant-scoped PostgreSQL catalog/path prerequisites, badge definitions/awards, idempotent certificates with verification digests, authenticated REST routes, and integration tests.
 - [x] PROD-205 Implement transactional email and deliverability operations. Evidence: encrypted recipients, invitation/receipt/enrollment/completion/dunning/report templates, durable email outbox worker, idempotency, SMTP delivery, provider webhook authentication, suppression, bounce, and complaint tests. Live sending-domain verification remains an external launch gate.
 - [x] PROD-206 Implement append-only learner event ingestion. Evidence: versioned/deduplicated PostgreSQL events cover view, start, progress, interaction, answer, score, completion, abandon, resume, certificate, and conversion; append-only accepted/duplicate/rejected observations support ingestion-quality evidence.
@@ -646,8 +646,8 @@ The IDs below are the execution order. A child task can begin early, but its pha
 
 ### Commerce and operations
 
-- [ ] PROD-301 Complete Stripe lifecycle and entitlement model.
-- [ ] PROD-302 Complete usage ledger, quotas, paid enrollment, and reconciliation.
+- [x] PROD-301 Complete Stripe lifecycle and entitlement model. Evidence: server-side Checkout and customer portal sessions, signed idempotent webhooks, snapshot-ordered subscription updates, billing-derived entitlements, PostgreSQL-backed hashed licenses, and lifecycle integration tests. A live low-value purchase remains an external launch gate.
+- [x] PROD-302 Complete usage ledger, quotas, paid enrollment, and reconciliation. Evidence: transactional PostgreSQL export quotas, append-only usage entries, paid-course purchase grants and encrypted enrollment delivery, tenant-safe reconciliation, and replay/stale-event tests. Daily live-mode reconciliation remains an external launch gate.
 - [ ] PROD-303 Add production observability, SLOs, alerts, and status page.
 - [ ] PROD-304 Add immutable artifact promotion, canary, and rollback.
 - [ ] PROD-305 Complete load, failure, backup, and disaster-recovery exercises.

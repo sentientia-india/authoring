@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import urllib.request
+from urllib.parse import quote
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -23,6 +24,7 @@ from .hosted_repository import (
     grant_entitlement,
     has_entitlement,
     resolve_grant,
+    resolve_verified_domain,
     record_event_rejection,
 )
 from .object_store import store_path
@@ -58,7 +60,14 @@ def create_share(
     course_id: str,
     paid: bool = False,
     access_mode: str | None = None,
+    origin_allowlist: list[str] | None = None,
 ) -> dict:
+    normalized_origins = []
+    for origin in origin_allowlist or []:
+        normalized = str(origin).strip().lower().rstrip("/")
+        if not re.fullmatch(r"https://[a-z0-9.-]+(?::[0-9]{1,5})?", normalized):
+            raise HostedLearningError("Embed origins must be HTTPS origins without paths")
+        normalized_origins.append(normalized)
     package = Path(package_path).resolve()
     if not package.is_file() or package.suffix.lower() != ".zip":
         raise HostedLearningError("A valid SCORM ZIP is required")
@@ -105,6 +114,7 @@ def create_share(
             release_id=release["release_id"],
             token=token,
             mode=mode,
+            origin_allowlist=normalized_origins,
         )
         return {
             "share_token": token,
@@ -120,6 +130,7 @@ def create_share(
         "course_id": course_id,
         "paid": mode == "paid",
         "access_mode": mode,
+        "origin_allowlist": sorted(set(normalized_origins)),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     _save(data)
@@ -129,6 +140,54 @@ def create_share(
         "paid": mode == "paid",
         "access_mode": mode,
     }
+
+
+def resolve_domain_file(hostname: str, relative_path: str) -> Path:
+    if not database_url():
+        raise HostedLearningError("Custom domains require production persistence")
+    domain = resolve_verified_domain(hostname)
+    if not domain:
+        raise HostedLearningError("Custom domain not found")
+    relative = PurePosixPath((relative_path or "index.html").replace("\\", "/"))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise HostedLearningError("Invalid custom-domain path")
+    root = (_root() / "releases" / domain["release_id"]).resolve()
+    target = (root / Path(*relative.parts)).resolve()
+    if root != target and root not in target.parents:
+        raise HostedLearningError("Custom-domain path escapes package")
+    if not target.is_file():
+        raise HostedLearningError("Custom-domain asset not found")
+    return target
+
+
+def embed_document(token: str, access_token: str | None = None) -> tuple[str, dict[str, str]]:
+    resolve_share_file(token, "index.html", access_token)
+    if database_url():
+        grant = resolve_grant(token)
+        origins = list(grant.get("origin_allowlist") or []) if grant else []
+    else:
+        origins = list((_load()["shares"].get(token) or {}).get("origin_allowlist") or [])
+    if not origins:
+        raise HostedLearningError("Embed origin allowlist is required")
+    nonce = secrets.token_urlsafe(18)
+    access_query = f"?access_token={quote(access_token, safe='')}" if access_token else ""
+    launch = f"/learn/{token}/index.html{access_query}"
+    allowed_json = json.dumps(origins)
+    body = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Course embed</title><style>html,body,#course{{margin:0;width:100%;min-height:100%;border:0}}#consent{{font:16px system-ui;padding:24px}}</style></head>
+<body><div id="consent"><p>This course records learning progress after you consent.</p><button type="button">Start course</button></div>
+<iframe id="course" title="Embedded course" hidden></iframe>
+<script nonce="{nonce}">(()=>{{const allowed={allowed_json};let parentOrigin="";try{{parentOrigin=location.ancestorOrigins?.[0]||new URL(document.referrer).origin}}catch(_e){{}}const targetOrigin=allowed.includes(parentOrigin)?parentOrigin:"*",consent=document.getElementById("consent"),frame=document.getElementById("course");consent.querySelector("button").addEventListener("click",()=>{{consent.remove();frame.hidden=false;frame.src={json.dumps(launch)};localStorage.setItem("course-mcp-tracking-consent","granted");}});new ResizeObserver(()=>parent.postMessage({{type:"course-mcp:resize",height:document.documentElement.scrollHeight}},targetOrigin)).observe(document.documentElement);}})();</script></body></html>"""
+    headers = {
+        "Content-Security-Policy": (
+            f"default-src 'self'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; "
+            f"frame-src 'self'; frame-ancestors {' '.join(origins)}"
+        ),
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "X-Content-Type-Options": "nosniff",
+    }
+    return body, headers
 
 
 def resolve_share_file(token: str, relative_path: str, access_token: str | None = None) -> Path:

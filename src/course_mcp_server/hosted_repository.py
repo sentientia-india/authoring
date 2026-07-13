@@ -46,16 +46,25 @@ def create_release(
     return dict(row)
 
 
-def create_grant(*, tenant_id: str, release_id: str, token: str, mode: str) -> dict[str, Any]:
+def create_grant(
+    *, tenant_id: str, release_id: str, token: str, mode: str, origin_allowlist: list[str] | None = None
+) -> dict[str, Any]:
+    origins = []
+    for origin in origin_allowlist or []:
+        normalized = origin.strip().lower().rstrip("/")
+        if not re.fullmatch(r"https://[a-z0-9.-]+(?::[0-9]{1,5})?", normalized):
+            raise ValueError("Embed origins must be HTTPS origins without paths")
+        origins.append(normalized)
     grant_id = f"grant_{uuid4().hex}"
     with connection() as active:
         row = active.execute(
             """
-            INSERT INTO share_grants (tenant_id, grant_id, release_id, mode, token_hash)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING tenant_id, grant_id, release_id, mode, created_at
+            INSERT INTO share_grants
+                (tenant_id, grant_id, release_id, mode, token_hash, origin_allowlist)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING tenant_id, grant_id, release_id, mode, origin_allowlist, created_at
             """,
-            (tenant_id, grant_id, release_id, mode, token_hash(token)),
+            (tenant_id, grant_id, release_id, mode, token_hash(token), Jsonb(sorted(set(origins)))),
         ).fetchone()
     return dict(row)
 
@@ -66,7 +75,8 @@ def resolve_grant(token: str) -> dict[str, Any] | None:
         row = active.execute(
             """
             SELECT grants.tenant_id, grants.grant_id, grants.release_id, grants.mode,
-                   releases.course_id, releases.package_object_key, releases.package_sha256
+                   grants.origin_allowlist, releases.course_id,
+                   releases.package_object_key, releases.package_sha256
             FROM share_grants AS grants
             JOIN hosted_releases AS releases
               ON releases.tenant_id = grants.tenant_id AND releases.release_id = grants.release_id
@@ -374,10 +384,13 @@ def request_custom_domain(*, tenant_id: str, hostname: str, release_id: str | No
             ON CONFLICT (hostname) DO UPDATE
             SET verification_token_hash = EXCLUDED.verification_token_hash,
                 release_id = EXCLUDED.release_id, status = 'pending', verified_at = NULL, removed_at = NULL
+            WHERE custom_domains.tenant_id = EXCLUDED.tenant_id
             RETURNING tenant_id, domain_id, hostname, status, release_id, created_at
             """,
             (tenant_id, domain_id, hostname, token_hash(token), release_id),
         ).fetchone()
+        if not row:
+            raise PermissionError("Custom domain belongs to another tenant")
     return {**dict(row), "dns_record": {"type": "TXT", "name": f"_course-mcp.{hostname}", "value": token}}
 
 
@@ -395,6 +408,38 @@ def verify_custom_domain(*, tenant_id: str, hostname: str, observed_token: str) 
     if not row:
         raise ValueError("Custom domain verification failed")
     return dict(row)
+
+
+def resolve_verified_domain(hostname: str) -> dict[str, Any] | None:
+    normalized = hostname.strip().lower().split(":", 1)[0].rstrip(".")
+    with connection() as active:
+        row = active.execute(
+            """
+            SELECT domains.tenant_id, domains.hostname, domains.release_id,
+                   releases.package_object_key, releases.package_sha256
+            FROM custom_domains AS domains
+            JOIN hosted_releases AS releases
+              ON releases.tenant_id = domains.tenant_id
+             AND releases.release_id = domains.release_id
+            WHERE domains.hostname = %s AND domains.status = 'verified'
+              AND domains.removed_at IS NULL AND releases.status = 'published'
+            """,
+            (normalized,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def remove_custom_domain(*, tenant_id: str, hostname: str) -> bool:
+    with connection() as active:
+        result = active.execute(
+            """
+            UPDATE custom_domains
+            SET status = 'removed', removed_at = now(), release_id = NULL
+            WHERE tenant_id = %s AND hostname = %s AND removed_at IS NULL
+            """,
+            (tenant_id, hostname.strip().lower().rstrip(".")),
+        )
+    return result.rowcount == 1
 
 
 def create_collection(*, tenant_id: str, title: str, slug: str, description: str = "") -> dict[str, Any]:

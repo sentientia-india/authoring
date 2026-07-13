@@ -152,8 +152,19 @@ def _write_json_atomic(path: Path, value: dict) -> None:
     lock = _FILE_LOCKS.setdefault(str(path.resolve()), threading.RLock())
     with lock:
         temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-        temporary.write_text(json.dumps(value, indent=2), encoding="utf-8")
-        temporary.replace(path)
+        try:
+            temporary.write_text(json.dumps(value, indent=2), encoding="utf-8")
+            for attempt in range(6):
+                try:
+                    os.replace(temporary, path)
+                    break
+                except PermissionError:
+                    if attempt == 5:
+                        raise
+                    # Windows scanners can briefly hold a newly-written file.
+                    time.sleep(0.01 * (2**attempt))
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def _read_json(path: Path) -> dict:
