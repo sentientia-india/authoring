@@ -618,7 +618,7 @@ The IDs below are the execution order. A child task can begin early, but its pha
 - [x] PROD-008 Make conformance regression checks release-blocking. Evidence: CI run `29228239968` ran deployment job `86747774750` only after the reusable Moodle job passed.
 - [x] PROD-009 Specify canonical tenant/data/event/job models. Evidence: `docs/production-data-contract.md`.
 - [ ] PROD-010 Persist production state and binaries in PostgreSQL/object storage.
-- [ ] PROD-011 Add durable queues, idempotency, outbox, and retries.
+- [x] PROD-011 Add durable queues, idempotency, outbox, retries, dead-lettering, and redrive. Evidence: `migrations/0009_outbox_dead_letters.sql`, `src/course_mcp_server/outbox.py`, `src/course_mcp_server/outbox_worker.py`, and PostgreSQL integration tests.
 - [ ] PROD-012 Pass tenant isolation, backup restore, and threat-model gates.
 
 ### Best-in-class authoring

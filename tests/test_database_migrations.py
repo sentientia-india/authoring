@@ -71,6 +71,14 @@ def test_data_lifecycle_migration_adds_controlled_retention_override_and_evidenc
     assert "CREATE TABLE IF NOT EXISTS deletion_records" in migration
 
 
+def test_outbox_dead_letter_migration_is_tenant_scoped_and_redrivable():
+    migration = (ROOT / "migrations" / "0009_outbox_dead_letters.sql").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS outbox_dead_letters" in migration
+    assert "PRIMARY KEY (tenant_id, event_id)" in migration
+    assert "dead_lettered_at IS NULL" in migration
+    assert "redriven_at" in migration
+
+
 def test_hosted_catalog_migration_adds_domains_collections_and_paths():
     migration = (ROOT / "migrations" / "0007_hosted_catalog.sql").read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS custom_domains" in migration
