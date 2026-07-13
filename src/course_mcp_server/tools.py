@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import hashlib
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
 from typing import Any
@@ -18,6 +19,7 @@ import copy
 
 from .course_schema_v2 import CourseProjectV2, GameOptions, MediaAsset
 from .media_briefs import build_media_briefs
+from .object_store import store_path
 from .provenance import sign_export
 from .course_templates import TemplateRegistry
 from .discovery import CourseDiscoveryState, CourseDiscoveryWorkflow
@@ -893,6 +895,17 @@ def ingest_course_source(payload: dict, context: RequestContext) -> dict[str, An
     project = _project_or_raise(context, req.project_id)
     path = _upload_path(req.upload_id)
     text, refs, warnings = _extract_source_text(path, req.source_type)
+    stored_source = (
+        store_path(
+            path,
+            tenant_id=context.tenant_id,
+            kind="sources",
+            object_id=f"source_{hashlib.sha256(path.read_bytes()).hexdigest()[:16]}",
+            filename=path.name,
+        )
+        if path.is_file()
+        else None
+    )
     source = {
         "source_id": f"source_{len(project.get('sources', [])) + 1}",
         "source_type": req.source_type,
@@ -900,6 +913,7 @@ def ingest_course_source(payload: dict, context: RequestContext) -> dict[str, An
         "extracted_text": text[:60_000],
         "page_references": refs,
         "warnings": warnings,
+        "object_storage": stored_source,
     }
     project.setdefault("sources", []).append(source)
     save_project(project)
@@ -1229,7 +1243,7 @@ def upload_media_asset(payload: dict, context: RequestContext) -> dict[str, Any]
     tool_name = "upload_media_asset"
     assert_tool_allowed(tool_name)
     req = UploadMediaAssetRequest.model_validate(payload)
-    _project_or_raise(context, req.project_id)
+    project = _project_or_raise(context, req.project_id)
     raw = req.content_base64
     if "," in raw[:80]:
         raw = raw.split(",", 1)[1]
@@ -1264,6 +1278,13 @@ def upload_media_asset(payload: dict, context: RequestContext) -> dict[str, Any]
     if not str(target).startswith(str(upload_dir.resolve())):
         raise SecurityError("Upload escapes the controlled upload directory")
     target.write_bytes(blob)
+    stored_media = store_path(
+        target,
+        tenant_id=context.tenant_id,
+        kind="media",
+        object_id=f"media_{hashlib.sha256(blob).hexdigest()[:16]}",
+        filename=stored_name,
+    )
     suffix = target.suffix.lower()
     output = UploadMediaAssetResult(
         project_id=req.project_id,
@@ -1271,6 +1292,7 @@ def upload_media_asset(payload: dict, context: RequestContext) -> dict[str, Any]
         size_bytes=len(blob),
         kind="video" if suffix in _VIDEO_EXTENSIONS else "image",
     ).model_dump(mode="json")
+    add_artifact(project, "media_upload", stored_media)
     _record(context, tool_name, req.project_id, f"Media asset uploaded: {req.filename}")
     return _safe_return(tool_name, context, {"project_id": req.project_id, "filename": req.filename}, output)
 
@@ -1798,6 +1820,12 @@ def generate_interactive_video(payload: dict, context: RequestContext) -> dict[s
         artifact_type="interactive_video",
         package_path=output["package_path"],
     )
+    output["object_storage"] = store_path(
+        output["package_path"],
+        tenant_id=context.tenant_id,
+        kind="exports",
+        object_id=f"export_{hashlib.sha256(Path(output['package_path']).read_bytes()).hexdigest()[:16]}",
+    )
     output["delivery"] = build_delivery_metadata(
         project_id=req.project_id,
         artifact_type="interactive_video",
@@ -1899,6 +1927,12 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
         project_id=req.project_id,
         artifact_type=req.export_format,
         package_path=output["package_path"],
+    )
+    output["object_storage"] = store_path(
+        output["package_path"],
+        tenant_id=context.tenant_id,
+        kind="exports",
+        object_id=f"export_{hashlib.sha256(Path(output['package_path']).read_bytes()).hexdigest()[:16]}",
     )
     output["delivery"] = build_delivery_metadata(
         project_id=req.project_id,

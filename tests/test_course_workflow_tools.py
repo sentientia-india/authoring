@@ -15,6 +15,7 @@ from course_mcp_server.tools import (
     request_publish_approval,
     submit_course_content,
     validate_instructional_quality,
+    upload_media_asset,
 )
 
 
@@ -76,6 +77,7 @@ def test_create_project_then_ingest_source_from_controlled_upload_id(tmp_path, m
     (upload_dir / "sop.txt").write_text("# Ramp SOP\nAlways inspect cones before pushback.", encoding="utf-8")
     monkeypatch.setenv("UPLOAD_DIR", str(upload_dir))
     monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
+    monkeypatch.setenv("OBJECT_STORE_LOCAL_ROOT", str(tmp_path / "objects"))
 
     project = create_course_project(
         {
@@ -98,6 +100,31 @@ def test_create_project_then_ingest_source_from_controlled_upload_id(tmp_path, m
     assert result["data"]["source_type"] == "raw_text"
     assert result["data"]["extracted_text_preview"].startswith("Ramp SOP")
     assert str(tmp_path) not in str(result["data"])
+    stored_sources = list((tmp_path / "objects" / "tenants" / "tenant-a" / "sources").glob("source_*/sop.txt"))
+    assert len(stored_sources) == 1
+
+
+def test_media_upload_is_mirrored_to_tenant_object_storage(tmp_path, monkeypatch):
+    import base64
+
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
+    monkeypatch.setenv("OBJECT_STORE_LOCAL_ROOT", str(tmp_path / "objects"))
+    project = create_course_project(
+        {"course_title": "Media course", "audience": "operators", "language": "English"}, _ctx()
+    )
+    project_id = project["data"]["project_id"]
+    result = upload_media_asset(
+        {
+            "project_id": project_id,
+            "filename": "diagram.png",
+            "content_base64": base64.b64encode(b"safe-image-bytes").decode(),
+        },
+        _ctx(),
+    )
+    assert result["ok"] is True
+    stored = next((tmp_path / "objects" / "tenants" / "tenant-a" / "media").glob("media_*/tenant-a--diagram.png"))
+    assert stored.read_bytes() == b"safe-image-bytes"
 
 
 def test_ingest_source_rejects_path_traversal(tmp_path, monkeypatch):
@@ -180,6 +207,7 @@ def test_request_publish_approval_never_publishes(tmp_path, monkeypatch):
 def test_build_export_package_supports_h5p_without_new_public_tool(tmp_path, monkeypatch):
     monkeypatch.setenv("COURSE_PROJECT_STORE_PATH", str(tmp_path / "projects.json"))
     monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "output"))
+    monkeypatch.setenv("OBJECT_STORE_LOCAL_ROOT", str(tmp_path / "objects"))
     upload_dir = tmp_path / "uploads"
     upload_dir.mkdir()
     (upload_dir / "source.txt").write_text("Ramp safety source text with procedures and controls.", encoding="utf-8")
@@ -214,6 +242,8 @@ def test_build_export_package_supports_h5p_without_new_public_tool(tmp_path, mon
     assert result["ok"] is True
     assert result["data"]["export_format"] == "h5p"
     assert result["data"]["package_path"].endswith(".h5p")
+    exported = list((tmp_path / "objects" / "tenants" / "tenant-a" / "exports").glob("export_*/*.h5p"))
+    assert len(exported) == 1
 
 
 def test_build_scorm_export_embeds_generated_activities(tmp_path, monkeypatch):

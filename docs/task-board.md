@@ -36,6 +36,7 @@ This is the project-level source of truth for work status. Update it whenever wo
 | T-016 | Done | Claude | Three-question interview + one-shot plan approval; media briefs + upload channel + attach_media; parallel submit_course_module; licensing tiers with export quotas and white-label branding. | `discovery/`, `media_briefs.py`, `licensing.py`, `scripts/issue_license.py`, `tools.py`, `tests/test_licensing.py` | E2E script: 3 answers → plan → parallel modules → briefs → upload → attach → metered export; 120 tests green. |
 | T-022 | Done | Codex | Add Course Studio accessibility and localization release gates. | `apps/scorm_editor/`, `tests/test_scorm_editor.py`, `docs/course-studio-localization-accessibility.md` | Review UI reports accessibility blockers, exports reject blockers, and persisted locales inherit source content with draft/review/approved translation states. |
 | T-023 | Done | Codex | Complete durable outbox failure operations. | `migrations/0009_outbox_dead_letters.sql`, `outbox.py`, `outbox_worker.py`, `tests/` | Explicit consumers lease idempotent events, bounded failures enter a tenant-scoped dead-letter queue, and operators can safely redrive them. |
+| T-024 | Done | Codex | Persist production source, media, export, and hosted-release binaries. | `object_store.py`, `tools.py`, `hosted_learning.py`, `tests/`, `docs/object-storage.md` | Production requires S3-compatible storage; tenant-prefixed, content-addressed objects cover sources, media, generated ZIPs, and hosted releases. |
 
 ## Backlog
 

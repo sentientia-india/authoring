@@ -617,7 +617,7 @@ The IDs below are the execution order. A child task can begin early, but its pha
 - [x] PROD-007 Build and pass pinned Moodle scenarios. Evidence: `docs/moodle-conformance.md`; CI run `29228239968`, Moodle job `86746998104`.
 - [x] PROD-008 Make conformance regression checks release-blocking. Evidence: CI run `29228239968` ran deployment job `86747774750` only after the reusable Moodle job passed.
 - [x] PROD-009 Specify canonical tenant/data/event/job models. Evidence: `docs/production-data-contract.md`.
-- [ ] PROD-010 Persist production state and binaries in PostgreSQL/object storage.
+- [x] PROD-010 Persist production state and binaries in PostgreSQL/object storage. Evidence: PostgreSQL migrations/repositories, content-addressed source/media/export objects, immutable hosted-release package objects, `docs/object-storage.md`, and integration tests.
 - [x] PROD-011 Add durable queues, idempotency, outbox, retries, dead-lettering, and redrive. Evidence: `migrations/0009_outbox_dead_letters.sql`, `src/course_mcp_server/outbox.py`, `src/course_mcp_server/outbox_worker.py`, and PostgreSQL integration tests.
 - [ ] PROD-012 Pass tenant isolation, backup restore, and threat-model gates.
 
