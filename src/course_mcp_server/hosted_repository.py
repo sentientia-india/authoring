@@ -81,14 +81,18 @@ def resolve_grant(token: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def grant_entitlement(*, tenant_id: str, release_id: str, purchaser: str, access_token: str) -> dict[str, Any]:
+def grant_entitlement(
+    *, tenant_id: str, release_id: str, purchaser: str, access_token: str, source: str = "purchase"
+) -> dict[str, Any]:
+    if source not in {"purchase", "email_verified", "invitation", "tenant_membership"}:
+        raise ValueError("Unsupported hosted entitlement source")
     entitlement_id = f"ent_{uuid4().hex}"
     with connection() as active:
         row = active.execute(
             """
             INSERT INTO hosted_entitlements
                 (tenant_id, entitlement_id, release_id, subject_hash, access_token_hash, source)
-            VALUES (%s, %s, %s, %s, %s, 'purchase')
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING tenant_id, entitlement_id, release_id, status, effective_at
             """,
             (
@@ -97,25 +101,28 @@ def grant_entitlement(*, tenant_id: str, release_id: str, purchaser: str, access
                 release_id,
                 hashlib.sha256(purchaser.lower().encode()).hexdigest(),
                 token_hash(access_token),
+                source,
             ),
         ).fetchone()
     return dict(row)
 
 
-def has_entitlement(*, tenant_id: str, release_id: str, access_token: str | None) -> bool:
+def has_entitlement(
+    *, tenant_id: str, release_id: str, access_token: str | None, required_sources: set[str] | None = None
+) -> bool:
     if not access_token:
         return False
     with connection() as active:
         row = active.execute(
             """
-            SELECT 1 FROM hosted_entitlements
+            SELECT source FROM hosted_entitlements
             WHERE tenant_id = %s AND release_id = %s AND access_token_hash = %s
               AND status = 'active' AND revoked_at IS NULL
               AND (expires_at IS NULL OR expires_at > now())
             """,
             (tenant_id, release_id, token_hash(access_token)),
         ).fetchone()
-    return bool(row)
+    return bool(row and (not required_sources or row["source"] in required_sources))
 
 
 def append_event(

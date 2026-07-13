@@ -635,8 +635,8 @@ The IDs below are the execution order. A child task can begin early, but its pha
 
 ### Hosted product
 
-- [ ] PROD-201 Implement immutable hosted releases and share modes.
-- [ ] PROD-202 Implement identity, enrollment, resume, and revocation.
+- [x] PROD-201 Implement immutable hosted releases and share modes. Evidence: content-addressed PostgreSQL releases/object-store packages; public, unlisted, email-verified, invite-only, tenant-only, and paid grants; mode-specific entitlement enforcement; revocable hashed tokens; PostgreSQL and portable tests.
+- [x] PROD-202 Implement identity, enrollment, resume, and revocation. Evidence: tenant-scoped learner identity, idempotent enrollment, versioned attempt state, cross-device location/suspend data, enrollment/grant revocation, and PostgreSQL lifecycle tests.
 - [ ] PROD-203 Implement embeds and custom domains.
 - [ ] PROD-204 Implement collections, paths, badges, and certificates.
 - [ ] PROD-205 Implement transactional email and deliverability operations.

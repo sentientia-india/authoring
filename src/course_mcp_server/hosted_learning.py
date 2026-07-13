@@ -137,10 +137,19 @@ def resolve_share_file(token: str, relative_path: str, access_token: str | None 
         grant = resolve_grant(token)
         if not grant:
             raise HostedLearningError("Share not found")
-        if grant["mode"] == "paid" and not has_entitlement(
-            tenant_id=grant["tenant_id"], release_id=grant["release_id"], access_token=access_token
+        required_sources = {
+            "paid": {"purchase"},
+            "email_verified": {"email_verified"},
+            "invite_only": {"invitation"},
+            "tenant_only": {"tenant_membership"},
+        }.get(grant["mode"])
+        if required_sources and not has_entitlement(
+            tenant_id=grant["tenant_id"],
+            release_id=grant["release_id"],
+            access_token=access_token,
+            required_sources=required_sources,
         ):
-            raise HostedLearningError("Payment entitlement required")
+            raise HostedLearningError("Access entitlement required")
         relative = PurePosixPath((relative_path or "index.html").replace("\\", "/"))
         if relative.is_absolute() or ".." in relative.parts:
             raise HostedLearningError("Invalid share path")
@@ -155,10 +164,20 @@ def resolve_share_file(token: str, relative_path: str, access_token: str | None 
     share = data["shares"].get(token)
     if not share:
         raise HostedLearningError("Share not found")
-    if share.get("paid"):
+    required_source = {
+        "paid": "purchase",
+        "email_verified": "email_verified",
+        "invite_only": "invitation",
+        "tenant_only": "tenant_membership",
+    }.get(share.get("access_mode"))
+    if required_source:
         entitlement = data["entitlements"].get(hashlib.sha256((access_token or "").encode()).hexdigest())
-        if not entitlement or entitlement.get("share_token") != token:
-            raise HostedLearningError("Payment entitlement required")
+        if (
+            not entitlement
+            or entitlement.get("share_token") != token
+            or entitlement.get("source") != required_source
+        ):
+            raise HostedLearningError("Access entitlement required")
     relative = PurePosixPath((relative_path or "index.html").replace("\\", "/"))
     if relative.is_absolute() or ".." in relative.parts:
         raise HostedLearningError("Invalid share path")
@@ -279,29 +298,53 @@ def tutor_reply(question: str, course_context: str, api_key: str, model: str) ->
         raise HostedLearningError("Tutor provider returned an invalid response") from exc
 
 
-def grant_paid_access(share_token: str, purchaser: str) -> dict[str, str]:
+def grant_share_access(
+    share_token: str, subject: str, source: str, *, expected_tenant_id: str | None = None
+) -> dict[str, str]:
+    subject = subject.strip().lower()
+    if len(subject) < 3 or len(subject) > 320:
+        raise HostedLearningError("A valid entitlement subject is required")
+    mode_sources = {
+        "paid": "purchase",
+        "email_verified": "email_verified",
+        "invite_only": "invitation",
+        "tenant_only": "tenant_membership",
+    }
     if database_url():
         grant = resolve_grant(share_token)
         if not grant:
             raise HostedLearningError("Share not found")
+        if expected_tenant_id and grant["tenant_id"] != expected_tenant_id:
+            raise HostedLearningError("Share not found")
+        if mode_sources.get(grant["mode"]) != source:
+            raise HostedLearningError("Entitlement source does not match share mode")
         access_token = secrets.token_urlsafe(32)
         grant_entitlement(
             tenant_id=grant["tenant_id"],
             release_id=grant["release_id"],
-            purchaser=purchaser,
+            purchaser=subject,
             access_token=access_token,
+            source=source,
         )
         return {"access_token": access_token, "share_token": share_token}
     data = _load()
-    if share_token not in data["shares"]:
+    share = data["shares"].get(share_token)
+    if not share or (expected_tenant_id and share["tenant"] != expected_tenant_id):
         raise HostedLearningError("Share not found")
+    if mode_sources.get(share.get("access_mode")) != source:
+        raise HostedLearningError("Entitlement source does not match share mode")
     access_token = secrets.token_urlsafe(32)
     data["entitlements"][hashlib.sha256(access_token.encode()).hexdigest()] = {
         "share_token": share_token,
-        "purchaser_hash": hashlib.sha256(purchaser.lower().encode()).hexdigest(),
+        "subject_hash": hashlib.sha256(subject.lower().encode()).hexdigest(),
+        "source": source,
     }
     _save(data)
     return {"access_token": access_token, "share_token": share_token}
+
+
+def grant_paid_access(share_token: str, purchaser: str) -> dict[str, str]:
+    return grant_share_access(share_token, purchaser, "purchase")
 
 
 def capture_lead(share_token: str, email: str) -> dict[str, Any]:

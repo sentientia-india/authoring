@@ -29,6 +29,7 @@ from course_mcp_server.hosted_repository import (
     verify_custom_domain,
 )
 from course_mcp_server.hosted_learning import (
+    HostedLearningError,
     course_dashboard,
     create_share,
     grant_paid_access,
@@ -114,6 +115,49 @@ def test_public_hosted_api_uses_postgres_and_object_store(tmp_path, monkeypatch)
     )
     assert course_dashboard(share["share_token"])["average_score"] == 91.0
     assert list((tmp_path / "objects").rglob("sellable.zip"))
+
+
+def test_every_restricted_share_mode_requires_matching_entitlement(tmp_path, monkeypatch):
+    apply(database_url())
+    monkeypatch.setenv("HOSTED_COURSE_ROOT", str(tmp_path / "hosted"))
+    monkeypatch.setenv("OBJECT_STORE_LOCAL_ROOT", str(tmp_path / "objects"))
+    monkeypatch.delenv("OBJECT_STORE_BUCKET", raising=False)
+    package = tmp_path / "access-modes.zip"
+    with ZipFile(package, "w") as archive:
+        archive.writestr("index.html", "<h1>Protected course</h1>")
+
+    for mode, source in {
+        "email_verified": "email_verified",
+        "invite_only": "invitation",
+        "tenant_only": "tenant_membership",
+        "paid": "purchase",
+    }.items():
+        share = create_share(package, tenant="tenant-access-modes", course_id="course_modes", access_mode=mode)
+        with pytest.raises(HostedLearningError, match="entitlement required"):
+            resolve_share_file(share["share_token"], "index.html")
+        wrong_token = secrets.token_urlsafe(32)
+        grant_entitlement(
+            tenant_id="tenant-access-modes",
+            release_id=share["release_id"],
+            purchaser=f"{mode}@example.com",
+            access_token=wrong_token,
+            source="purchase" if source != "purchase" else "email_verified",
+        )
+        with pytest.raises(HostedLearningError, match="entitlement required"):
+            resolve_share_file(share["share_token"], "index.html", wrong_token)
+        access_token = secrets.token_urlsafe(32)
+        grant_entitlement(
+            tenant_id="tenant-access-modes",
+            release_id=share["release_id"],
+            purchaser=f"allowed-{mode}@example.com",
+            access_token=access_token,
+            source=source,
+        )
+        assert resolve_share_file(share["share_token"], "index.html", access_token).is_file()
+
+    for mode in ("public", "unlisted"):
+        share = create_share(package, tenant="tenant-access-modes", course_id="course_modes", access_mode=mode)
+        assert resolve_share_file(share["share_token"], "index.html").is_file()
 
 
 def test_identity_enrollment_resume_and_revocation_lifecycle():

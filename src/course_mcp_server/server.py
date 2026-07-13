@@ -31,6 +31,7 @@ from .hosted_learning import (
     course_dashboard,
     create_share,
     grant_paid_access,
+    grant_share_access,
     record_learner_event,
     resolve_share_file,
     tutor_reply,
@@ -291,6 +292,21 @@ def create_mcp_server():
         except (PermissionError, ValueError, TypeError):
             return JSONResponse({"ok": False, "error": "invalid_custom_domain"}, status_code=400)
         return JSONResponse({"ok": True, "domain": result}, status_code=201)
+
+    @mcp.custom_route("/api/hosted/access", methods=["POST"], include_in_schema=False)
+    async def hosted_access_grant(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            payload = await request.json()
+            result = grant_share_access(
+                str(payload.get("share_token") or ""),
+                str(payload.get("subject") or ""),
+                str(payload.get("source") or ""),
+                expected_tenant_id=context.tenant_id,
+            )
+        except (PermissionError, HostedLearningError, ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "access_grant_failed"}, status_code=400)
+        return JSONResponse({"ok": True, "access": result}, status_code=201)
 
     @mcp.custom_route("/api/hosted/domains/verify", methods=["POST"], include_in_schema=False)
     async def hosted_domain_verify(request):  # noqa: ANN001

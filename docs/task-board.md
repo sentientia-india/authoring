@@ -39,6 +39,7 @@ This is the project-level source of truth for work status. Update it whenever wo
 | T-024 | Done | Codex | Persist production source, media, export, and hosted-release binaries. | `object_store.py`, `tools.py`, `hosted_learning.py`, `tests/`, `docs/object-storage.md` | Production requires S3-compatible storage; tenant-prefixed, content-addressed objects cover sources, media, generated ZIPs, and hosted releases. |
 | T-025 | Done | Codex | Prove repository tenant isolation and close the production security gate. | `billing_repository.py`, PostgreSQL repository tests, `docs/security-threat-model.md` | Cross-tenant negative tests cover every tenant-facing repository family; provider subscription IDs cannot mutate another tenant; CI performs a clean backup restore. |
 | T-026 | Done | Codex | Add resumable Course Studio background generation. | `apps/scorm_editor/server.py`, Review UI, `tests/test_scorm_editor.py` | Approved outlines generate per module with persisted progress, cooperative cancellation, partial recovery, retry, and redacted failure codes; production generation fails closed without a configured provider. |
+| T-027 | Done | Codex | Enforce every hosted share access mode. | `hosted_learning.py`, `hosted_repository.py`, authenticated hosted REST routes, PostgreSQL and portable tests | Public/unlisted remain link-based; email-verified, invited, tenant-only, and paid shares require a matching typed entitlement and fail closed for absent or mismatched evidence. |
 
 ## Backlog
 

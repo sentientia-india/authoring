@@ -9,6 +9,7 @@ from course_mcp_server.hosted_learning import (
     create_share,
     grade_open_answer,
     grant_paid_access,
+    grant_share_access,
     record_learner_event,
     resolve_share_file,
 )
@@ -45,6 +46,24 @@ def test_share_rejects_zip_slip(tmp_path, monkeypatch):
         archive.writestr("../escape.txt", "bad")
     with pytest.raises(HostedLearningError):
         create_share(package, tenant="acme", course_id="course_1")
+
+
+def test_restricted_share_modes_fail_closed_and_require_matching_evidence(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOSTED_COURSE_ROOT", str(tmp_path / "hosted"))
+    package = tmp_path / "modes.zip"
+    _package(package)
+    for mode, source in {
+        "email_verified": "email_verified",
+        "invite_only": "invitation",
+        "tenant_only": "tenant_membership",
+    }.items():
+        share = create_share(package, tenant="acme", course_id=f"course-{mode}", access_mode=mode)
+        with pytest.raises(HostedLearningError, match="entitlement required"):
+            resolve_share_file(share["share_token"], "index.html")
+        with pytest.raises(HostedLearningError, match="does not match"):
+            grant_share_access(share["share_token"], "learner@example.com", "purchase")
+        access = grant_share_access(share["share_token"], "learner@example.com", source)
+        assert resolve_share_file(share["share_token"], "index.html", access["access_token"]).is_file()
 
 
 def test_open_answer_grading_requires_human_review_when_partial():
