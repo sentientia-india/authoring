@@ -34,4 +34,12 @@ The environment bootstrap is complete when Moodle becomes healthy. Moodle accept
 
 ## Acceptance evidence
 
-- Current tracked run: pending after the browser acceptance workflow change.
+- Result: passed on 2026-07-13 for both SCORM 1.2 and SCORM 2004.
+- Source commit: `14442ed2ec374307398ebd4c1f6980315acd3382`.
+- GitHub Actions run: [CI 29228239968](https://github.com/ratsam93/course_pack_elearning/actions/runs/29228239968).
+- Moodle job: `86746998104`; two Chrome/Behat scenarios passed in the pinned Moodle 4.5 LTS environment.
+- Release gate: the same run completed the production deployment job `86747774750` only after Moodle passed.
+- SCORM 1.2 SHA-256: `177da7951e357e90484489c0667fa8bf9fb450e368d86a169ae239416e0fe3d6`.
+- SCORM 2004 SHA-256: `a026a9e0f54fadb2d1abe0b4f01cb4c859e69efacfe0f2c406d0a16f50a82408`.
+- Archived artifacts: `moodle-scorm-conformance-inputs` and `moodle-diagnostics` (GitHub retention applies).
+- Repository evidence record: [`evidence/moodle-2026-07-13.json`](evidence/moodle-2026-07-13.json).

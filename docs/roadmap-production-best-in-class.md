@@ -612,10 +612,10 @@ The IDs below are the execution order. A child task can begin early, but its pha
 - [ ] PROD-002 Complete Course Studio functional and failure states.
 - [ ] PROD-003 Complete editor security, accessibility, responsive, and conflict behavior.
 - [ ] PROD-004 Pass the complete editor round-trip suite.
-- [ ] PROD-005 Regenerate SCORM validation packages from the corrected runtime.
+- [x] PROD-005 Regenerate SCORM validation packages from the corrected runtime. Evidence: CI run `29228239968` archived both packages and SHA-256 validation reports.
 - [ ] PROD-006 Run the tracked SCORM Cloud 1.2 and 2004 cross-check last. Status: paused by product decision on 2026-07-13 until every other production gate is complete.
-- [ ] PROD-007 Build and pass pinned Moodle scenarios.
-- [ ] PROD-008 Make conformance regression checks release-blocking.
+- [x] PROD-007 Build and pass pinned Moodle scenarios. Evidence: `docs/moodle-conformance.md`; CI run `29228239968`, Moodle job `86746998104`.
+- [x] PROD-008 Make conformance regression checks release-blocking. Evidence: CI run `29228239968` ran deployment job `86747774750` only after the reusable Moodle job passed.
 - [x] PROD-009 Specify canonical tenant/data/event/job models. Evidence: `docs/production-data-contract.md`.
 - [ ] PROD-010 Persist production state and binaries in PostgreSQL/object storage.
 - [ ] PROD-011 Add durable queues, idempotency, outbox, and retries.

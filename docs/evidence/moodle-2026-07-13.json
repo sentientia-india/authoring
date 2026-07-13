@@ -1,0 +1,56 @@
+{
+  "evidence_version": 1,
+  "accepted_at_utc": "2026-07-13",
+  "repository": "ratsam93/course_pack_elearning",
+  "commit": "14442ed2ec374307398ebd4c1f6980315acd3382",
+  "workflow_run": {
+    "id": 29228239968,
+    "url": "https://github.com/ratsam93/course_pack_elearning/actions/runs/29228239968",
+    "conclusion": "success",
+    "moodle_job_id": 86746998104,
+    "deploy_job_id": 86747774750
+  },
+  "environment": {
+    "moodle": "4.5 LTS",
+    "moodle_commit": "da7446c6c7b786f7f7588537f1cd48b3709c5439",
+    "moodle_docker_commit": "81a20665c2d2322469dc491c1f972ebde90ec014",
+    "database": "PostgreSQL",
+    "php": "8.3",
+    "browser": "Chrome/Selenium"
+  },
+  "packages": [
+    {
+      "scorm_version": "1.2",
+      "file": "course-mcp-scorm-12.zip",
+      "sha256": "177da7951e357e90484489c0667fa8bf9fb450e368d86a169ae239416e0fe3d6",
+      "package_validation": "passed",
+      "tracked_browser_acceptance": "passed"
+    },
+    {
+      "scorm_version": "2004",
+      "file": "course-mcp-scorm-2004.zip",
+      "sha256": "a026a9e0f54fadb2d1abe0b4f01cb4c859e69efacfe0f2c406d0a16f50a82408",
+      "package_validation": "passed",
+      "tracked_browser_acceptance": "passed"
+    }
+  ],
+  "verified_capabilities": [
+    "initialize",
+    "score",
+    "completion",
+    "success",
+    "location",
+    "suspend_data",
+    "interaction",
+    "commit",
+    "session_time",
+    "terminate",
+    "relaunch"
+  ],
+  "artifacts": [
+    "moodle-scorm-conformance-inputs",
+    "moodle-diagnostics"
+  ],
+  "release_blocking": true,
+  "production_deployment": "passed"
+}
