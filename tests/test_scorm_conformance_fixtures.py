@@ -16,7 +16,9 @@ def test_conformance_fixture_builder_generates_valid_hashed_packages(tmp_path):
             index = package.read("index.html").decode("utf-8")
         assert "Run Moodle acceptance" in index
         assert "CourseScorm.recordInteraction" in index
-        assert "Acceptance checkpoint saved" in index
+        assert "Acceptance checkpoint saved and terminated" in index
+        assert 'outcomes.push(window.CourseScorm.finish())' in index
+        assert 'result.textContent = "Restored acceptance marker"' in index
         assert "Restored acceptance marker - Completion accepted" in index
 
     verified = build(tmp_path, verify_only=True)

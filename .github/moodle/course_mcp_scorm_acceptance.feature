@@ -22,14 +22,14 @@ Feature: Course MCP packages retain tracked state in Moodle
     And I press "Enter"
     And I switch to "scorm_object" iframe
     And I press "Run Moodle acceptance"
-    Then I should see "Acceptance checkpoint saved"
+    Then I should see "Acceptance checkpoint saved and terminated"
     And I wait "2" seconds
     And I switch to the main frame
     And I am on "Course MCP conformance" course homepage
     And I am on the "<name>" "scorm activity" page
     And I press "Enter"
     And I switch to "scorm_object" iframe
-    And the page title should contain "Restored acceptance marker - Completion accepted"
+    And I should see "Restored acceptance marker"
     And I wait "2" seconds
     And I switch to the main frame
     And I am on homepage

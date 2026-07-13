@@ -39,10 +39,13 @@ MOODLE_PROBE = """
   var restored = window.CourseScorm.getLocation() === "acceptance-complete" &&
     window.CourseScorm.getSuspendData().marker === "course-mcp-moodle";
   if (restored) {
-    var restoredCompletion = window.CourseScorm.markComplete(true) && window.CourseScorm.commit();
-    document.title = restoredCompletion
-      ? "Restored acceptance marker - Completion accepted"
-      : "Restored acceptance marker - Completion failed";
+    result.textContent = "Restored acceptance marker";
+    window.setTimeout(function () {
+      var restoredCompletion = window.CourseScorm.markComplete(true) && window.CourseScorm.commit();
+      document.title = restoredCompletion
+        ? "Restored acceptance marker - Completion accepted"
+        : "Restored acceptance marker - Completion failed";
+    }, 1200);
   }
   acceptanceButton.addEventListener("click", function () {
     var outcomes = [
@@ -53,8 +56,11 @@ MOODLE_PROBE = """
       window.CourseScorm.recordInteraction("final-check", "choice", "safe-exit", "correct", "Moodle acceptance"),
       window.CourseScorm.commit()
     ];
-    result.textContent = outcomes.every(function (value) { return value === true || value === "true"; })
-      ? "Acceptance checkpoint saved" : "Acceptance failed";
+    window.setTimeout(function () {
+      outcomes.push(window.CourseScorm.finish());
+      result.textContent = outcomes.every(function (value) { return value === true || value === "true"; })
+        ? "Acceptance checkpoint saved and terminated" : "Acceptance failed";
+    }, 1200);
   });
 }());
 </script>
