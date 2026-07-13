@@ -44,3 +44,14 @@ def test_public_demo_gallery_contains_three_keyboard_accessible_samples():
     assert gallery.count('class="button demo-check"') == 3
     assert gallery.count('role="status" aria-live="polite"') == 3
     assert "input:checked" in script and "card.dataset.answer" in script
+
+
+def test_public_five_minute_quickstart_is_linked_and_copy_paste_ready():
+    landing = (LANDING / "index.html").read_text(encoding="utf-8")
+    quickstart = (LANDING / "quickstart.html").read_text(encoding="utf-8")
+    documentation = (ROOT / "docs" / "five-minute-mcp-quickstart.md").read_text(encoding="utf-8")
+    assert 'href="/quickstart.html"' in landing
+    assert "Five-minute MCP quickstart" in quickstart
+    assert "claude mcp add --transport http" in quickstart
+    assert "Authorization: Bearer YOUR_LICENSE_KEY" in quickstart
+    assert "less than five minutes" in documentation
