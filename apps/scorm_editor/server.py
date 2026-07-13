@@ -401,6 +401,120 @@ def update_collaboration(sid: str, action: str, payload: dict) -> dict:
     return state
 
 
+def accessibility_report(course: dict) -> dict:
+    """Return deterministic export blockers and warnings for authored learner content."""
+    issues: list[dict] = []
+
+    def issue(severity: str, code: str, path: str, message: str) -> None:
+        issues.append({"severity": severity, "code": code, "path": path, "message": message})
+
+    def check_media(media: dict, path: str) -> None:
+        kind = str(media.get("type") or media.get("kind") or "").lower()
+        if kind == "image" and not str(media.get("alt") or media.get("alt_text") or "").strip():
+            issue("blocker", "image_alt_missing", path, "Images need meaningful alternative text.")
+        if kind == "video" and not str(media.get("captions") or media.get("transcript") or "").strip():
+            issue("blocker", "video_text_alternative_missing", path, "Videos need captions or a transcript.")
+        if kind == "link" and not str(media.get("label") or media.get("title") or "").strip():
+            issue("blocker", "link_label_missing", path, "Links need a descriptive label.")
+
+    def check_question(question: dict, path: str) -> None:
+        if not str(question.get("question") or question.get("prompt") or "").strip():
+            issue("blocker", "question_prompt_missing", path, "Assessment questions need a prompt.")
+        question_type = str(question.get("type") or question.get("question_type") or "choice").lower()
+        if question_type not in {"open", "open_response", "reflection", "text"} and len(
+            question.get("options") or question.get("choices") or []
+        ) < 2:
+            issue("blocker", "question_options_missing", path, "Choice questions need at least two options.")
+
+    if not str(course.get("language") or "").strip():
+        issue("warning", "language_missing", "language", "Set the authored course language.")
+    for module_index, module in enumerate(course.get("modules") or []):
+        for lesson_index, lesson in enumerate(module.get("lessons") or []):
+            base = f"modules[{module_index}].lessons[{lesson_index}]"
+            if not str(lesson.get("title") or "").strip():
+                issue("blocker", "lesson_title_missing", f"{base}.title", "Every lesson needs a title.")
+            for media_index, media in enumerate(lesson.get("media") or []):
+                check_media(media, f"{base}.media[{media_index}]")
+            for block_index, block in enumerate(lesson.get("content_blocks") or []):
+                if str(block.get("type") or "").lower() in {"image", "video", "link"}:
+                    check_media(block, f"{base}.content_blocks[{block_index}]")
+            for question_index, question in enumerate(lesson.get("quiz_questions") or []):
+                check_question(question, f"{base}.quiz_questions[{question_index}]")
+    for question_index, question in enumerate((course.get("final_assessment") or {}).get("questions") or []):
+        check_question(question, f"final_assessment.questions[{question_index}]")
+    blockers = sum(item["severity"] == "blocker" for item in issues)
+    warnings = sum(item["severity"] == "warning" for item in issues)
+    return {
+        "status": "fail" if blockers else "pass",
+        "blocking_policy": "Export is blocked while blocker-severity accessibility issues remain.",
+        "summary": {"blockers": blockers, "warnings": warnings, "issues": len(issues)},
+        "issues": issues,
+    }
+
+
+def _base_locale(course: dict) -> str:
+    language = str(course.get("language") or "en").strip().lower()
+    aliases = {"english": "en", "spanish": "es", "french": "fr", "german": "de", "hindi": "hi"}
+    candidate = aliases.get(language, language.replace("_", "-")[:20])
+    return candidate if re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", candidate) else "en"
+
+
+def localization_state(sid: str) -> dict:
+    workspace = _workspace(sid)
+    path = workspace / ".localization.json"
+    if not path.is_file():
+        course = json.loads((workspace / "data" / "course.json").read_text(encoding="utf-8"))
+        base = _base_locale(course)
+        _write_json_atomic(
+            path,
+            {"base_locale": base, "locales": {base: {"status": "source", "overrides": {}, "updated_at": time.time()}}},
+        )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def update_localization(sid: str, action: str, payload: dict) -> dict:
+    workspace = _workspace(sid)
+    path = workspace / ".localization.json"
+    state = localization_state(sid)
+    locale = str(payload.get("locale") or "").strip().lower().replace("_", "-")
+    if not re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", locale):
+        raise ValueError("Locale must be a valid BCP 47 language tag")
+    if locale == state["base_locale"] and action != "set_status":
+        raise ValueError("The source locale inherits directly from the course")
+    if action == "add_locale":
+        state["locales"].setdefault(locale, {"status": "draft", "overrides": {}, "updated_at": time.time()})
+    elif action == "set_status":
+        status = str(payload.get("status") or "")
+        if status not in {"source", "draft", "in_review", "approved"}:
+            raise ValueError("Invalid translation status")
+        if locale == state["base_locale"] and status != "source":
+            raise ValueError("The base locale status must remain source")
+        if locale not in state["locales"]:
+            raise ValueError("Locale not found")
+        state["locales"][locale]["status"] = status
+        state["locales"][locale]["updated_at"] = time.time()
+    elif action == "set_override":
+        field_path = str(payload.get("path") or "").strip()[:300]
+        value = str(payload.get("value") or "")[:20_000]
+        if not field_path or not value.strip():
+            raise ValueError("Translation path and value are required")
+        target = state["locales"].get(locale)
+        if not target:
+            raise ValueError("Locale not found")
+        target["overrides"][field_path] = value
+        target.update({"status": "draft", "updated_at": time.time()})
+    elif action == "remove_override":
+        target = state["locales"].get(locale)
+        if not target:
+            raise ValueError("Locale not found")
+        target["overrides"].pop(str(payload.get("path") or ""), None)
+        target.update({"status": "draft", "updated_at": time.time()})
+    else:
+        raise ValueError("Invalid localization action")
+    _write_json_atomic(path, state)
+    return state
+
+
 def ingest_source(sid: str, title: str, text: str) -> dict:
     workspace = _workspace(sid)
     title = str(title or "").strip()[:200]
@@ -470,6 +584,10 @@ def _sync_manifest(workspace: Path) -> None:
 
 def export_package(sid: str) -> bytes:
     workspace = _workspace(sid)
+    course = json.loads((workspace / "data" / "course.json").read_text(encoding="utf-8"))
+    report = accessibility_report(course)
+    if report["status"] == "fail":
+        raise ValueError(f"Accessibility gate failed with {report['summary']['blockers']} blocker(s)")
     _sync_manifest(workspace)
     buffer = BytesIO()
     with ZipFile(buffer, "w", ZIP_DEFLATED) as package:
@@ -551,6 +669,16 @@ class Handler(BaseHTTPRequestHandler):
             if route.startswith("/api/sources/"):
                 sid = route.removeprefix("/api/sources/")
                 self._json(HTTPStatus.OK, {"session": sid, "sources": list_sources(sid)})
+                return
+            if route.startswith("/api/accessibility/"):
+                sid = route.removeprefix("/api/accessibility/")
+                workspace = _workspace(sid)
+                course = json.loads((workspace / "data" / "course.json").read_text(encoding="utf-8"))
+                self._json(HTTPStatus.OK, {"session": sid, "report": accessibility_report(course)})
+                return
+            if route.startswith("/api/localization/"):
+                sid = route.removeprefix("/api/localization/")
+                self._json(HTTPStatus.OK, {"session": sid, "localization": localization_state(sid)})
                 return
         except SessionExpiredError as exc:
             self._json(HTTPStatus.GONE, {"ok": False, "error": "session_expired", "message": str(exc)})
@@ -634,6 +762,12 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._body()
                 result = ingest_source(sid, str(body.get("title") or ""), str(body.get("text") or ""))
                 self._json(HTTPStatus.CREATED, {"ok": True, "source": result})
+                return
+            if route.startswith("/api/localization/"):
+                sid = route.removeprefix("/api/localization/")
+                body = self._body()
+                result = update_localization(sid, str(body.get("action") or ""), body)
+                self._json(HTTPStatus.OK, {"ok": True, "localization": result})
                 return
         except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})

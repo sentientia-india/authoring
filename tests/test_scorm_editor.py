@@ -7,6 +7,7 @@ from apps.scorm_editor.server import (
     EditConflictError,
     _build_zip,
     _import_package,
+    accessibility_report,
     collaboration_state,
     compare_revisions,
     create_course,
@@ -16,8 +17,10 @@ from apps.scorm_editor.server import (
     ingest_source,
     list_revisions,
     list_sources,
+    localization_state,
     save_course,
     update_collaboration,
+    update_localization,
 )
 
 
@@ -131,6 +134,10 @@ def test_editor_ui_has_authoring_modes_and_preview():
     assert "Outline approved" in app_js
     assert "Certificate footer" in app_js
     assert "/api/sources/" in app_js
+    assert "/api/accessibility/" in app_js
+    assert "Accessibility report" in app_js
+    assert "/api/localization/" in app_js
+    assert "Save translation" in app_js
 
 
 def test_editor_versions_saves_and_preserves_revision_history(tmp_path, monkeypatch):
@@ -207,3 +214,51 @@ def test_editor_source_intake_is_digest_verified_and_excluded_from_export(tmp_pa
     assert list_sources(created["session"])[0]["title"] == "Customer handbook"
     with ZipFile(BytesIO(export_package(created["session"]))) as package:
         assert not any("sources" in name for name in package.namelist())
+
+
+def test_editor_accessibility_report_blocks_missing_media_alternatives(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Accessible onboarding")
+    course = created["course"]
+    lesson = course["modules"][0]["lessons"][0]
+    lesson["media"] = [
+        {"type": "image", "src": "assets/media/diagram.png"},
+        {"type": "video", "src": "assets/media/demo.mp4"},
+    ]
+    report = accessibility_report(course)
+    assert report["status"] == "fail"
+    assert {item["code"] for item in report["issues"] if item["severity"] == "blocker"} == {
+        "image_alt_missing",
+        "video_text_alternative_missing",
+    }
+    save_course(created["session"], course, expected_version=1)
+    with pytest.raises(ValueError, match="Accessibility gate failed with 2 blocker"):
+        export_package(created["session"])
+    lesson["media"][0]["alt_text"] = "Account owner verification flow"
+    lesson["media"][1]["transcript"] = "The presenter demonstrates the verification flow."
+    save_course(created["session"], course, expected_version=2)
+    assert accessibility_report(course)["status"] == "pass"
+    assert export_package(created["session"])
+
+
+def test_editor_localization_inherits_source_and_tracks_translation_status(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Localized onboarding")
+    state = localization_state(created["session"])
+    assert state["base_locale"] == "en"
+    assert state["locales"]["en"]["status"] == "source"
+    state = update_localization(created["session"], "add_locale", {"locale": "es-MX"})
+    assert state["locales"]["es-mx"]["overrides"] == {}
+    state = update_localization(
+        created["session"],
+        "set_override",
+        {"locale": "es-mx", "path": "course_title", "value": "Incorporacion localizada"},
+    )
+    assert state["locales"]["es-mx"]["status"] == "draft"
+    assert state["locales"]["es-mx"]["overrides"]["course_title"] == "Incorporacion localizada"
+    state = update_localization(
+        created["session"], "set_status", {"locale": "es-mx", "status": "approved"}
+    )
+    assert state["locales"]["es-mx"]["status"] == "approved"
+    with ZipFile(BytesIO(export_package(created["session"]))) as package:
+        assert not any("localization" in name for name in package.namelist())

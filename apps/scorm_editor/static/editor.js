@@ -196,9 +196,13 @@
     Promise.all([
       fetch("/api/revisions/" + state.session).then(function (res) { return res.json(); }),
       fetch("/api/collaboration/" + state.session).then(function (res) { return res.json(); }),
+      fetch("/api/accessibility/" + state.session).then(function (res) { return res.json(); }),
+      fetch("/api/localization/" + state.session).then(function (res) { return res.json(); }),
     ]).then(function (rows) {
       var revisions = rows[0].revisions || [];
       var collaboration = rows[1].collaboration || { comments: [], approvals: [], roles: {} };
+      var accessibility = rows[2].report || { status: "pass", summary: { blockers: 0, warnings: 0 }, issues: [] };
+      var localization = rows[3].localization || { base_locale: "en", locales: {} };
       box.replaceChildren();
       var heading = document.createElement("h3"); heading.textContent = "Review & approval"; box.appendChild(heading);
       var form = document.createElement("form"); form.className = "review-form";
@@ -211,6 +215,15 @@
       revisions.forEach(function (revision) { var row=document.createElement("p"); row.className="review-row"; row.textContent="Revision "+revision.version+" · "+revision.reason+" · "+revision.actor; box.appendChild(row); });
       var commentTitle=document.createElement("h4"); commentTitle.textContent="Comments"; box.appendChild(commentTitle);
       collaboration.comments.forEach(function (comment) { var row=document.createElement("p"); row.className="review-row"; row.textContent=(comment.resolved?"Resolved · ":"")+comment.actor+": "+comment.message; box.appendChild(row); });
+      var accessibilityTitle=document.createElement("h4"); accessibilityTitle.textContent="Accessibility report"; box.appendChild(accessibilityTitle);
+      var accessibilitySummary=document.createElement("p"); accessibilitySummary.className="review-row"; accessibilitySummary.textContent=(accessibility.status === "pass" ? "Pass" : "Export blocked")+" / "+accessibility.summary.blockers+" blockers / "+accessibility.summary.warnings+" warnings"; box.appendChild(accessibilitySummary);
+      accessibility.issues.forEach(function(item){var row=document.createElement("p");row.className="review-row";row.textContent=item.severity.toUpperCase()+" / "+item.path+" / "+item.message;box.appendChild(row);});
+      var localizationTitle=document.createElement("h4"); localizationTitle.textContent="Localization"; box.appendChild(localizationTitle);
+      var localeForm=document.createElement("form");localeForm.className="review-form";
+      var localeInput=document.createElement("input");localeInput.required=true;localeInput.placeholder="Locale, e.g. es-MX";localeInput.setAttribute("aria-label","New locale");
+      var localeButton=document.createElement("button");localeButton.className="primary";localeButton.type="submit";localeButton.textContent="Add locale";localeForm.append(localeInput,localeButton);
+      localeForm.addEventListener("submit",function(event){event.preventDefault();fetch("/api/localization/"+state.session,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add_locale",locale:localeInput.value})}).then(function(res){return res.json();}).then(function(data){if(!data.ok)throw new Error(data.error||"Locale update failed");renderReview();}).catch(function(error){toast(error.message);});});box.appendChild(localeForm);
+      Object.keys(localization.locales).sort().forEach(function(locale){var item=localization.locales[locale];var row=document.createElement("div");row.className="review-row";var label=document.createElement("span");label.textContent=locale+(locale===localization.base_locale?" / inherited source":" / "+Object.keys(item.overrides||{}).length+" overrides");var status=document.createElement("select");["source","draft","in_review","approved"].forEach(function(value){var option=document.createElement("option");option.value=value;option.textContent=value.replace("_"," ");option.selected=item.status===value;status.appendChild(option);});status.disabled=locale===localization.base_locale;status.setAttribute("aria-label",locale+" translation status");status.addEventListener("change",function(){fetch("/api/localization/"+state.session,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"set_status",locale:locale,status:status.value})}).then(function(res){return res.json();}).then(function(data){if(!data.ok)throw new Error(data.error||"Translation status failed");renderReview();}).catch(function(error){toast(error.message);});});row.append(label,status);box.appendChild(row);if(locale!==localization.base_locale){var translationForm=document.createElement("form");translationForm.className="review-form";var pathInput=document.createElement("input");pathInput.placeholder="Field path, e.g. course_title";pathInput.required=true;pathInput.setAttribute("aria-label",locale+" field path");var valueInput=document.createElement("textarea");valueInput.placeholder="Translated value";valueInput.required=true;valueInput.setAttribute("aria-label",locale+" translated value");var translateButton=document.createElement("button");translateButton.type="submit";translateButton.className="ghost";translateButton.textContent="Save translation";translationForm.append(pathInput,valueInput,translateButton);translationForm.addEventListener("submit",function(event){event.preventDefault();fetch("/api/localization/"+state.session,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"set_override",locale:locale,path:pathInput.value,value:valueInput.value})}).then(function(res){return res.json();}).then(function(data){if(!data.ok)throw new Error(data.error||"Translation save failed");renderReview();}).catch(function(error){toast(error.message);});});box.appendChild(translationForm);}});
     }).catch(function (error) { box.textContent = "Review data unavailable: " + error.message; });
   }
 

@@ -629,8 +629,8 @@ The IDs below are the execution order. A child task can begin early, but its pha
 - [ ] PROD-104 Add template library and brand kit.
 - [ ] PROD-105 Complete interaction and assessment builders.
 - [ ] PROD-106 Add revision history, comparison, comments, roles, and approvals.
-- [ ] PROD-107 Add accessibility report and blocking policy.
-- [ ] PROD-108 Add localization workflow.
+- [x] PROD-107 Add accessibility report and blocking policy. Evidence: `apps/scorm_editor/server.py`, Course Studio Review UI, `tests/test_scorm_editor.py`, and `docs/course-studio-localization-accessibility.md`.
+- [x] PROD-108 Add localization workflow. Evidence: persisted locale inheritance, translation overrides/status transitions, Course Studio Review UI, and `tests/test_scorm_editor.py`.
 - [ ] PROD-109 Complete three external pilot sign-offs.
 
 ### Hosted product
