@@ -65,6 +65,7 @@ def upsert_subscription(
                 product_id = EXCLUDED.product_id, price_id = EXCLUDED.price_id,
                 provider_snapshot_version = GREATEST(subscriptions.provider_snapshot_version, EXCLUDED.provider_snapshot_version),
                 updated_at = now()
+            WHERE subscriptions.tenant_id = EXCLUDED.tenant_id
             RETURNING tenant_id, subscription_id, tier, status, provider_subscription_id
             """,
             (
@@ -79,6 +80,8 @@ def upsert_subscription(
                 snapshot_version,
             ),
         ).fetchone()
+        if not row:
+            raise PermissionError("Subscription belongs to another tenant")
     return dict(row)
 
 

@@ -168,6 +168,7 @@ def test_identity_enrollment_resume_and_revocation_lifecycle():
         tenant_id="tenant-lifecycle", release_id=release["release_id"], token=token, mode="invite_only"
     )
     assert resolve_grant(token)
+    assert not revoke_grant(tenant_id="tenant-other", grant_id=grant["grant_id"])
     assert revoke_grant(tenant_id="tenant-lifecycle", grant_id=grant["grant_id"])
     assert resolve_grant(token) is None
 

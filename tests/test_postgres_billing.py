@@ -3,7 +3,7 @@ import os
 import pytest
 
 from course_mcp_server.billing import process_checkout_event
-from course_mcp_server.billing_repository import reconcile
+from course_mcp_server.billing_repository import reconcile, upsert_subscription
 from course_mcp_server.database import database_url
 from scripts.apply_migrations import apply
 
@@ -54,3 +54,23 @@ def test_checkout_subscription_lifecycle_and_reconciliation(tmp_path, monkeypatc
     assert process_checkout_event(restored)["entitlement_active"] is True
     report = reconcile()
     assert report["unexplained_differences"] == 0
+
+
+def test_provider_subscription_cannot_cross_tenant_boundary():
+    apply(database_url())
+    provider_id = "sub_cross_tenant_boundary"
+    upsert_subscription(
+        tenant_id="tenant-billing-owner",
+        provider_subscription_id=provider_id,
+        customer_id="cus_owner",
+        tier="pro",
+        status="active",
+    )
+    with pytest.raises(PermissionError, match="another tenant"):
+        upsert_subscription(
+            tenant_id="tenant-billing-attacker",
+            provider_subscription_id=provider_id,
+            customer_id="cus_attacker",
+            tier="enterprise",
+            status="active",
+        )

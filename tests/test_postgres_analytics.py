@@ -51,6 +51,9 @@ def test_tenant_scoped_course_question_account_funnel_and_schedules():
     assert funnel_analytics(tenant_id="tenant-analytics", release_id=release["release_id"])["leads"] == 1
     assert account_dashboard(tenant_id="tenant-analytics")["releases"] == 1
     assert account_dashboard(tenant_id="tenant-other")["releases"] == 0
+    assert course_analytics(tenant_id="tenant-other", release_id=release["release_id"])["attempts"] == 0
+    assert question_analytics(tenant_id="tenant-other", release_id=release["release_id"]) == []
+    assert funnel_analytics(tenant_id="tenant-other", release_id=release["release_id"])["leads"] == 0
     report = schedule_report(
         tenant_id="tenant-analytics",
         report_type="course",

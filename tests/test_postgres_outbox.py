@@ -37,6 +37,15 @@ def test_outbox_is_idempotent_leased_and_tenant_scoped():
     assert claimed[0]["attempt_count"] == 1
     assert not [event for event in claim_events(limit=10) if event["event_id"] == first["event_id"]]
 
+    with pytest.raises(LookupError):
+        mark_delivered(tenant_id="tenant-outbox-other", event_id=first["event_id"])
+    with pytest.raises(LookupError):
+        release_failed(
+            tenant_id="tenant-outbox-other",
+            event_id=first["event_id"],
+            error_code="unauthorized",
+        )
+
     release_failed(tenant_id="tenant-outbox", event_id=first["event_id"], error_code="temporary", delay_seconds=0)
     retried = [event for event in claim_events(limit=10) if event["event_id"] == first["event_id"]]
     assert retried[0]["attempt_count"] == 2
@@ -68,6 +77,8 @@ def test_outbox_dead_letters_after_bounded_attempts_and_can_be_redriven():
     assert result["status"] == "dead_lettered"
     assert list_dead_letters(tenant_id="tenant-outbox-dlq")[0]["event_id"] == event["event_id"]
     assert list_dead_letters(tenant_id="another-tenant") == []
+    with pytest.raises(LookupError):
+        redrive_dead_letter(tenant_id="another-tenant", event_id=event["event_id"])
     assert not [item for item in claim_events(limit=20) if item["event_id"] == event["event_id"]]
     assert redrive_dead_letter(tenant_id="tenant-outbox-dlq", event_id=event["event_id"])["status"] == "redriven"
     redriven = [item for item in claim_events(limit=20) if item["event_id"] == event["event_id"]][0]
