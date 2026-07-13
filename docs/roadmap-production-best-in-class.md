@@ -619,16 +619,16 @@ The IDs below are the execution order. A child task can begin early, but its pha
 - [x] PROD-009 Specify canonical tenant/data/event/job models. Evidence: `docs/production-data-contract.md`.
 - [x] PROD-010 Persist production state and binaries in PostgreSQL/object storage. Evidence: PostgreSQL migrations/repositories, content-addressed source/media/export objects, immutable hosted-release package objects, `docs/object-storage.md`, and integration tests.
 - [x] PROD-011 Add durable queues, idempotency, outbox, retries, dead-lettering, and redrive. Evidence: `migrations/0009_outbox_dead_letters.sql`, `src/course_mcp_server/outbox.py`, `src/course_mcp_server/outbox_worker.py`, and PostgreSQL integration tests.
-- [ ] PROD-012 Pass tenant isolation, backup restore, and threat-model gates.
+- [x] PROD-012 Pass tenant isolation, backup restore, and threat-model gates. Evidence: tenant-negative PostgreSQL tests cover project, job, audit, billing, hosted access/revocation, communication delivery, analytics, and outbox redrive; the CI backup/clean-restore drill passes; `docs/security-threat-model.md` records stop-ship findings and controls. CI run `29231241363`.
 
 ### Best-in-class authoring
 
-- [ ] PROD-101 Add new-course and source-intake workflows to Course Studio.
-- [ ] PROD-102 Add outline approval and cancellable background generation.
-- [ ] PROD-103 Add source/citation inspector.
-- [ ] PROD-104 Add template library and brand kit.
-- [ ] PROD-105 Complete interaction and assessment builders.
-- [ ] PROD-106 Add revision history, comparison, comments, roles, and approvals.
+- [x] PROD-101 Add new-course and source-intake workflows to Course Studio. Evidence: `/api/new`, digest-verified workspace source intake, Course Studio source UI, and `tests/test_scorm_editor.py`.
+- [x] PROD-102 Add outline approval and cancellable background generation. Evidence: Course Studio requires approved outlines, persists per-module job state, preserves completed modules, supports cooperative cancellation and failed-module retry, and exposes progress controls in Review; covered by `tests/test_scorm_editor.py`.
+- [x] PROD-103 Add source/citation inspector. Evidence: Course Studio Sources tab and lesson citation inspector, with sources excluded from learner exports.
+- [x] PROD-104 Add template library and brand kit. Evidence: insert palette plus theme, logo, color, typography, button, certificate, and email-style authoring controls in the real-player editor.
+- [x] PROD-105 Complete interaction and assessment builders. Evidence: typed interaction inspectors, template insertion, lesson/final question builders, pass rules, retries, randomization, and round-trip tests.
+- [x] PROD-106 Add revision history, comparison, comments, roles, and approvals. Evidence: immutable workspace snapshots, optimistic conflict checks, comparison API, collaboration state, Review UI, and tests.
 - [x] PROD-107 Add accessibility report and blocking policy. Evidence: `apps/scorm_editor/server.py`, Course Studio Review UI, `tests/test_scorm_editor.py`, and `docs/course-studio-localization-accessibility.md`.
 - [x] PROD-108 Add localization workflow. Evidence: persisted locale inheritance, translation overrides/status transitions, Course Studio Review UI, and `tests/test_scorm_editor.py`.
 - [ ] PROD-109 Complete three external pilot sign-offs.

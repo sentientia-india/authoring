@@ -198,11 +198,13 @@
       fetch("/api/collaboration/" + state.session).then(function (res) { return res.json(); }),
       fetch("/api/accessibility/" + state.session).then(function (res) { return res.json(); }),
       fetch("/api/localization/" + state.session).then(function (res) { return res.json(); }),
+      fetch("/api/generation/" + state.session).then(function (res) { return res.json(); }),
     ]).then(function (rows) {
       var revisions = rows[0].revisions || [];
       var collaboration = rows[1].collaboration || { comments: [], approvals: [], roles: {} };
       var accessibility = rows[2].report || { status: "pass", summary: { blockers: 0, warnings: 0 }, issues: [] };
       var localization = rows[3].localization || { base_locale: "en", locales: {} };
+      var generation = rows[4].generation || { status: "not_started", progress: 0, modules: [] };
       box.replaceChildren();
       var heading = document.createElement("h3"); heading.textContent = "Review & approval"; box.appendChild(heading);
       var form = document.createElement("form"); form.className = "review-form";
@@ -211,6 +213,12 @@
       form.append(input, submit); form.addEventListener("submit", function (event) { event.preventDefault(); postCollaboration("comment", { message: input.value, target: state.selected.kind || "course" }).catch(function (error) { toast(error.message); }); }); box.appendChild(form);
       var actions = document.createElement("div"); actions.className = "review-actions";
       [["approved", "Approve revision"], ["changes_requested", "Request changes"]].forEach(function (choice) { var button=document.createElement("button"); button.className="ghost"; button.textContent=choice[1]; button.addEventListener("click", function () { postCollaboration("approval", { decision: choice[0] }).catch(function (error) { toast(error.message); }); }); actions.appendChild(button); }); box.appendChild(actions);
+      var generationTitle=document.createElement("h4");generationTitle.textContent="Background generation";box.appendChild(generationTitle);
+      var generationStatus=document.createElement("p");generationStatus.className="review-row";generationStatus.setAttribute("role","status");generationStatus.textContent=generation.status.replace("_"," ")+" / "+generation.progress+"% / "+(generation.modules||[]).filter(function(item){return item.status==="succeeded";}).length+" of "+(generation.modules||[]).length+" modules";box.appendChild(generationStatus);
+      var generationActions=document.createElement("div");generationActions.className="review-actions";
+      var generationButton=document.createElement("button");generationButton.className="primary";generationButton.textContent=generation.status==="failed"||generation.status==="cancelled"?"Retry incomplete modules":"Generate approved outline";generationButton.disabled=generation.status==="queued"||generation.status==="running";generationButton.addEventListener("click",function(){fetch("/api/generation/"+state.session,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"start"})}).then(function(res){return res.json();}).then(function(data){if(!data.ok)throw new Error(data.error||"Generation failed to start");renderReview();}).catch(function(error){toast(error.message);});});generationActions.appendChild(generationButton);
+      var cancelButton=document.createElement("button");cancelButton.className="ghost";cancelButton.textContent="Cancel generation";cancelButton.disabled=generation.status!=="queued"&&generation.status!=="running";cancelButton.addEventListener("click",function(){fetch("/api/generation/"+state.session,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"cancel"})}).then(function(res){return res.json();}).then(function(data){if(!data.ok)throw new Error(data.error||"Cancellation failed");renderReview();}).catch(function(error){toast(error.message);});});generationActions.appendChild(cancelButton);box.appendChild(generationActions);
+      if(generation.status==="queued"||generation.status==="running"){setTimeout(renderReview,1000);}
       var revisionTitle=document.createElement("h4"); revisionTitle.textContent="Revision history"; box.appendChild(revisionTitle);
       revisions.forEach(function (revision) { var row=document.createElement("p"); row.className="review-row"; row.textContent="Revision "+revision.version+" · "+revision.reason+" · "+revision.actor; box.appendChild(row); });
       var commentTitle=document.createElement("h4"); commentTitle.textContent="Comments"; box.appendChild(commentTitle);

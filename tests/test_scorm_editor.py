@@ -1,4 +1,5 @@
 from io import BytesIO
+import time
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
@@ -8,17 +9,20 @@ from apps.scorm_editor.server import (
     _build_zip,
     _import_package,
     accessibility_report,
+    cancel_generation_job,
     collaboration_state,
     compare_revisions,
     create_course,
     export_package,
     get_revision,
+    generation_job_state,
     import_package,
     ingest_source,
     list_revisions,
     list_sources,
     localization_state,
     save_course,
+    start_generation_job,
     update_collaboration,
     update_localization,
 )
@@ -138,6 +142,8 @@ def test_editor_ui_has_authoring_modes_and_preview():
     assert "Accessibility report" in app_js
     assert "/api/localization/" in app_js
     assert "Save translation" in app_js
+    assert "/api/generation/" in app_js
+    assert "Cancel generation" in app_js
 
 
 def test_editor_versions_saves_and_preserves_revision_history(tmp_path, monkeypatch):
@@ -262,3 +268,66 @@ def test_editor_localization_inherits_source_and_tracks_translation_status(tmp_p
     assert state["locales"]["es-mx"]["status"] == "approved"
     with ZipFile(BytesIO(export_package(created["session"]))) as package:
         assert not any("localization" in name for name in package.namelist())
+
+
+def test_editor_generation_preserves_partial_work_and_retries_failed_modules(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Background generation course")
+    course = created["course"]
+    course["workflow"] = {"outline_approved": True}
+    course["modules"].append({"title": "Advanced practice", "lessons": []})
+    save_course(created["session"], course, expected_version=1)
+
+    def first_generator(_course, module, _sources):
+        if module["title"] == "Advanced practice":
+            raise RuntimeError("provider unavailable")
+        return {"title": module["title"], "lessons": [{"title": "Generated foundation"}]}
+
+    start_generation_job(created["session"], generator=first_generator)
+    deadline = time.time() + 10
+    while generation_job_state(created["session"])["status"] not in {"failed", "succeeded"}:
+        assert time.time() < deadline
+        time.sleep(0.01)
+    failed = generation_job_state(created["session"])
+    assert failed["status"] == "failed"
+    assert [item["status"] for item in failed["modules"]] == ["succeeded", "failed"]
+    first_version = failed["modules"][0]["version"]
+
+    def retry_generator(_course, module, _sources):
+        return {"title": module["title"], "lessons": [{"title": "Recovered lesson"}]}
+
+    start_generation_job(created["session"], generator=retry_generator)
+    deadline = time.time() + 10
+    while generation_job_state(created["session"])["status"] != "succeeded":
+        assert time.time() < deadline
+        time.sleep(0.01)
+    recovered = generation_job_state(created["session"])
+    assert recovered["progress"] == 100
+    assert recovered["modules"][0]["version"] == first_version
+    assert recovered["modules"][0]["attempts"] == 1
+    assert recovered["modules"][1]["attempts"] == 2
+
+
+def test_editor_generation_cancellation_is_cooperative(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Cancellable generation course")
+    course = created["course"]
+    course["workflow"] = {"outline_approved": True}
+    save_course(created["session"], course, expected_version=1)
+
+    def slow_generator(_course, module, _sources):
+        time.sleep(0.15)
+        return {"title": module["title"], "lessons": [{"title": "Late result"}]}
+
+    start_generation_job(created["session"], generator=slow_generator)
+    deadline = time.time() + 10
+    while generation_job_state(created["session"])["status"] != "running":
+        assert time.time() < deadline
+        time.sleep(0.01)
+    cancel_generation_job(created["session"])
+    while generation_job_state(created["session"])["status"] != "cancelled":
+        assert time.time() < deadline
+        time.sleep(0.01)
+    cancelled = generation_job_state(created["session"])
+    assert cancelled["progress"] == 0
+    assert cancelled["modules"][0]["status"] == "cancelled"
