@@ -61,7 +61,7 @@ from .analytics import (
     schedule_report,
 )
 from .observability import dependency_health, increment, prometheus_metrics, structured_log
-from .security import RequestContext
+from .security import RequestContext, read_secret
 from .rate_limit import check_rate_limit
 from .tools import TOOL_REGISTRY, safe_error
 
@@ -182,7 +182,7 @@ def create_mcp_server():
 
     @mcp.custom_route("/email/provider-webhook", methods=["POST"], include_in_schema=False)
     async def email_provider_webhook(request):  # noqa: ANN001
-        expected = os.getenv("EMAIL_WEBHOOK_SECRET", "")
+        expected = read_secret("EMAIL_WEBHOOK_SECRET") or ""
         supplied = request.headers.get("x-email-webhook-secret", "")
         if not expected or not hmac.compare_digest(expected, supplied):
             return JSONResponse({"ok": False, "error": "invalid_webhook"}, status_code=401)

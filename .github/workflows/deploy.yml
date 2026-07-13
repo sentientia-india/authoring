@@ -78,6 +78,13 @@ jobs:
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_PRICE_CATALOG: ${{ secrets.STRIPE_PRICE_CATALOG }}
           PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          TRANSACTIONAL_FROM_EMAIL: ${{ secrets.TRANSACTIONAL_FROM_EMAIL }}
+          LICENSE_FROM_EMAIL: ${{ secrets.LICENSE_FROM_EMAIL }}
+          EMAIL_WEBHOOK_SECRET: ${{ secrets.EMAIL_WEBHOOK_SECRET }}
         run: |
           test -n "$DEPLOY_PATH"
           test -n "$MCP_API_TOKEN"
@@ -91,9 +98,16 @@ jobs:
           STRIPE_WEBHOOK_SECRET_B64="$(printf '%s' "${STRIPE_WEBHOOK_SECRET:-}" | base64 -w 0)"
           STRIPE_PRICE_CATALOG_B64="$(printf '%s' "${STRIPE_PRICE_CATALOG:-{}}" | base64 -w 0)"
           PUBLIC_BASE_URL_B64="$(printf '%s' "${PUBLIC_BASE_URL:-}" | base64 -w 0)"
+          SMTP_HOST_B64="$(printf '%s' "${SMTP_HOST:-}" | base64 -w 0)"
+          SMTP_PORT_B64="$(printf '%s' "${SMTP_PORT:-465}" | base64 -w 0)"
+          SMTP_USERNAME_B64="$(printf '%s' "${SMTP_USERNAME:-}" | base64 -w 0)"
+          SMTP_PASSWORD_B64="$(printf '%s' "${SMTP_PASSWORD:-}" | base64 -w 0)"
+          TRANSACTIONAL_FROM_EMAIL_B64="$(printf '%s' "${TRANSACTIONAL_FROM_EMAIL:-}" | base64 -w 0)"
+          LICENSE_FROM_EMAIL_B64="$(printf '%s' "${LICENSE_FROM_EMAIL:-}" | base64 -w 0)"
+          EMAIL_WEBHOOK_SECRET_B64="$(printf '%s' "${EMAIL_WEBHOOK_SECRET:-}" | base64 -w 0)"
           RELEASE_ID="$GITHUB_SHA"
           ssh -i ~/.ssh/deploy_key -p "${SERVER_PORT:-22}" "$SERVER_USER@$SERVER_HOST" \
-            "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' RELEASE_ID='$RELEASE_ID' MCP_API_TOKEN_B64='$MCP_API_TOKEN_B64' MCP_PORT_B64='$MCP_PORT_B64' OPENROUTER_API_KEY_B64='$OPENROUTER_API_KEY_B64' OPENROUTER_MODEL_B64='$OPENROUTER_MODEL_B64' OPENROUTER_BASE_URL_B64='$OPENROUTER_BASE_URL_B64' STRIPE_SECRET_KEY_B64='$STRIPE_SECRET_KEY_B64' STRIPE_WEBHOOK_SECRET_B64='$STRIPE_WEBHOOK_SECRET_B64' STRIPE_PRICE_CATALOG_B64='$STRIPE_PRICE_CATALOG_B64' PUBLIC_BASE_URL_B64='$PUBLIC_BASE_URL_B64' bash -s" <<'REMOTE'
+            "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' RELEASE_ID='$RELEASE_ID' MCP_API_TOKEN_B64='$MCP_API_TOKEN_B64' MCP_PORT_B64='$MCP_PORT_B64' OPENROUTER_API_KEY_B64='$OPENROUTER_API_KEY_B64' OPENROUTER_MODEL_B64='$OPENROUTER_MODEL_B64' OPENROUTER_BASE_URL_B64='$OPENROUTER_BASE_URL_B64' STRIPE_SECRET_KEY_B64='$STRIPE_SECRET_KEY_B64' STRIPE_WEBHOOK_SECRET_B64='$STRIPE_WEBHOOK_SECRET_B64' STRIPE_PRICE_CATALOG_B64='$STRIPE_PRICE_CATALOG_B64' PUBLIC_BASE_URL_B64='$PUBLIC_BASE_URL_B64' SMTP_HOST_B64='$SMTP_HOST_B64' SMTP_PORT_B64='$SMTP_PORT_B64' SMTP_USERNAME_B64='$SMTP_USERNAME_B64' SMTP_PASSWORD_B64='$SMTP_PASSWORD_B64' TRANSACTIONAL_FROM_EMAIL_B64='$TRANSACTIONAL_FROM_EMAIL_B64' LICENSE_FROM_EMAIL_B64='$LICENSE_FROM_EMAIL_B64' EMAIL_WEBHOOK_SECRET_B64='$EMAIL_WEBHOOK_SECRET_B64' bash -s" <<'REMOTE'
           set -euo pipefail
 
           DEPLOY_PATH="$(printf '%s' "$DEPLOY_PATH_B64" | base64 -d)"
@@ -106,6 +120,13 @@ jobs:
           STRIPE_WEBHOOK_SECRET="$(printf '%s' "$STRIPE_WEBHOOK_SECRET_B64" | base64 -d)"
           STRIPE_PRICE_CATALOG="$(printf '%s' "$STRIPE_PRICE_CATALOG_B64" | base64 -d)"
           PUBLIC_BASE_URL="$(printf '%s' "$PUBLIC_BASE_URL_B64" | base64 -d)"
+          SMTP_HOST="$(printf '%s' "$SMTP_HOST_B64" | base64 -d)"
+          SMTP_PORT="$(printf '%s' "$SMTP_PORT_B64" | base64 -d)"
+          SMTP_USERNAME="$(printf '%s' "$SMTP_USERNAME_B64" | base64 -d)"
+          SMTP_PASSWORD="$(printf '%s' "$SMTP_PASSWORD_B64" | base64 -d)"
+          TRANSACTIONAL_FROM_EMAIL="$(printf '%s' "$TRANSACTIONAL_FROM_EMAIL_B64" | base64 -d)"
+          LICENSE_FROM_EMAIL="$(printf '%s' "$LICENSE_FROM_EMAIL_B64" | base64 -d)"
+          EMAIL_WEBHOOK_SECRET="$(printf '%s' "$EMAIL_WEBHOOK_SECRET_B64" | base64 -d)"
 
           test -n "$RELEASE_ID"
           RELEASE_PATH="$DEPLOY_PATH/releases/$RELEASE_ID"
@@ -137,6 +158,8 @@ jobs:
           printf '%s\n' "${OPENROUTER_API_KEY:-}" > secrets/openrouter_api_key.txt
           printf '%s\n' "${STRIPE_SECRET_KEY:-}" > secrets/stripe_secret_key.txt
           printf '%s\n' "${STRIPE_WEBHOOK_SECRET:-}" > secrets/stripe_webhook_secret.txt
+          printf '%s\n' "${SMTP_PASSWORD:-}" > secrets/smtp_password.txt
+          printf '%s\n' "${EMAIL_WEBHOOK_SECRET:-}" > secrets/email_webhook_secret.txt
           cp "$DEPLOY_PATH/shared/secrets/pii_encryption_key.txt" secrets/pii_encryption_key.txt
           {
             printf 'ENVIRONMENT=production\n'
@@ -153,6 +176,11 @@ jobs:
             printf 'OPENROUTER_APP_TITLE=Samrat Course MCP\n'
             printf 'STRIPE_PRICE_CATALOG=%s\n' "${STRIPE_PRICE_CATALOG:-{}}"
             printf 'PUBLIC_BASE_URL=%s\n' "${PUBLIC_BASE_URL:-}"
+            printf 'SMTP_HOST=%s\n' "${SMTP_HOST:-}"
+            printf 'SMTP_PORT=%s\n' "${SMTP_PORT:-465}"
+            printf 'SMTP_USERNAME=%s\n' "${SMTP_USERNAME:-}"
+            printf 'TRANSACTIONAL_FROM_EMAIL=%s\n' "${TRANSACTIONAL_FROM_EMAIL:-}"
+            printf 'LICENSE_FROM_EMAIL=%s\n' "${LICENSE_FROM_EMAIL:-}"
           } > .env
 
           docker compose up -d postgres redis

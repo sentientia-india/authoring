@@ -13,6 +13,7 @@ from psycopg.types.json import Jsonb
 
 from .database import connection, ensure_tenant
 from .pii_crypto import decrypt_pii, encrypt_pii
+from .security import read_secret
 
 
 class CommunicationError(RuntimeError):
@@ -132,7 +133,7 @@ def deliver_email(*, tenant_id: str, delivery_id: str) -> dict[str, Any]:
     message.set_content(body)
     try:
         with smtplib.SMTP_SSL(host, int(os.getenv("SMTP_PORT", "465")), timeout=20) as smtp:
-            username, password = os.getenv("SMTP_USERNAME", ""), os.getenv("SMTP_PASSWORD", "")
+            username, password = os.getenv("SMTP_USERNAME", ""), read_secret("SMTP_PASSWORD") or ""
             if username:
                 smtp.login(username, password)
             smtp.send_message(message)

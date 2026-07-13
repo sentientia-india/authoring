@@ -131,6 +131,24 @@ MCP_PORT=8777
 OPENROUTER_API_KEY=<openrouter-api-key>
 OPENROUTER_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+PUBLIC_BASE_URL=https://courses.example.com
+STRIPE_SECRET_KEY=<live-stripe-secret-key>
+STRIPE_WEBHOOK_SECRET=<live-stripe-webhook-secret>
+STRIPE_PRICE_CATALOG={"price_...":{"tier":"pro","mode":"subscription"}}
+SMTP_HOST=<verified-provider-smtp-host>
+SMTP_PORT=465
+SMTP_USERNAME=<smtp-username>
+SMTP_PASSWORD=<smtp-password>
+TRANSACTIONAL_FROM_EMAIL=courses@example.com
+LICENSE_FROM_EMAIL=licenses@example.com
+EMAIL_WEBHOOK_SECRET=<strong-random-provider-webhook-secret>
 ```
+
+The workflow transports passwords and webhook signing values as base64 only for
+SSH boundary safety, writes them into mode-restricted Docker secret files, and
+does not put them in the generated `.env`. The non-secret SMTP routing and sender
+settings are written to `.env`. Do not enable paid checkout until all Stripe,
+public-base-URL, SMTP, sender, and email-webhook values are present and the
+sending domain has passed provider verification.
 
 The server user must have permission to write to `DEPLOY_PATH` and run `docker compose`. The server does not need GitHub credentials because the workflow uploads the checked-out repository over SSH.

@@ -30,6 +30,12 @@ the tenant product-license row before reading and appending usage.
 - `PII_ENCRYPTION_KEY` shared by the API, analytics worker, and outbox worker
 - email provider or SMTP credentials described in `docs/deployment.md`
 
+Production deployment mounts `SMTP_PASSWORD_FILE` and
+`EMAIL_WEBHOOK_SECRET_FILE` as Docker secrets. `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USERNAME`, `TRANSACTIONAL_FROM_EMAIL`, and `LICENSE_FROM_EMAIL` are
+non-secret runtime settings supplied through GitHub Actions. The sender
+addresses must belong to the provider-verified domain.
+
 Never put these values in the repository. Rotation must retain the previous PII
 key until queued messages encrypted with it have been delivered or redriven.
 

@@ -342,7 +342,7 @@ def _process_subscription_event(event: dict[str, Any]) -> dict[str, Any]:
 def _deliver_license_email(email: str, tenant: str, tier: str, license_key: str) -> None:
     host = os.getenv("SMTP_HOST", "")
     username = os.getenv("SMTP_USERNAME", "")
-    password = os.getenv("SMTP_PASSWORD", "")
+    password = read_secret("SMTP_PASSWORD") or ""
     sender = os.getenv("LICENSE_FROM_EMAIL", username)
     if not email or not host or not sender:
         raise BillingError("SMTP license delivery is not configured")

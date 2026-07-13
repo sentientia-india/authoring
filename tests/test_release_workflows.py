@@ -103,6 +103,28 @@ def test_deployments_preserve_a_stable_pii_encryption_key_outside_releases():
         assert "docker compose up -d course-mcp scorm-editor outbox-worker analytics-worker" in workflow
 
 
+def test_deployments_provision_transactional_email_without_plaintext_secrets():
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "SMTP_PASSWORD_FILE: /run/secrets/smtp_password" in compose
+    assert "EMAIL_WEBHOOK_SECRET_FILE: /run/secrets/email_webhook_secret" in compose
+    for relative in (".github/workflows/ci.yml", ".github/workflows/deploy.yml"):
+        workflow = (ROOT / relative).read_text(encoding="utf-8")
+        for setting in (
+            "SMTP_HOST",
+            "SMTP_PORT",
+            "SMTP_USERNAME",
+            "SMTP_PASSWORD",
+            "TRANSACTIONAL_FROM_EMAIL",
+            "LICENSE_FROM_EMAIL",
+            "EMAIL_WEBHOOK_SECRET",
+        ):
+            assert f"secrets.{setting}" in workflow
+        assert "secrets/smtp_password.txt" in workflow
+        assert "secrets/email_webhook_secret.txt" in workflow
+        assert "printf 'SMTP_PASSWORD=%s" not in workflow
+        assert "printf 'EMAIL_WEBHOOK_SECRET=%s" not in workflow
+
+
 def test_custom_domain_tls_is_restricted_to_verified_database_records():
     caddy = (ROOT / "Caddyfile").read_text(encoding="utf-8")
     server = (ROOT / "src" / "course_mcp_server" / "server.py").read_text(encoding="utf-8")

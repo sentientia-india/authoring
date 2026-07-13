@@ -32,6 +32,8 @@ services:
       PII_ENCRYPTION_KEY_FILE: /run/secrets/pii_encryption_key
       STRIPE_SECRET_KEY_FILE: /run/secrets/stripe_secret_key
       STRIPE_WEBHOOK_SECRET_FILE: /run/secrets/stripe_webhook_secret
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      EMAIL_WEBHOOK_SECRET_FILE: /run/secrets/email_webhook_secret
       DATABASE_URL: postgresql://course_mcp:course_mcp@postgres:5432/course_mcp
       REDIS_URL: redis://redis:6379/0
       OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-course-mcp}
@@ -57,6 +59,8 @@ services:
       - pii_encryption_key
       - stripe_secret_key
       - stripe_webhook_secret
+      - smtp_password
+      - email_webhook_secret
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=128m
@@ -107,6 +111,7 @@ services:
       - .env
     environment:
       PII_ENCRYPTION_KEY_FILE: /run/secrets/pii_encryption_key
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
       DATABASE_URL: postgresql://course_mcp:course_mcp@postgres:5432/course_mcp
       REDIS_URL: redis://redis:6379/0
     networks:
@@ -115,6 +120,7 @@ services:
       postgres: {condition: service_started}
     secrets:
       - pii_encryption_key
+      - smtp_password
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=32m
@@ -230,3 +236,7 @@ secrets:
     file: ./secrets/stripe_secret_key.txt
   stripe_webhook_secret:
     file: ./secrets/stripe_webhook_secret.txt
+  smtp_password:
+    file: ./secrets/smtp_password.txt
+  email_webhook_secret:
+    file: ./secrets/email_webhook_secret.txt
