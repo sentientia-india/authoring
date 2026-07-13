@@ -36,18 +36,31 @@ MOODLE_PROBE = """
 (function () {
   var result = document.getElementById("course-mcp-moodle-result");
   var acceptanceButton = document.getElementById("course-mcp-moodle-acceptance");
+  var playerTitle = "";
+  function synchronizePlayerTitle() {
+    var frame = window;
+    while (frame) {
+      try { frame.document.title = playerTitle; } catch (_error) { /* cross-origin boundary */ }
+      if (frame.parent === frame) break;
+      frame = frame.parent;
+    }
+  }
   var restored = window.CourseScorm.getLocation() === "acceptance-complete" &&
     window.CourseScorm.getSuspendData().marker === "course-mcp-moodle";
   if (restored) {
     result.textContent = "Restored acceptance marker";
     window.CourseScorm.setLocation("acceptance-restored");
-    window.top.document.title = "Restored acceptance marker";
+    playerTitle = "Restored acceptance marker";
+    synchronizePlayerTitle();
+    var titleSynchronizer = window.setInterval(synchronizePlayerTitle, 100);
     window.setTimeout(function () {
       var restoredCompletion = window.CourseScorm.markComplete(true) && window.CourseScorm.commit();
-      window.top.document.title = restoredCompletion
+      playerTitle = restoredCompletion
         ? "Restored acceptance marker - Completion accepted"
         : "Restored acceptance marker - Completion failed";
+      synchronizePlayerTitle();
     }, 1200);
+    window.setTimeout(function () { window.clearInterval(titleSynchronizer); }, 4000);
   }
   acceptanceButton.addEventListener("click", function () {
     var outcomes = [
