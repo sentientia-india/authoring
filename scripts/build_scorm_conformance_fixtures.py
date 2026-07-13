@@ -38,13 +38,13 @@ MOODLE_PROBE = """
   var acceptanceButton = document.getElementById("course-mcp-moodle-acceptance");
   var restored = window.CourseScorm.getLocation() === "acceptance-complete" &&
     window.CourseScorm.getSuspendData().marker === "course-mcp-moodle";
-  if (restored) acceptanceButton.textContent = "Restored acceptance marker";
+  if (restored) {
+    var restoredCompletion = window.CourseScorm.markComplete(true) && window.CourseScorm.commit();
+    document.title = restoredCompletion
+      ? "Restored acceptance marker - Completion accepted"
+      : "Restored acceptance marker - Completion failed";
+  }
   acceptanceButton.addEventListener("click", function () {
-    if (restored) {
-      var completed = window.CourseScorm.markComplete(true) && window.CourseScorm.commit();
-      result.textContent = completed ? "Completion accepted" : "Completion failed";
-      return;
-    }
     var outcomes = [
       window.CourseScorm.initialize(),
       window.CourseScorm.setLocation("acceptance-complete"),
