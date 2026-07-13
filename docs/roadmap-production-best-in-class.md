@@ -648,10 +648,10 @@ The IDs below are the execution order. A child task can begin early, but its pha
 
 - [x] PROD-301 Complete Stripe lifecycle and entitlement model. Evidence: server-side Checkout and customer portal sessions, signed idempotent webhooks, snapshot-ordered subscription updates, billing-derived entitlements, PostgreSQL-backed hashed licenses, and lifecycle integration tests. A live low-value purchase remains an external launch gate.
 - [x] PROD-302 Complete usage ledger, quotas, paid enrollment, and reconciliation. Evidence: transactional PostgreSQL export quotas, append-only usage entries, paid-course purchase grants and encrypted enrollment delivery, tenant-safe reconciliation, and replay/stale-event tests. Daily live-mode reconciliation remains an external launch gate.
-- [ ] PROD-303 Add production observability, SLOs, alerts, and status page.
-- [ ] PROD-304 Add immutable artifact promotion, canary, and rollback.
-- [ ] PROD-305 Complete load, failure, backup, and disaster-recovery exercises.
-- [ ] PROD-306 Complete quickstart, registry, compatibility, and migration documentation.
+- [x] PROD-303 Add production observability, SLOs, alerts, and status page. Evidence: redacted structured logs, Prometheus traffic/error/duration/dependency metrics, health and public status APIs/page, synthetic deployment checks, severity/alert policy, and top-ten incident runbooks. The required 14/30-day live measurement windows remain release-stage gates.
+- [x] PROD-304 Add immutable artifact promotion, canary, and rollback. Evidence: SHA-addressed releases, forward migration gate, candidate health/smoke/capacity checks, atomic current-release promotion, recorded deployment evidence, and automatic previous-release restart on failure.
+- [x] PROD-305 Complete load, failure, backup, and disaster-recovery exercises. Evidence: bounded 1x/3x/10x candidate capacity matrix, dependency/provider/retry failure tests, integrity-manifested backups, clean PostgreSQL restore in CI, RPO/RTO procedure, and top-ten incident runbooks. The recurring quarterly production DR exercise remains a GA evidence gate.
+- [x] PROD-306 Complete quickstart, registry, compatibility, and migration documentation. Evidence: copy-paste client setup and deterministic first-course guide, `server.json` registry metadata, versioned tool contracts, deployment/OAuth guidance, and explicit compatibility, deprecation, expand/contract migration, and external-publication policy. Registry publication remains an external launch gate until the real public domain replaces the placeholder.
 - [ ] PROD-307 Complete security review and independent penetration test.
 - [ ] PROD-308 Run private beta, public beta, and GA gates.
 

@@ -22,6 +22,7 @@ services:
     restart: unless-stopped
   course-mcp:
     build: .
+    image: samrat-course-mcp:${RELEASE_ID:-local}
     container_name: samrat-course-mcp
     env_file:
       - .env
@@ -72,6 +73,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.scorm-editor
+    image: samrat-scorm-editor:${RELEASE_ID:-local}
     container_name: samrat-scorm-editor
     ports:
       - "8788:8788"
@@ -95,6 +97,7 @@ services:
 
   outbox-worker:
     build: .
+    image: samrat-course-mcp:${RELEASE_ID:-local}
     command: ["python", "-m", "course_mcp_server.outbox_worker"]
     env_file:
       - .env
@@ -120,6 +123,7 @@ services:
 
   analytics-worker:
     build: .
+    image: samrat-course-mcp:${RELEASE_ID:-local}
     command: ["python", "-m", "course_mcp_server.analytics_worker"]
     env_file:
       - .env

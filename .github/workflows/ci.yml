@@ -160,7 +160,7 @@ jobs:
             if [ -n "$PREVIOUS" ] && [ -d "$PREVIOUS" ]; then
               cd "$PREVIOUS"
               export COMPOSE_PROJECT_NAME=samrat-course-mcp
-              docker compose build course-mcp scorm-editor
+              export RELEASE_ID="$(basename "$PREVIOUS")"
               docker compose up -d course-mcp scorm-editor outbox-worker analytics-worker
             fi
             exit "$status"
@@ -168,6 +168,7 @@ jobs:
           trap rollback ERR
           cd "$RELEASE_PATH"
           export COMPOSE_PROJECT_NAME=samrat-course-mcp
+          export RELEASE_ID
           umask 077
           mkdir -p secrets
           mkdir -p "$DEPLOY_PATH/shared/secrets"
@@ -217,8 +218,8 @@ jobs:
             sleep 3
           done
           docker compose exec -T course-mcp python -m course_mcp_server.smoke
-          docker compose exec -T course-mcp python /app/scripts/load_test.py \
-            http://127.0.0.1:8777/health --requests 50 --concurrency 5 --max-error-rate 0 --max-p95 0.4
+          docker compose exec -T course-mcp python /app/scripts/capacity_matrix.py \
+            http://127.0.0.1:8777/health --max-error-rate 0 --max-p95 0.4
           ln -sfn "$RELEASE_PATH" "$DEPLOY_PATH/current"
           printf '{"release":"%s","deployed_at":"%s","previous":"%s"}\n' \
             "$RELEASE_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PREVIOUS" > "$DEPLOY_PATH/deployment.json"

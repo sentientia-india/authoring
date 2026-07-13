@@ -50,6 +50,9 @@ def test_ci_runs_a_real_postgres_backup_restore_drill():
 
 
 def test_deployments_use_immutable_releases_and_rollback_without_in_place_deletion():
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "samrat-course-mcp:${RELEASE_ID:-local}" in compose
+    assert "samrat-scorm-editor:${RELEASE_ID:-local}" in compose
     for relative in (".github/workflows/ci.yml", ".github/workflows/deploy.yml"):
         workflow = (ROOT / relative).read_text(encoding="utf-8")
         assert 'RELEASE_PATH="$DEPLOY_PATH/releases/$RELEASE_ID"' in workflow
@@ -59,16 +62,19 @@ def test_deployments_use_immutable_releases_and_rollback_without_in_place_deleti
         assert 'find "$DEPLOY_PATH" -mindepth 1' not in workflow
         assert "RELEASE_ID='$RELEASE_ID' MCP_API_TOKEN_B64" in workflow
         assert 'test -n "$RELEASE_ID"' in workflow
+        assert 'export RELEASE_ID="$(basename "$PREVIOUS")"' in workflow
 
 
 def test_deployments_run_a_bounded_canary_load_gate_before_promotion():
     for relative in (".github/workflows/ci.yml", ".github/workflows/deploy.yml"):
         workflow = (ROOT / relative).read_text(encoding="utf-8")
-        load_gate = workflow.index("/app/scripts/load_test.py")
+        load_gate = workflow.index("/app/scripts/capacity_matrix.py")
         promotion = workflow.index('ln -sfn "$RELEASE_PATH" "$DEPLOY_PATH/current"')
         assert load_gate < promotion
         assert "--max-error-rate 0" in workflow
         assert "--max-p95 0.4" in workflow
+    capacity_script = (ROOT / "scripts/capacity_matrix.py").read_text(encoding="utf-8")
+    assert all(level in capacity_script for level in ('"1x"', '"3x"', '"10x"'))
 
 
 def test_deployments_preserve_a_stable_pii_encryption_key_outside_releases():
