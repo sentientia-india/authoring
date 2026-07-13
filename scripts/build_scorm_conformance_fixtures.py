@@ -41,9 +41,10 @@ MOODLE_PROBE = """
   if (restored) {
     result.textContent = "Restored acceptance marker";
     window.CourseScorm.setLocation("acceptance-restored");
+    window.top.document.title = "Restored acceptance marker";
     window.setTimeout(function () {
       var restoredCompletion = window.CourseScorm.markComplete(true) && window.CourseScorm.commit();
-      document.title = restoredCompletion
+      window.top.document.title = restoredCompletion
         ? "Restored acceptance marker - Completion accepted"
         : "Restored acceptance marker - Completion failed";
     }, 1200);

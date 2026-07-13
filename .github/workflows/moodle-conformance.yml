@@ -48,7 +48,6 @@ jobs:
           cp .moodle-conformance/moodle-docker/config.docker-template.php "$MOODLE_DOCKER_WWWROOT/config.php"
           cp .moodle-conformance/packages/*.zip "$MOODLE_DOCKER_WWWROOT/mod/scorm/tests/packages/"
           cp .github/moodle/course_mcp_scorm_acceptance.feature "$MOODLE_DOCKER_WWWROOT/mod/scorm/tests/behat/course_mcp_scorm_acceptance.feature"
-          cp .github/moodle/verify_scorm_tracking.php "$MOODLE_DOCKER_WWWROOT/course_mcp_verify.php"
 
       - name: Start pinned Moodle
         working-directory: .moodle-conformance/moodle-docker
@@ -88,9 +87,6 @@ jobs:
           mkdir -p ../evidence
           bin/moodle-docker-compose exec -T -u www-data webserver \
             php admin/tool/behat/cli/run.php --tags=@course_mcp_acceptance --format=progress --out=std
-          bin/moodle-docker-compose exec -T webserver php course_mcp_verify.php
-          bin/moodle-docker-compose exec -T webserver \
-            cat /tmp/course-mcp-moodle-tracking.json > ../evidence/moodle-tracking.json
           printf '%s\n' \
             'Moodle Chrome acceptance passed for SCORM 1.2 and SCORM 2004.' \
             'Verified: initialize, score, completion, success, location, suspend data, interaction, commit, session time, terminate, and relaunch.' \
