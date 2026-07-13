@@ -30,6 +30,8 @@ services:
       MCP_API_TOKEN_FILE: /run/secrets/mcp_api_token
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_api_key
       PII_ENCRYPTION_KEY_FILE: /run/secrets/pii_encryption_key
+      STRIPE_SECRET_KEY_FILE: /run/secrets/stripe_secret_key
+      STRIPE_WEBHOOK_SECRET_FILE: /run/secrets/stripe_webhook_secret
       DATABASE_URL: postgresql://course_mcp:course_mcp@postgres:5432/course_mcp
       REDIS_URL: redis://redis:6379/0
       OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-course-mcp}
@@ -53,6 +55,8 @@ services:
       - mcp_api_token
       - openrouter_api_key
       - pii_encryption_key
+      - stripe_secret_key
+      - stripe_webhook_secret
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=128m
@@ -222,3 +226,7 @@ secrets:
     file: ./secrets/openrouter_api_key.txt
   pii_encryption_key:
     file: ./secrets/pii_encryption_key.txt
+  stripe_secret_key:
+    file: ./secrets/stripe_secret_key.txt
+  stripe_webhook_secret:
+    file: ./secrets/stripe_webhook_secret.txt

@@ -170,10 +170,10 @@ def create_mcp_server():
     @mcp.custom_route("/billing/customer-portal", methods=["POST"], include_in_schema=False)
     async def billing_customer_portal(request):  # noqa: ANN001
         try:
-            _context_from_request(request)
+            context = _context_from_request(request)
             payload = await request.json()
             result = create_customer_portal_session(
-                customer_id=str(payload.get("customer_id") or ""),
+                tenant_id=context.tenant_id,
                 return_url=str(payload.get("return_url") or ""),
             )
         except (BillingError, PermissionError, ValueError, TypeError):

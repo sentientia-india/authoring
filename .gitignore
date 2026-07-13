@@ -37,3 +37,6 @@ scorm reference/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local security audit evidence
+.gstack/

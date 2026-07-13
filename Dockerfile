@@ -11,14 +11,14 @@ RUN addgroup --system --gid 10001 appgroup \
     && mkdir -p /app/output \
     && chown -R appuser:appgroup /app
 
-COPY pyproject.toml README.md /app/
+COPY pyproject.toml requirements.lock README.md /app/
 COPY src /app/src
 COPY migrations /app/migrations
-COPY scripts/apply_migrations.py /app/scripts/apply_migrations.py
-COPY scripts/load_test.py /app/scripts/load_test.py
+COPY scripts /app/scripts
 
 RUN pip install --upgrade pip \
-    && pip install -e .
+    && pip install --require-hashes -r requirements.lock \
+    && pip install --no-deps -e .
 
 USER appuser
 

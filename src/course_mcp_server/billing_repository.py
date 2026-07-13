@@ -10,6 +10,21 @@ from psycopg.types.json import Jsonb
 from .database import connection, ensure_tenant
 
 
+def customer_id_for_tenant(tenant_id: str) -> str:
+    with connection() as active:
+        row = active.execute(
+            """
+            SELECT provider_customer_id FROM subscriptions
+            WHERE tenant_id = %s AND provider = 'stripe' AND provider_customer_id IS NOT NULL
+            ORDER BY updated_at DESC LIMIT 1
+            """,
+            (tenant_id,),
+        ).fetchone()
+    if not row:
+        raise LookupError("Tenant has no Stripe customer")
+    return str(row["provider_customer_id"])
+
+
 def previous_event(provider_event_id: str) -> dict[str, Any] | None:
     with connection() as active:
         row = active.execute(

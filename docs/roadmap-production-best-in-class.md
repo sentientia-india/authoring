@@ -608,10 +608,10 @@ The IDs below are the execution order. A child task can begin early, but its pha
 
 ### Launch blockers
 
-- [ ] PROD-001 Protect and inventory the Course Studio redesign.
-- [ ] PROD-002 Complete Course Studio functional and failure states.
-- [ ] PROD-003 Complete editor security, accessibility, responsive, and conflict behavior.
-- [ ] PROD-004 Pass the complete editor round-trip suite.
+- [x] PROD-001 Protect and inventory the Course Studio redesign. Evidence: the user-authored real-player surface remains versioned as one `apps/scorm_editor` unit; `docs/course-studio-release-evidence.md` inventories its protected workflows and gates.
+- [x] PROD-002 Complete Course Studio functional and failure states. Evidence: create/import, source, author, review, localize, and export flows plus empty/import-error, save/offline/expired/conflict, generation failure/retry/cancel, and export-blocked states.
+- [x] PROD-003 Complete editor security, accessibility, responsive, and conflict behavior. Evidence: bounded safe ZIP handling, responsive/keyboard/semantic UI, blocking accessibility report, local recovery, immutable revisions, and optimistic version conflicts covered by focused tests.
+- [x] PROD-004 Pass the complete editor round-trip suite. Evidence: `tests/test_scorm_editor.py`, `tests/test_editor_roundtrip.py`, full local suite (208 passed), and release-blocking generated-package Moodle conformance.
 - [x] PROD-005 Regenerate SCORM validation packages from the corrected runtime. Evidence: CI run `29228239968` archived both packages and SHA-256 validation reports.
 - [ ] PROD-006 Run the tracked SCORM Cloud 1.2 and 2004 cross-check last. Status: paused by product decision on 2026-07-13 until every other production gate is complete.
 - [x] PROD-007 Build and pass pinned Moodle scenarios. Evidence: `docs/moodle-conformance.md`; CI run `29228239968`, Moodle job `86746998104`.
@@ -652,7 +652,7 @@ The IDs below are the execution order. A child task can begin early, but its pha
 - [x] PROD-304 Add immutable artifact promotion, canary, and rollback. Evidence: SHA-addressed releases, forward migration gate, candidate health/smoke/capacity checks, atomic current-release promotion, recorded deployment evidence, and automatic previous-release restart on failure.
 - [x] PROD-305 Complete load, failure, backup, and disaster-recovery exercises. Evidence: bounded 1x/3x/10x candidate capacity matrix, dependency/provider/retry failure tests, integrity-manifested backups, clean PostgreSQL restore in CI, RPO/RTO procedure, and top-ten incident runbooks. The recurring quarterly production DR exercise remains a GA evidence gate.
 - [x] PROD-306 Complete quickstart, registry, compatibility, and migration documentation. Evidence: copy-paste client setup and deterministic first-course guide, `server.json` registry metadata, versioned tool contracts, deployment/OAuth guidance, and explicit compatibility, deprecation, expand/contract migration, and external-publication policy. Registry publication remains an external launch gate until the real public domain replaces the placeholder.
-- [ ] PROD-307 Complete security review and independent penetration test.
+- [ ] PROD-307 Complete security review and independent penetration test. Status: internal OWASP/STRIDE/supply-chain/CI review completed on 2026-07-13; all four verified findings were remediated with regression tests and hash-pinned dependencies (`docs/security-review-2026-07-13.md`). Independent deployed-system penetration testing remains an external gate.
 - [ ] PROD-308 Run private beta, public beta, and GA gates.
 
 ## 14. First execution sequence

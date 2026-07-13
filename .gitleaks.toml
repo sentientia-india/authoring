@@ -1,0 +1,11 @@
+title = "Samrat Course MCP secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documented placeholders and generated validation artifacts"
+paths = [
+  '''\.env\.example$''',
+  '''\.scorm-cloud-validation/''',
+]

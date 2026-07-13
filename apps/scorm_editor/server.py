@@ -138,7 +138,7 @@ def _workspace(sid: str) -> Path:
         raise FileNotFoundError("Unknown session")
     meta_path = path / ".editor-meta.json"
     if meta_path.is_file():
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta = _read_json(meta_path)
         idle_seconds = time.time() - float(meta.get("last_accessed_at", meta.get("created_at", 0)))
         if idle_seconds > SESSION_TTL_SECONDS:
             raise SessionExpiredError("Editor session expired")
@@ -170,7 +170,14 @@ def _write_json_atomic(path: Path, value: dict) -> None:
 def _read_json(path: Path) -> dict:
     lock = _FILE_LOCKS.setdefault(str(path.resolve()), threading.RLock())
     with lock:
-        return json.loads(path.read_text(encoding="utf-8"))
+        for attempt in range(6):
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.01 * (2**attempt))
+        raise RuntimeError("unreachable")
 
 
 def _meta(workspace: Path) -> dict:
@@ -179,7 +186,7 @@ def _meta(workspace: Path) -> dict:
         value = {"version": 1, "created_at": time.time(), "last_accessed_at": time.time()}
         _write_json_atomic(path, value)
         return value
-    return json.loads(path.read_text(encoding="utf-8"))
+    return _read_json(path)
 
 
 def _snapshot(workspace: Path, version: int, course: dict, actor: str, reason: str) -> None:

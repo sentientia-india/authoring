@@ -3,7 +3,11 @@ import os
 import pytest
 
 from course_mcp_server.billing import process_checkout_event
-from course_mcp_server.billing_repository import reconcile, upsert_subscription
+from course_mcp_server.billing_repository import (
+    customer_id_for_tenant,
+    reconcile,
+    upsert_subscription,
+)
 from course_mcp_server.database import database_url
 from scripts.apply_migrations import apply
 
@@ -30,6 +34,9 @@ def test_checkout_subscription_lifecycle_and_reconciliation(tmp_path, monkeypatc
     }
     first = process_checkout_event(checkout)
     assert first["processed"] is True
+    assert customer_id_for_tenant("tenant-billing") == "cus_pg"
+    with pytest.raises(LookupError):
+        customer_id_for_tenant("tenant-billing-attacker")
     assert process_checkout_event(checkout)["duplicate"] is True
 
     failed = {

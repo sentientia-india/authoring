@@ -8,9 +8,24 @@ def test_dependency_audit_is_release_blocking():
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     dependency_step = workflow.split("- name: Dependency audit", 1)[1].split("- name:", 1)[0]
 
-    assert "pip-audit ." in dependency_step
+    assert "pip-audit -r requirements.lock" in dependency_step
     assert "|| true" not in dependency_step
     assert "continue-on-error" not in dependency_step
+
+
+def test_workflow_actions_are_commit_pinned_and_owned():
+    for relative in (
+        ".github/workflows/ci.yml",
+        ".github/workflows/deploy.yml",
+        ".github/workflows/moodle-conformance.yml",
+    ):
+        workflow = (ROOT / relative).read_text(encoding="utf-8")
+        for line in workflow.splitlines():
+            if "uses: actions/" in line:
+                reference = line.split("@", 1)[1].split()[0]
+                assert len(reference) == 40 and all(char in "0123456789abcdef" for char in reference)
+    owners = (ROOT / ".github/CODEOWNERS").read_text(encoding="utf-8")
+    assert "/.github/workflows/ @ratsam93" in owners
 
 
 def test_moodle_conformance_environment_is_commit_pinned():

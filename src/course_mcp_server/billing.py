@@ -22,9 +22,16 @@ from email.message import EmailMessage
 
 from .licensing import issue_license
 from .database import database_url
-from .billing_repository import previous_event, record_event, set_plan_entitlement, upsert_subscription
+from .billing_repository import (
+    customer_id_for_tenant,
+    previous_event,
+    record_event,
+    set_plan_entitlement,
+    upsert_subscription,
+)
 from .hosted_learning import grant_paid_access
 from .communication import queue_email
+from .security import read_secret
 
 
 class BillingError(RuntimeError):
@@ -32,7 +39,7 @@ class BillingError(RuntimeError):
 
 
 def _stripe_post(path: str, fields: dict[str, Any]) -> dict[str, Any]:
-    secret = os.getenv("STRIPE_SECRET_KEY", "")
+    secret = read_secret("STRIPE_SECRET_KEY") or ""
     if not secret.startswith("sk_"):
         raise BillingError("Stripe secret key is not configured")
     encoded = urllib.parse.urlencode({key: value for key, value in fields.items() if value is not None}).encode()
@@ -68,6 +75,18 @@ def create_checkout_session(
 ) -> dict[str, Any]:
     if mode not in {"subscription", "payment"} or not price_id.startswith("price_"):
         raise BillingError("Invalid checkout configuration")
+    try:
+        catalog = json.loads(os.getenv("STRIPE_PRICE_CATALOG", "{}"))
+        price = catalog[price_id]
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise BillingError("Price is not in the server-side catalog") from exc
+    if not isinstance(price, dict) or price.get("mode") != mode:
+        raise BillingError("Price does not match checkout mode")
+    trusted_tier = str(price.get("tier") or "")
+    if mode == "subscription" and trusted_tier not in {"free", "pro", "white_label"}:
+        raise BillingError("Price does not map to a supported tier")
+    if tier and mode == "subscription" and tier != trusted_tier:
+        raise BillingError("Requested tier does not match price")
     if not success_url.startswith("https://") or not cancel_url.startswith("https://"):
         raise BillingError("Checkout return URLs must use HTTPS")
     session = _stripe_post(
@@ -80,7 +99,7 @@ def create_checkout_session(
             "cancel_url": cancel_url,
             "client_reference_id": tenant_id,
             "metadata[tenant]": tenant_id,
-            "metadata[tier]": tier,
+            "metadata[tier]": trusted_tier,
             "metadata[share_token]": share_token,
             "metadata[checkout_mode]": mode,
         },
@@ -88,9 +107,13 @@ def create_checkout_session(
     return {"checkout_session_id": session["id"], "checkout_url": session.get("url")}
 
 
-def create_customer_portal_session(*, customer_id: str, return_url: str) -> dict[str, Any]:
-    if not customer_id.startswith("cus_") or not return_url.startswith("https://"):
+def create_customer_portal_session(*, tenant_id: str, return_url: str) -> dict[str, Any]:
+    if not return_url.startswith("https://") or not database_url():
         raise BillingError("Invalid customer portal configuration")
+    try:
+        customer_id = customer_id_for_tenant(tenant_id)
+    except LookupError as exc:
+        raise BillingError("Stripe customer is unavailable") from exc
     session = _stripe_post("billing_portal/sessions", {"customer": customer_id, "return_url": return_url})
     return {"portal_session_id": session["id"], "portal_url": session.get("url")}
 
@@ -340,7 +363,7 @@ def _deliver_license_email(email: str, tenant: str, tier: str, license_key: str)
 
 
 def handle_stripe_webhook(payload: bytes, signature: str) -> dict[str, Any]:
-    secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    secret = read_secret("STRIPE_WEBHOOK_SECRET") or ""
     if not secret:
         raise BillingError("Stripe webhook secret is not configured")
     verify_stripe_signature(payload, signature, secret)

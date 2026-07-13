@@ -17,7 +17,7 @@ jobs:
     environment: production
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Configure SSH
         env:
@@ -74,6 +74,10 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
           OPENROUTER_BASE_URL: ${{ secrets.OPENROUTER_BASE_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_PRICE_CATALOG: ${{ secrets.STRIPE_PRICE_CATALOG }}
+          PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
         run: |
           test -n "$DEPLOY_PATH"
           test -n "$MCP_API_TOKEN"
@@ -83,9 +87,13 @@ jobs:
           OPENROUTER_API_KEY_B64="$(printf '%s' "${OPENROUTER_API_KEY:-}" | base64 -w 0)"
           OPENROUTER_MODEL_B64="$(printf '%s' "${OPENROUTER_MODEL:-nvidia/nemotron-3-ultra-550b-a55b:free}" | base64 -w 0)"
           OPENROUTER_BASE_URL_B64="$(printf '%s' "${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}" | base64 -w 0)"
+          STRIPE_SECRET_KEY_B64="$(printf '%s' "${STRIPE_SECRET_KEY:-}" | base64 -w 0)"
+          STRIPE_WEBHOOK_SECRET_B64="$(printf '%s' "${STRIPE_WEBHOOK_SECRET:-}" | base64 -w 0)"
+          STRIPE_PRICE_CATALOG_B64="$(printf '%s' "${STRIPE_PRICE_CATALOG:-{}}" | base64 -w 0)"
+          PUBLIC_BASE_URL_B64="$(printf '%s' "${PUBLIC_BASE_URL:-}" | base64 -w 0)"
           RELEASE_ID="$GITHUB_SHA"
           ssh -i ~/.ssh/deploy_key -p "${SERVER_PORT:-22}" "$SERVER_USER@$SERVER_HOST" \
-            "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' RELEASE_ID='$RELEASE_ID' MCP_API_TOKEN_B64='$MCP_API_TOKEN_B64' MCP_PORT_B64='$MCP_PORT_B64' OPENROUTER_API_KEY_B64='$OPENROUTER_API_KEY_B64' OPENROUTER_MODEL_B64='$OPENROUTER_MODEL_B64' OPENROUTER_BASE_URL_B64='$OPENROUTER_BASE_URL_B64' bash -s" <<'REMOTE'
+            "DEPLOY_PATH_B64='$DEPLOY_PATH_B64' RELEASE_ID='$RELEASE_ID' MCP_API_TOKEN_B64='$MCP_API_TOKEN_B64' MCP_PORT_B64='$MCP_PORT_B64' OPENROUTER_API_KEY_B64='$OPENROUTER_API_KEY_B64' OPENROUTER_MODEL_B64='$OPENROUTER_MODEL_B64' OPENROUTER_BASE_URL_B64='$OPENROUTER_BASE_URL_B64' STRIPE_SECRET_KEY_B64='$STRIPE_SECRET_KEY_B64' STRIPE_WEBHOOK_SECRET_B64='$STRIPE_WEBHOOK_SECRET_B64' STRIPE_PRICE_CATALOG_B64='$STRIPE_PRICE_CATALOG_B64' PUBLIC_BASE_URL_B64='$PUBLIC_BASE_URL_B64' bash -s" <<'REMOTE'
           set -euo pipefail
 
           DEPLOY_PATH="$(printf '%s' "$DEPLOY_PATH_B64" | base64 -d)"
@@ -94,6 +102,10 @@ jobs:
           OPENROUTER_API_KEY="$(printf '%s' "$OPENROUTER_API_KEY_B64" | base64 -d)"
           OPENROUTER_MODEL="$(printf '%s' "$OPENROUTER_MODEL_B64" | base64 -d)"
           OPENROUTER_BASE_URL="$(printf '%s' "$OPENROUTER_BASE_URL_B64" | base64 -d)"
+          STRIPE_SECRET_KEY="$(printf '%s' "$STRIPE_SECRET_KEY_B64" | base64 -d)"
+          STRIPE_WEBHOOK_SECRET="$(printf '%s' "$STRIPE_WEBHOOK_SECRET_B64" | base64 -d)"
+          STRIPE_PRICE_CATALOG="$(printf '%s' "$STRIPE_PRICE_CATALOG_B64" | base64 -d)"
+          PUBLIC_BASE_URL="$(printf '%s' "$PUBLIC_BASE_URL_B64" | base64 -d)"
 
           test -n "$RELEASE_ID"
           RELEASE_PATH="$DEPLOY_PATH/releases/$RELEASE_ID"
@@ -123,6 +135,8 @@ jobs:
           fi
           printf '%s\n' "$MCP_API_TOKEN" > secrets/mcp_api_token.txt
           printf '%s\n' "${OPENROUTER_API_KEY:-}" > secrets/openrouter_api_key.txt
+          printf '%s\n' "${STRIPE_SECRET_KEY:-}" > secrets/stripe_secret_key.txt
+          printf '%s\n' "${STRIPE_WEBHOOK_SECRET:-}" > secrets/stripe_webhook_secret.txt
           cp "$DEPLOY_PATH/shared/secrets/pii_encryption_key.txt" secrets/pii_encryption_key.txt
           {
             printf 'ENVIRONMENT=production\n'
@@ -137,6 +151,8 @@ jobs:
             printf 'OPENROUTER_MAX_RETRIES=2\n'
             printf 'OPENROUTER_RETRY_BACKOFF_SECONDS=0.5\n'
             printf 'OPENROUTER_APP_TITLE=Samrat Course MCP\n'
+            printf 'STRIPE_PRICE_CATALOG=%s\n' "${STRIPE_PRICE_CATALOG:-{}}"
+            printf 'PUBLIC_BASE_URL=%s\n' "${PUBLIC_BASE_URL:-}"
           } > .env
 
           docker compose up -d postgres redis

@@ -1,0 +1,8 @@
+/.github/workflows/ @ratsam93
+/Dockerfile @ratsam93
+/Dockerfile.scorm-editor @ratsam93
+/docker-compose.yml @ratsam93
+/migrations/ @ratsam93
+/src/course_mcp_server/security.py @ratsam93
+/src/course_mcp_server/server.py @ratsam93
+/src/course_mcp_server/billing.py @ratsam93

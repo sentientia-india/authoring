@@ -23,7 +23,9 @@ the tenant product-license row before reading and appending usage.
 
 ## Required production secrets
 
-- `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_SECRET_KEY_FILE` and `STRIPE_WEBHOOK_SECRET_FILE` Docker secrets
+- `STRIPE_PRICE_CATALOG`, a JSON object binding each allowed Stripe price to
+  its server-authoritative `tier` and `mode`; clients cannot select entitlements
 - `PUBLIC_BASE_URL`
 - `PII_ENCRYPTION_KEY` shared by the API, analytics worker, and outbox worker
 - email provider or SMTP credentials described in `docs/deployment.md`
