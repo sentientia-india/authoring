@@ -1,0 +1,13 @@
+{
+  "exercise_type": "non-destructive tabletop",
+  "exercised_at": "2026-07-13T12:00:00+00:00",
+  "passed": true,
+  "production_mutation": false,
+  "release": "f00f6eb6895ed411a6f43475707cec829a70bb5c",
+  "scenario_results": [
+    {"scenario": "Bad deploy", "result": "passed", "severity": "critical"},
+    {"scenario": "Email outage", "result": "passed", "severity": "warning"},
+    {"scenario": "Suspected tenant leak", "result": "passed", "severity": "critical"}
+  ],
+  "schema_version": 1
+}

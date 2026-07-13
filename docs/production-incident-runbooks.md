@@ -21,3 +21,14 @@ an incident channel.
 Severity is critical for data isolation, total unavailability, billing access
 errors, failed restore, or corrupted canonical course data. Everything else is
 warning unless customer impact or duration crosses the published SLO policy.
+
+## Exercise gate
+
+`python scripts/runbook_exercise.py --release <sha>` performs the
+non-destructive release tabletop for a bad deployment, email-provider outage,
+and suspected tenant leak. It verifies incident ownership, UTC evidence,
+reversible containment, customer communication, secret/PII handling, and
+recovery checks. CI blocks release if the runbook no longer contains the
+required response controls. The initial execution record is stored at
+`docs/evidence/support-runbook-2026-07-13.json`; live incidents and quarterly
+disaster-recovery drills remain separate operational evidence.

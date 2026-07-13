@@ -57,6 +57,8 @@ jobs:
           RESTORE_COUNT="$(docker exec "$PG_CONTAINER" psql -U course_mcp -d course_mcp_restore -Atc 'select count(*) from schema_migrations')"
           test "$SOURCE_COUNT" = "$RESTORE_COUNT"
           test "$RESTORE_COUNT" -ge 5
+      - name: Support runbook exercise
+        run: python scripts/runbook_exercise.py --release "$GITHUB_SHA" > /tmp/support-runbook-exercise.json
       - name: Docker build
         run: docker build -t samrat-course-mcp:ci .
 

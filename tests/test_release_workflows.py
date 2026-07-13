@@ -64,6 +64,12 @@ def test_ci_runs_a_real_postgres_backup_restore_drill():
     assert "SOURCE_COUNT" in workflow and "RESTORE_COUNT" in workflow
 
 
+def test_ci_runs_support_runbook_exercise_as_a_release_gate():
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "Support runbook exercise" in workflow
+    assert 'python scripts/runbook_exercise.py --release "$GITHUB_SHA"' in workflow
+
+
 def test_deployments_use_immutable_releases_and_rollback_without_in_place_deletion():
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     assert "samrat-course-mcp:${RELEASE_ID:-local}" in compose
