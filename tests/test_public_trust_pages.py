@@ -33,3 +33,14 @@ def test_landing_links_to_public_trust_surfaces():
     page = (LANDING / "index.html").read_text(encoding="utf-8")
     assert 'href="/trust.html"' in page
     assert 'href="/status.html"' in page
+
+
+def test_public_demo_gallery_contains_three_keyboard_accessible_samples():
+    landing = (LANDING / "index.html").read_text(encoding="utf-8")
+    gallery = (LANDING / "demos.html").read_text(encoding="utf-8")
+    script = (LANDING / "demos.js").read_text(encoding="utf-8")
+    assert landing.count('href="/demos.html#') == 3
+    assert gallery.count('class="demo-card"') == 3
+    assert gallery.count('class="button demo-check"') == 3
+    assert gallery.count('role="status" aria-live="polite"') == 3
+    assert "input:checked" in script and "card.dataset.answer" in script
