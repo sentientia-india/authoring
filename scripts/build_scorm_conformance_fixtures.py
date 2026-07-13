@@ -40,6 +40,7 @@ MOODLE_PROBE = """
     window.CourseScorm.getSuspendData().marker === "course-mcp-moodle";
   if (restored) {
     result.textContent = "Restored acceptance marker";
+    window.CourseScorm.setLocation("acceptance-restored");
     window.setTimeout(function () {
       var restoredCompletion = window.CourseScorm.markComplete(true) && window.CourseScorm.commit();
       document.title = restoredCompletion

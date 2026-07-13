@@ -6,7 +6,7 @@ require(__DIR__ . '/config.php');
 $student = $DB->get_record('user', ['username' => 'student1'], '*', MUST_EXIST);
 $requirements = [
     'Course MCP SCORM 1.2' => [
-        'location' => ['cmi.core.lesson_location', 'acceptance-complete'],
+        'location' => ['cmi.core.lesson_location', 'acceptance-restored'],
         'suspend' => ['cmi.suspend_data', 'course-mcp-moodle'],
         'score' => ['cmi.core.score.raw', '100'],
         'completion' => ['cmi.core.lesson_status', 'passed'],
@@ -14,7 +14,7 @@ $requirements = [
         'interaction' => ['cmi.interactions.0.id', 'final-check'],
     ],
     'Course MCP SCORM 2004' => [
-        'location' => ['cmi.location', 'acceptance-complete'],
+        'location' => ['cmi.location', 'acceptance-restored'],
         'suspend' => ['cmi.suspend_data', 'course-mcp-moodle'],
         'score' => ['cmi.score.raw', '100'],
         'completion' => ['cmi.completion_status', 'completed'],

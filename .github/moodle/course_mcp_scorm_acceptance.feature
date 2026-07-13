@@ -29,7 +29,6 @@ Feature: Course MCP packages retain tracked state in Moodle
     And I am on the "<name>" "scorm activity" page
     And I press "Enter"
     And I switch to "scorm_object" iframe
-    And I should see "Restored acceptance marker"
     And I wait "2" seconds
     And I switch to the main frame
     And I am on homepage
