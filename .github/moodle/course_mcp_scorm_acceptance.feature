@@ -29,9 +29,9 @@ Feature: Course MCP packages retain tracked state in Moodle
     And I am on the "<name>" "scorm activity" page
     And I press "Enter"
     And I switch to "scorm_object" iframe
-    And the page title should contain "Restored acceptance marker"
+    And the current frame raw text should contain "Restored acceptance marker"
     And I wait "2" seconds
-    And the page title should contain "Restored acceptance marker - Completion accepted"
+    And the current frame raw text should contain "Restored acceptance marker - Completion accepted"
     And I switch to the main frame
     And I am on homepage
 

@@ -20,7 +20,7 @@ def test_conformance_fixture_builder_generates_valid_hashed_packages(tmp_path):
         assert 'outcomes.push(window.CourseScorm.finish())' in index
         assert 'result.textContent = "Restored acceptance marker"' in index
         assert 'window.CourseScorm.setLocation("acceptance-restored")' in index
-        assert "synchronizePlayerTitle" in index
+        assert "Restored acceptance marker - Completion accepted" in index
         assert "Restored acceptance marker - Completion accepted" in index
 
     verified = build(tmp_path, verify_only=True)

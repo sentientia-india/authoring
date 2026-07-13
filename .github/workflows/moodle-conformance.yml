@@ -48,6 +48,7 @@ jobs:
           cp .moodle-conformance/moodle-docker/config.docker-template.php "$MOODLE_DOCKER_WWWROOT/config.php"
           cp .moodle-conformance/packages/*.zip "$MOODLE_DOCKER_WWWROOT/mod/scorm/tests/packages/"
           cp .github/moodle/course_mcp_scorm_acceptance.feature "$MOODLE_DOCKER_WWWROOT/mod/scorm/tests/behat/course_mcp_scorm_acceptance.feature"
+          cp .github/moodle/behat_course_mcp.php "$MOODLE_DOCKER_WWWROOT/lib/tests/behat/behat_course_mcp.php"
 
       - name: Start pinned Moodle
         working-directory: .moodle-conformance/moodle-docker
