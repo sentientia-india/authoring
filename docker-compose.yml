@@ -28,6 +28,7 @@ services:
     environment:
       MCP_API_TOKEN_FILE: /run/secrets/mcp_api_token
       OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_api_key
+      PII_ENCRYPTION_KEY_FILE: /run/secrets/pii_encryption_key
       DATABASE_URL: postgresql://course_mcp:course_mcp@postgres:5432/course_mcp
       REDIS_URL: redis://redis:6379/0
       OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-course-mcp}
@@ -50,6 +51,7 @@ services:
     secrets:
       - mcp_api_token
       - openrouter_api_key
+      - pii_encryption_key
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=128m
@@ -90,6 +92,60 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  outbox-worker:
+    build: .
+    command: ["python", "-m", "course_mcp_server.outbox_worker"]
+    env_file:
+      - .env
+    environment:
+      PII_ENCRYPTION_KEY_FILE: /run/secrets/pii_encryption_key
+      DATABASE_URL: postgresql://course_mcp:course_mcp@postgres:5432/course_mcp
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      - course-mcp-net
+    depends_on:
+      postgres: {condition: service_started}
+    secrets:
+      - pii_encryption_key
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "10001:10001"
+    restart: unless-stopped
+
+  analytics-worker:
+    build: .
+    command: ["python", "-m", "course_mcp_server.analytics_worker"]
+    env_file:
+      - .env
+    environment:
+      PII_ENCRYPTION_KEY_FILE: /run/secrets/pii_encryption_key
+      DATABASE_URL: postgresql://course_mcp:course_mcp@postgres:5432/course_mcp
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-course-mcp}
+      OBJECT_STORE_ENDPOINT: http://minio:9000
+      OBJECT_STORE_ACCESS_KEY: ${OBJECT_STORE_ACCESS_KEY:-course-mcp}
+      OBJECT_STORE_SECRET_KEY: ${OBJECT_STORE_SECRET_KEY:-course-mcp-development-only}
+    networks:
+      - course-mcp-net
+    depends_on:
+      postgres: {condition: service_started}
+      minio-init: {condition: service_completed_successfully}
+    secrets:
+      - pii_encryption_key
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "10001:10001"
+    restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
@@ -160,3 +216,5 @@ secrets:
     file: ./secrets/mcp_api_token.txt
   openrouter_api_key:
     file: ./secrets/openrouter_api_key.txt
+  pii_encryption_key:
+    file: ./secrets/pii_encryption_key.txt

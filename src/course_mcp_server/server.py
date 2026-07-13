@@ -47,10 +47,13 @@ from .hosted_repository import (
 from .communication import CommunicationError, record_provider_event
 from .analytics import (
     account_dashboard,
+    analytics_quality_dashboard,
     course_analytics,
     export_csv,
     funnel_analytics,
+    learner_timeline,
     question_analytics,
+    report_run_access,
     schedule_report,
 )
 from .observability import dependency_health, increment, prometheus_metrics, structured_log
@@ -274,10 +277,51 @@ def create_mcp_server():
                 release_id=str(payload.get("release_id") or "") or None,
                 cadence=str(payload.get("cadence") or "weekly"),
                 recipients=[str(value) for value in payload.get("recipients") or []],
+                parameters={"learner_id": str(payload.get("learner_id") or "")}
+                if str(payload.get("report_type") or "course") == "learner"
+                else {},
             )
         except (PermissionError, ValueError, TypeError):
             return JSONResponse({"ok": False, "error": "invalid_schedule"}, status_code=400)
         return JSONResponse({"ok": True, "schedule": result}, status_code=201)
+
+    @mcp.custom_route("/api/analytics/learners/{learner_id}", methods=["GET"], include_in_schema=False)
+    async def analytics_learner(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            result = learner_timeline(
+                tenant_id=context.tenant_id, learner_id=request.path_params["learner_id"]
+            )
+        except PermissionError:
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+        return JSONResponse({"ok": True, "timeline": result})
+
+    @mcp.custom_route("/api/analytics/quality", methods=["GET"], include_in_schema=False)
+    async def analytics_quality(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            result = analytics_quality_dashboard(
+                tenant_id=context.tenant_id,
+                release_id=request.query_params.get("release_id") or None,
+            )
+        except PermissionError:
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+        return JSONResponse({"ok": True, "quality": result})
+
+    @mcp.custom_route("/api/analytics/report-runs/{run_id}", methods=["GET"], include_in_schema=False)
+    async def analytics_report_download(request):  # noqa: ANN001
+        try:
+            context = _context_from_request(request)
+            access = report_run_access(
+                tenant_id=context.tenant_id, run_id=request.path_params["run_id"]
+            )
+        except PermissionError:
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+        except LookupError:
+            return JSONResponse({"ok": False, "error": "report_not_found"}, status_code=404)
+        if access["backend"] == "local":
+            return FileResponse(access["path"], media_type="text/csv", filename="learning-report.csv")
+        return JSONResponse({"ok": True, "download_url": access["url"], "expires_in": 300})
 
     @mcp.custom_route("/api/hosted/domains", methods=["POST"], include_in_schema=False)
     async def hosted_domain_request(request):  # noqa: ANN001

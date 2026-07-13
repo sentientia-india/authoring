@@ -38,7 +38,9 @@ TENANT_TABLES = (
     "usage_entries",
     "email_deliveries",
     "scheduled_reports",
+    "analytics_report_runs",
     "analytics_quality_checks",
+    "analytics_ingestion_observations",
     "billing_events",
     "badge_definitions",
     "badge_awards",
@@ -47,7 +49,9 @@ TENANT_TABLES = (
 
 
 DELETE_ORDER = (
+    "analytics_ingestion_observations",
     "analytics_quality_checks",
+    "analytics_report_runs",
     "scheduled_reports",
     "captured_leads",
     "email_deliveries",

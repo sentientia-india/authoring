@@ -3,7 +3,7 @@ import os
 import pytest
 
 from course_mcp_server.communication import CommunicationError, deliver_email, queue_email, record_provider_event
-from course_mcp_server.database import database_url
+from course_mcp_server.database import connection, database_url
 from scripts.apply_migrations import apply
 
 
@@ -28,6 +28,13 @@ def test_email_queue_is_idempotent_and_suppresses_bounces():
         idempotency_key="invite-1",
     )
     assert first["delivery_id"] == second["delivery_id"]
+    with connection() as active:
+        stored = active.execute(
+            "SELECT recipient_ciphertext FROM email_deliveries WHERE tenant_id = %s AND delivery_id = %s",
+            ("tenant-email", first["delivery_id"]),
+        ).fetchone()
+    assert stored["recipient_ciphertext"].startswith("v1:")
+    assert "learner@example.com" not in stored["recipient_ciphertext"]
     assert record_provider_event(
         {"id": "mail-event-1", "provider": "test", "type": "bounce", "email": "learner@example.com"}
     )["suppressed"] is True

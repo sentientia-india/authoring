@@ -27,3 +27,14 @@ def test_outbox_worker_delivers_retries_and_dead_letters(monkeypatch):
     assert delivered == [{"tenant_id": "tenant-a", "event_id": "ok"}]
     assert {item["error_code"] for item in released} == {"connectionerror", "lookuperror"}
     assert all(item["max_attempts"] == 4 for item in released)
+
+
+def test_production_outbox_allowlist_delivers_only_queued_email(monkeypatch):
+    delivered = []
+    monkeypatch.setattr(outbox_worker, "deliver_email", lambda **kwargs: delivered.append(kwargs))
+    handlers = outbox_worker.production_handlers()
+    assert set(handlers) == {"email.queued"}
+    handlers["email.queued"](
+        {"tenant_id": "tenant-a", "payload": {"delivery_id": "mail-1"}}
+    )
+    assert delivered == [{"tenant_id": "tenant-a", "delivery_id": "mail-1"}]

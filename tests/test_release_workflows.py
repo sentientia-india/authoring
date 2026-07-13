@@ -35,7 +35,9 @@ def test_production_deploy_applies_migrations_before_application_start():
     for relative in (".github/workflows/ci.yml", ".github/workflows/deploy.yml"):
         workflow = (ROOT / relative).read_text(encoding="utf-8")
         migration = workflow.index("python /app/scripts/apply_migrations.py")
-        application_start = workflow.index("docker compose up -d course-mcp scorm-editor", migration)
+        application_start = workflow.index(
+            "docker compose up -d course-mcp scorm-editor outbox-worker analytics-worker", migration
+        )
         assert migration < application_start
 
 
@@ -67,3 +69,14 @@ def test_deployments_run_a_bounded_canary_load_gate_before_promotion():
         assert load_gate < promotion
         assert "--max-error-rate 0" in workflow
         assert "--max-p95 0.4" in workflow
+
+
+def test_deployments_preserve_a_stable_pii_encryption_key_outside_releases():
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "PII_ENCRYPTION_KEY_FILE: /run/secrets/pii_encryption_key" in compose
+    for relative in (".github/workflows/ci.yml", ".github/workflows/deploy.yml"):
+        workflow = (ROOT / relative).read_text(encoding="utf-8")
+        assert '$DEPLOY_PATH/shared/secrets/pii_encryption_key.txt' in workflow
+        assert "openssl rand -base64 32" in workflow
+        assert "cp \"$DEPLOY_PATH/shared/secrets/pii_encryption_key.txt\"" in workflow
+        assert "docker compose up -d course-mcp scorm-editor outbox-worker analytics-worker" in workflow

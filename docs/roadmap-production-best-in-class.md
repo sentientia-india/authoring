@@ -638,11 +638,11 @@ The IDs below are the execution order. A child task can begin early, but its pha
 - [x] PROD-201 Implement immutable hosted releases and share modes. Evidence: content-addressed PostgreSQL releases/object-store packages; public, unlisted, email-verified, invite-only, tenant-only, and paid grants; mode-specific entitlement enforcement; revocable hashed tokens; PostgreSQL and portable tests.
 - [x] PROD-202 Implement identity, enrollment, resume, and revocation. Evidence: tenant-scoped learner identity, idempotent enrollment, versioned attempt state, cross-device location/suspend data, enrollment/grant revocation, and PostgreSQL lifecycle tests.
 - [ ] PROD-203 Implement embeds and custom domains.
-- [ ] PROD-204 Implement collections, paths, badges, and certificates.
-- [ ] PROD-205 Implement transactional email and deliverability operations.
-- [ ] PROD-206 Implement append-only learner event ingestion.
-- [ ] PROD-207 Implement course, learner, question, account, and funnel analytics.
-- [ ] PROD-208 Implement exports, scheduled reports, retention, and data-quality monitoring.
+- [x] PROD-204 Implement collections, paths, badges, and certificates. Evidence: tenant-scoped PostgreSQL catalog/path prerequisites, badge definitions/awards, idempotent certificates with verification digests, authenticated REST routes, and integration tests.
+- [x] PROD-205 Implement transactional email and deliverability operations. Evidence: encrypted recipients, invitation/receipt/enrollment/completion/dunning/report templates, durable email outbox worker, idempotency, SMTP delivery, provider webhook authentication, suppression, bounce, and complaint tests. Live sending-domain verification remains an external launch gate.
+- [x] PROD-206 Implement append-only learner event ingestion. Evidence: versioned/deduplicated PostgreSQL events cover view, start, progress, interaction, answer, score, completion, abandon, resume, certificate, and conversion; append-only accepted/duplicate/rejected observations support ingestion-quality evidence.
+- [x] PROD-207 Implement course, learner, question, account, and funnel analytics. Evidence: authenticated tenant-scoped REST dashboards, learner timeline, CSV export, ingestion-quality dashboard, PostgreSQL query tests, and cross-tenant negatives.
+- [x] PROD-208 Implement exports, scheduled reports, retention, and data-quality monitoring. Evidence: tenant-authorized CSV/download routes, encrypted scheduled recipients, claim-safe report worker, object-store artifacts, durable email delivery, retention/export/deletion controls, and accepted/duplicate/rejected/late/missing-context quality evidence.
 
 ### Commerce and operations
 

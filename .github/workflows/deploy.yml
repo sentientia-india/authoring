@@ -106,7 +106,7 @@ jobs:
               cd "$PREVIOUS"
               export COMPOSE_PROJECT_NAME=samrat-course-mcp
               docker compose build course-mcp scorm-editor
-              docker compose up -d course-mcp scorm-editor
+              docker compose up -d course-mcp scorm-editor outbox-worker analytics-worker
             fi
             exit "$status"
           }
@@ -116,8 +116,13 @@ jobs:
 
           umask 077
           mkdir -p secrets
+          mkdir -p "$DEPLOY_PATH/shared/secrets"
+          if [ ! -s "$DEPLOY_PATH/shared/secrets/pii_encryption_key.txt" ]; then
+            openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n' > "$DEPLOY_PATH/shared/secrets/pii_encryption_key.txt"
+          fi
           printf '%s\n' "$MCP_API_TOKEN" > secrets/mcp_api_token.txt
           printf '%s\n' "${OPENROUTER_API_KEY:-}" > secrets/openrouter_api_key.txt
+          cp "$DEPLOY_PATH/shared/secrets/pii_encryption_key.txt" secrets/pii_encryption_key.txt
           {
             printf 'ENVIRONMENT=production\n'
             printf 'MCP_HOST=0.0.0.0\n'
@@ -136,7 +141,7 @@ jobs:
           docker compose up -d postgres redis
           docker compose build course-mcp scorm-editor
           docker compose run --rm course-mcp python /app/scripts/apply_migrations.py
-          docker compose up -d course-mcp scorm-editor
+          docker compose up -d course-mcp scorm-editor outbox-worker analytics-worker
           docker compose ps
           for attempt in $(seq 1 20); do
             if docker compose exec -T course-mcp python -m course_mcp_server.healthcheck; then

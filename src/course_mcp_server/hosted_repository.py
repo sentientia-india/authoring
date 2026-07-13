@@ -126,20 +126,54 @@ def has_entitlement(
 
 
 def append_event(
-    *, tenant_id: str, release_id: str, event_type: str, learner_hash: str, payload: dict[str, Any]
+    *,
+    tenant_id: str,
+    release_id: str,
+    event_type: str,
+    learner_hash: str,
+    payload: dict[str, Any],
+    enrollment_id: str | None = None,
+    attempt_id: str | None = None,
+    occurred_at: datetime | None = None,
 ) -> dict[str, Any]:
     idempotency_key = str(payload.get("idempotency_key") or f"{event_type}:{uuid4().hex}")
     event_id = f"learn_evt_{hashlib.sha256(f'{tenant_id}:{idempotency_key}'.encode()).hexdigest()[:24]}"
     event_payload = {**payload, "learner_hash": learner_hash}
     with connection() as active:
-        active.execute(
+        result = active.execute(
             """
             INSERT INTO learner_events
-                (tenant_id, event_id, release_id, event_type, idempotency_key, payload)
-            VALUES (%s, %s, %s, %s, %s, %s)
+                (tenant_id, event_id, release_id, enrollment_id, attempt_id, event_type,
+                 idempotency_key, payload, occurred_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()))
             ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
             """,
-            (tenant_id, event_id, release_id, event_type, idempotency_key, Jsonb(event_payload)),
+            (
+                tenant_id,
+                event_id,
+                release_id,
+                enrollment_id,
+                attempt_id,
+                event_type,
+                idempotency_key,
+                Jsonb(event_payload),
+                occurred_at,
+            ),
+        )
+        duplicate = result.rowcount == 0
+        active.execute(
+            """
+            INSERT INTO analytics_ingestion_observations
+                (tenant_id, observation_id, release_id, outcome, event_key_hash)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (
+                tenant_id,
+                f"observe_{uuid4().hex}",
+                release_id,
+                "duplicate" if duplicate else "accepted",
+                hashlib.sha256(idempotency_key.encode()).hexdigest(),
+            ),
         )
         row = active.execute(
             """
@@ -148,7 +182,19 @@ def append_event(
             """,
             (tenant_id, idempotency_key),
         ).fetchone()
-    return dict(row)
+    return {**dict(row), "duplicate": duplicate}
+
+
+def record_event_rejection(*, tenant_id: str, release_id: str, reason_code: str) -> None:
+    with connection() as active:
+        active.execute(
+            """
+            INSERT INTO analytics_ingestion_observations
+                (tenant_id, observation_id, release_id, outcome, reason_code)
+            VALUES (%s, %s, %s, 'rejected', %s)
+            """,
+            (tenant_id, f"observe_{uuid4().hex}", release_id, reason_code[:120]),
+        )
 
 
 def dashboard(*, tenant_id: str, release_id: str) -> dict[str, Any]:

@@ -23,6 +23,7 @@ from .hosted_repository import (
     grant_entitlement,
     has_entitlement,
     resolve_grant,
+    record_event_rejection,
 )
 from .object_store import store_path
 
@@ -195,12 +196,29 @@ def record_learner_event(token: str, event: dict[str, Any]) -> dict:
         grant = resolve_grant(token)
         if not grant:
             raise HostedLearningError("Share not found")
-        allowed = {"completion", "score", "attempt", "interaction"}
+        allowed = {
+            "view", "start", "progress", "interaction", "answer", "score", "completion",
+            "complete", "abandon", "resume", "certificate", "conversion", "attempt",
+        }
         event_type = str(event.get("type") or "")
         if event_type not in allowed:
+            record_event_rejection(
+                tenant_id=grant["tenant_id"], release_id=grant["release_id"], reason_code="unsupported_event_type"
+            )
             raise HostedLearningError("Unsupported analytics event")
         score = max(0, min(100, int(event.get("score", 0)))) if event_type == "score" else None
         learner_hash = hashlib.sha256(str(event.get("learner_id", "anonymous")).encode()).hexdigest()
+        occurred_at = None
+        if event.get("occurred_at"):
+            try:
+                occurred_at = datetime.fromisoformat(str(event["occurred_at"]).replace("Z", "+00:00"))
+                if occurred_at.tzinfo is None:
+                    raise ValueError
+            except ValueError:
+                record_event_rejection(
+                    tenant_id=grant["tenant_id"], release_id=grant["release_id"], reason_code="invalid_occurred_at"
+                )
+                raise HostedLearningError("Invalid event time") from None
         row = append_hosted_event(
             tenant_id=grant["tenant_id"],
             release_id=grant["release_id"],
@@ -210,7 +228,12 @@ def record_learner_event(token: str, event: dict[str, Any]) -> dict:
                 "score": score,
                 "idempotency_key": event.get("idempotency_key"),
                 "interaction": event.get("interaction") if event_type == "interaction" else None,
+                "progress": event.get("progress") if event_type == "progress" else None,
+                "source": str(event.get("source") or "hosted_player")[:80],
             },
+            enrollment_id=str(event.get("enrollment_id") or "") or None,
+            attempt_id=str(event.get("attempt_id") or "") or None,
+            occurred_at=occurred_at,
         )
         return {
             "share_token": token,
@@ -218,11 +241,15 @@ def record_learner_event(token: str, event: dict[str, Any]) -> dict:
             "score": score,
             "learner_hash": learner_hash,
             "timestamp": row["occurred_at"].isoformat(),
+            "duplicate": row["duplicate"],
         }
     data = _load()
     if token not in data["shares"]:
         raise HostedLearningError("Share not found")
-    allowed = {"completion", "score", "attempt", "interaction"}
+    allowed = {
+        "view", "start", "progress", "interaction", "answer", "score", "completion",
+        "complete", "abandon", "resume", "certificate", "conversion", "attempt",
+    }
     event_type = str(event.get("type") or "")
     if event_type not in allowed:
         raise HostedLearningError("Unsupported analytics event")

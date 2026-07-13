@@ -62,6 +62,15 @@ class LocalObjectStore:
         shutil.rmtree(target)
         return count
 
+    def access(self, key: str) -> dict[str, str]:
+        relative = PurePosixPath(key)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ObjectStoreError("Unsafe object key")
+        target = (self.root / Path(*relative.parts)).resolve()
+        if self.root not in target.parents or not target.is_file():
+            raise ObjectStoreError("Object not found")
+        return {"backend": "local", "path": str(target)}
+
 
 class S3ObjectStore:
     def __init__(self, *, bucket: str, endpoint_url: str | None = None) -> None:
@@ -103,6 +112,14 @@ class S3ObjectStore:
             if not page.get("IsTruncated"):
                 return deleted
             continuation = page.get("NextContinuationToken")
+
+    def access(self, key: str) -> dict[str, str]:
+        url = self.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": key},
+            ExpiresIn=300,
+        )
+        return {"backend": "s3", "url": url}
 
 
 def object_store():

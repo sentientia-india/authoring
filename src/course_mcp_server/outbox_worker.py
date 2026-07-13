@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import os
+import time
 from typing import Any
 
 from .outbox import claim_events, mark_delivered, release_failed
+from .communication import deliver_email
 
 EventHandler = Callable[[dict[str, Any]], None]
 
@@ -33,3 +36,22 @@ def process_outbox_batch(
             mark_delivered(tenant_id=event["tenant_id"], event_id=event["event_id"])
             summary["delivered"] += 1
     return summary
+
+
+def production_handlers() -> dict[str, EventHandler]:
+    return {
+        "email.queued": lambda event: deliver_email(
+            tenant_id=event["tenant_id"], delivery_id=str(event["payload"]["delivery_id"])
+        )
+    }
+
+
+def main() -> None:
+    interval = max(1.0, float(os.getenv("WORKER_POLL_SECONDS", "5")))
+    while True:
+        process_outbox_batch(production_handlers())
+        time.sleep(interval)
+
+
+if __name__ == "__main__":
+    main()

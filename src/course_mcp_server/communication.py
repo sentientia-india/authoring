@@ -12,6 +12,7 @@ from uuid import uuid4
 from psycopg.types.json import Jsonb
 
 from .database import connection, ensure_tenant
+from .pii_crypto import decrypt_pii, encrypt_pii
 
 
 class CommunicationError(RuntimeError):
@@ -24,6 +25,7 @@ TEMPLATES = {
     "enrollment": ("You are enrolled in {course_title}", "Start learning: {action_url}"),
     "completion": ("You completed {course_title}", "Congratulations. Certificate: {action_url}"),
     "dunning": ("Payment action required", "Update your payment method: {action_url}"),
+    "report": ("Your {report_type} learning report", "Download the report: {action_url}"),
 }
 
 
@@ -66,7 +68,16 @@ def queue_email(
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
             """,
-            (tenant_id, delivery_id, template, recipient_hash, recipient, Jsonb(data), idempotency_key, status),
+            (
+                tenant_id,
+                delivery_id,
+                template,
+                recipient_hash,
+                encrypt_pii(recipient.strip().lower(), tenant_id=tenant_id),
+                Jsonb(data),
+                idempotency_key,
+                status,
+            ),
         )
         if status == "queued":
             active.execute(
@@ -110,7 +121,8 @@ def deliver_email(*, tenant_id: str, delivery_id: str) -> dict[str, Any]:
     if not sender or not host:
         raise CommunicationError("Transactional email is not configured")
     message = EmailMessage()
-    message["Subject"], message["From"], message["To"] = subject, sender, row["recipient_ciphertext"]
+    recipient = decrypt_pii(row["recipient_ciphertext"], tenant_id=tenant_id)
+    message["Subject"], message["From"], message["To"] = subject, sender, recipient
     message.set_content(body)
     try:
         with smtplib.SMTP_SSL(host, int(os.getenv("SMTP_PORT", "465")), timeout=20) as smtp:
