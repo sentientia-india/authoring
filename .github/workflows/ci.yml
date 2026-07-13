@@ -177,6 +177,12 @@ jobs:
           STRIPE_WEBHOOK_SECRET="$(printf '%s' "$STRIPE_WEBHOOK_SECRET_B64" | base64 -d)"
           STRIPE_PRICE_CATALOG="$(printf '%s' "$STRIPE_PRICE_CATALOG_B64" | base64 -d)"
           PUBLIC_BASE_URL="$(printf '%s' "$PUBLIC_BASE_URL_B64" | base64 -d)"
+          if [ -n "${PUBLIC_BASE_URL:-}" ] && [[ "$PUBLIC_BASE_URL" != https://* ]]; then
+            echo "PUBLIC_BASE_URL must use HTTPS" >&2
+            exit 1
+          fi
+          PUBLIC_DOMAIN="${PUBLIC_BASE_URL#https://}"
+          PUBLIC_DOMAIN="${PUBLIC_DOMAIN%%/*}"
           SMTP_HOST="$(printf '%s' "$SMTP_HOST_B64" | base64 -d)"
           SMTP_PORT="$(printf '%s' "$SMTP_PORT_B64" | base64 -d)"
           SMTP_USERNAME="$(printf '%s' "$SMTP_USERNAME_B64" | base64 -d)"
@@ -231,6 +237,7 @@ jobs:
             printf 'OPENROUTER_APP_TITLE=Samrat Course MCP\n'
             printf 'STRIPE_PRICE_CATALOG=%s\n' "${STRIPE_PRICE_CATALOG:-{}}"
             printf 'PUBLIC_BASE_URL=%s\n' "${PUBLIC_BASE_URL:-}"
+            printf 'PUBLIC_DOMAIN=%s\n' "${PUBLIC_DOMAIN:-localhost}"
             printf 'SMTP_HOST=%s\n' "${SMTP_HOST:-}"
             printf 'SMTP_PORT=%s\n' "${SMTP_PORT:-465}"
             printf 'SMTP_USERNAME=%s\n' "${SMTP_USERNAME:-}"
@@ -241,6 +248,9 @@ jobs:
           docker compose build course-mcp scorm-editor
           docker compose run --rm course-mcp python /app/scripts/apply_migrations.py
           docker compose up -d course-mcp scorm-editor outbox-worker analytics-worker
+          if [ -n "${PUBLIC_BASE_URL:-}" ]; then
+            docker compose --profile tls up -d caddy
+          fi
           docker compose ps
           for attempt in $(seq 1 20); do
             if docker compose exec -T course-mcp python -m course_mcp_server.healthcheck; then

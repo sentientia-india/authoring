@@ -151,4 +151,10 @@ settings are written to `.env`. Do not enable paid checkout until all Stripe,
 public-base-URL, SMTP, sender, and email-webhook values are present and the
 sending domain has passed provider verification.
 
+When `PUBLIC_BASE_URL` is present, the deployment derives `PUBLIC_DOMAIN`, starts
+the opt-in Caddy TLS profile, and exposes the landing, status, hosted-learning,
+editor, billing-webhook, and MCP routes over HTTPS. DNS must already resolve to
+the server and ports 80/443 must be reachable; otherwise certificate issuance
+cannot succeed and the release is not considered publicly launched.
+
 The server user must have permission to write to `DEPLOY_PATH` and run `docker compose`. The server does not need GitHub credentials because the workflow uploads the checked-out repository over SSH.

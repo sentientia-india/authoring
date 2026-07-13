@@ -134,3 +134,14 @@ def test_custom_domain_tls_is_restricted_to_verified_database_records():
     assert '"/internal/caddy/domain-allowed"' in server
     assert '"/domain/{hostname}/{asset_path:path}"' in server
     assert '"/embed/{token}"' in server
+
+
+def test_deployments_start_public_tls_when_a_public_base_url_is_configured():
+    for relative in (".github/workflows/ci.yml", ".github/workflows/deploy.yml"):
+        workflow = (ROOT / relative).read_text(encoding="utf-8")
+        assert 'PUBLIC_DOMAIN="${PUBLIC_BASE_URL#https://}"' in workflow
+        assert '[[ "$PUBLIC_BASE_URL" != https://* ]]' in workflow
+        assert 'PUBLIC_DOMAIN="${PUBLIC_DOMAIN%%/*}"' in workflow
+        assert "printf 'PUBLIC_DOMAIN=%s\\n'" in workflow
+        assert 'if [ -n "${PUBLIC_BASE_URL:-}" ]; then' in workflow
+        assert "docker compose --profile tls up -d caddy" in workflow
