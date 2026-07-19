@@ -1,14 +1,21 @@
 # MCP Tool Contracts
 
-## Recommended generation recipe (agent playbook)
+## The canonical flow (agent playbook — follow this exactly)
 
-The calling agent (the user's Claude Code / Codex subscription) does all expensive work; the MCP validates, gates, and packages. The friction-free flow:
+The calling agent (the user's Claude Code / Codex subscription) does all expensive work — research, writing, image generation. The MCP validates, gates, and packages. User experience is paramount: few questions, real research, a visible plan, no export with missing pieces.
 
-1. **Interview — three questions only.** `start_course_discovery`, then save answers for `course_brief_line` ("Ramp safety essentials for new ramp agents" — title/audience/goal are auto-derived), `duration_preset` (`micro`/`standard`/`deep`), and `media_plan_mode` (`agent_images`/`user_uploads`/`text_only`, plus optional `video_links`). If the user shared a PDF/PPT/doc/site, `ingest_course_source` it (extraction is deterministic — no LLM cost).
-2. **One plan card.** `propose_course_plan` returns the whole plan (modules, length, template, media, gamification). Show it; when the user says "go", call `approve_course_plan` — it collapses every granular approval in one step.
-3. **Write in parallel.** Spawn one subagent per module (user's tokens), each authoring full lessons per the content rules below, and `submit_course_module` as each finishes (idempotent by module id; the last one auto-assembles and quality-checks the course). Or use `submit_course_content` for one-shot.
-4. **Media.** `get_media_briefs` returns image briefs (ready-to-render prompts + filenames) and video slots (with suggested searches). Generate images with your own tooling, push each via `upload_media_asset` (base64, png/jpg/svg/webp/mp4/webm, ≤8 MB), then `attach_media` to the target block. For video slots, ask the user one crisp question per slot (paste a YouTube/Vimeo/Loom link, upload an mp4, or skip — skipped slots render a clean poster card).
-5. **Gate and ship.** `validate_instructional_quality` → `build_export_package` (SCORM zip with everything embedded). Exports are metered per license tier; `white_label` licenses may pass `branding: {product_name, footer_text}`.
+1. **Describe.** User connects the MCP and writes what they want to create and how. `start_course_discovery`, save `course_brief_line` (title/audience/goal auto-derive from the one line).
+2. **Research or document.** Save `source_mode`:
+   - `agent_research` (default): **you research the topic yourself** — run your own web searches, distil accurate findings into a sourced brief (facts, terminology, standards, citations), and push it with `ingest_source_text` (`{project_id, title, source_type: "research", text}`). This becomes the course's grounding.
+   - `upload_document` / `paste_text`: ingest the user's PDF/PPT/doc via `ingest_course_source` (server extracts deterministically), or push pasted text via `ingest_source_text`.
+   - `topic_only`: skip sources (readiness no longer requires chunks in this mode).
+3. **Depth.** Only now — with the material in hand — ask `duration_preset` (`micro` ~15 min / `standard` ~45 / `deep` ~90) and `media_plan_mode` (`agent_images` default / `user_uploads` / `text_only`, plus optional `video_links`).
+4. **First-layer index.** `propose_course_plan` returns the full plan (modules, lessons, length, template, media plan, gamification). Show it to the user; on "go", `approve_course_plan` collapses every approval in one step. Edits to the plan are welcome before approval.
+5. **Populate.** Spawn one subagent per module (user's tokens), each authoring complete lessons per the content rules below; `submit_course_module` as each finishes (idempotent; the last one auto-assembles + quality-checks). Or `submit_course_content` one-shot.
+6. **Images — MANDATORY when `media_plan_mode` is `agent_images`.** `get_media_briefs` returns ready-to-render prompts + filenames. Generate every image with your own tooling, `upload_media_asset` each, `attach_media` to its block. **`build_export_package` will refuse (`media_incomplete`) while briefs are unfilled** — `allow_missing_media: true` exists only for an explicit user waiver.
+7. **Videos.** For each video slot ask the user one crisp question (paste YouTube/Vimeo/Loom link, upload an mp4, or skip — skipped slots render a clean poster card). Attach via `attach_media`.
+8. **Gate and ship.** `validate_instructional_quality` → `build_export_package` → hand the user the SCORM zip. Exports are metered per license tier; `white_label` may pass `branding`.
+9. **Polish (optional).** The user can open the zip in **Course Studio** (`apps/scorm_editor`, port 8788) — the WYSIWYG editor whose canvas is the real player — to tweak text inline, swap images, drop in videos, and re-export.
 
 Licensing: every call requires a license key (`mcp_api_token`). Customer keys are issued server-side with `scripts/issue_license.py` (tiers: free/pro/white_label with monthly export quotas); the `MCP_API_TOKEN` bootstrap key remains for the operator. Tenant identity comes from the license, not the payload.
 

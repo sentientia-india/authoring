@@ -21,9 +21,21 @@ COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
         "required": True,
     },
     {
+        "id": "source_mode",
+        "stage": "essentials",
+        "question": (
+            "Where should the course material come from? I can research the topic myself, "
+            "or you can upload a document (PDF/PPT/doc) or paste text."
+        ),
+        "type": "single_select",
+        "options": ["agent_research", "upload_document", "paste_text", "topic_only"],
+        "default_if_blank": "agent_research",
+        "required": True,
+    },
+    {
         "id": "duration_preset",
         "stage": "essentials",
-        "question": "How long should the course be? micro (~15 min), standard (~45 min), or deep (~90 min)?",
+        "question": "Now that I know the material - how deep should the course go? micro (~15 min), standard (~45 min), or deep (~90 min)?",
         "type": "single_select",
         "options": ["micro", "standard", "deep"],
         "default_if_blank": "standard",

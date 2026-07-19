@@ -29,6 +29,7 @@ def test_production_tool_surface_is_narrow_and_safe():
         "generate_chapter_layout",
         "create_course_project",
         "ingest_course_source",
+        "ingest_source_text",
         "select_course_template",
         "list_course_templates",
         "recommend_course_templates",

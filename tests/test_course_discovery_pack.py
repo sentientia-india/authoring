@@ -106,8 +106,9 @@ def test_next_question_asks_essentials_first_then_brief_details(tmp_path, monkey
     context, project_id = _create_project(tmp_path, monkeypatch)
     start = start_course_discovery({"project_id": project_id}, context)
     assert start["data"]["next_question"]["id"] == "course_brief_line"
-    assert [question["id"] for question in start["data"]["questions"][:3]] == [
+    assert [question["id"] for question in start["data"]["questions"][:4]] == [
         "course_brief_line",
+        "source_mode",
         "duration_preset",
         "media_plan_mode",
     ]
@@ -119,7 +120,7 @@ def test_next_question_asks_essentials_first_then_brief_details(tmp_path, monkey
     next_question = get_next_course_question({"project_id": project_id}, context)
 
     # The one-liner auto-derives the detailed brief fields so they are not re-asked.
-    assert next_question["data"]["next_question"]["id"] == "duration_preset"
+    assert next_question["data"]["next_question"]["id"] == "source_mode"
     answered = {"course_title", "target_learner", "course_goal"}
     remaining_ids = [question["id"] for question in next_question["data"]["questions"]]
     assert not answered.intersection(remaining_ids)

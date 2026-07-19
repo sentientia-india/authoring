@@ -138,7 +138,12 @@ class CourseDiscoveryWorkflow:
                 reason="Backfilled from detailed brief answers.",
             ).to_dict()
         if "course_brief_line" in answers:
-            for field_id, default in (("duration_preset", "standard"), ("media_plan_mode", "agent_images")):
+            source_default = "upload_document" if state.source_chunk_count > 0 else "topic_only"
+            for field_id, default in (
+                ("source_mode", source_default),
+                ("duration_preset", "standard"),
+                ("media_plan_mode", "agent_images"),
+            ):
                 if field_id not in answers:
                     answers[field_id] = DiscoveryAnswer(
                         value=default,
@@ -279,7 +284,8 @@ class CourseDiscoveryWorkflow:
             missing.append("assessment model")
         if not state.approvals.get("interaction_model"):
             missing.append("interaction model")
-        if state.source_chunk_count <= 0:
+        source_mode = (state.answers.get("source_mode") or {}).get("value", "agent_research")
+        if state.source_chunk_count <= 0 and source_mode != "topic_only":
             missing.append("source chunks")
 
         ready = not missing

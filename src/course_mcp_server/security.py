@@ -35,6 +35,7 @@ ALLOWED_TOOLS: set[str] = {
     "generate_course_with_codex",
     "get_course_workflow_status",
     "ingest_course_source",
+    "ingest_source_text",
     "generate_course_blueprint",
     "submit_course_content",
     "submit_course_module",

@@ -359,6 +359,20 @@ class AssessmentBankResult(BaseModel):
     questions: list[dict]
 
 
+class SourceTextIngestRequest(BaseModel):
+    """Source text pushed directly by the calling agent.
+
+    This is how the agent's own research (web search it ran on the user's
+    subscription) or a document the user pasted in chat becomes course source
+    material — no server filesystem access required.
+    """
+
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    title: str = Field(min_length=3, max_length=200)
+    source_type: Literal["research", "raw_text", "website", "pdf_text", "notes"] = "research"
+    text: str = Field(min_length=200, max_length=200_000)
+
+
 class SubmitCourseContentRequest(BaseModel):
     """Full course content authored by the calling agent (Claude Code / Codex).
 
@@ -472,6 +486,8 @@ class ExportPackageRequest(BaseModel):
     export_format: Literal["scorm", "h5p"] = "scorm"
     scorm_version: Literal["1.2", "2004"] = "1.2"
     branding: dict | None = None
+    # Escape hatch for the mandatory-images gate (media_plan_mode=agent_images).
+    allow_missing_media: bool = False
 
 
 class StorylineHandoffRequest(BaseModel):

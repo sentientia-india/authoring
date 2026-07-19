@@ -95,6 +95,7 @@ from .schemas import (
     ScormPackageRequest,
     SourceIngestRequest,
     SourceIngestResult,
+    SourceTextIngestRequest,
     TemplateSelectionRequest,
     TemplateSelectionResult,
     StorylineHandoffRequest,
@@ -927,6 +928,46 @@ def ingest_course_source(payload: dict, context: RequestContext) -> dict[str, An
     ).model_dump(mode="json")
     _record(context, tool_name, req.project_id, "Course source ingested.")
     return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def ingest_source_text(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Accept source text pushed by the calling agent (its own research or a pasted document).
+
+    This makes the 'agent researches the topic itself' step of the canonical flow
+    executable from any MCP client — no server filesystem access needed.
+    """
+    tool_name = "ingest_source_text"
+    assert_tool_allowed(tool_name)
+    try:
+        req = SourceTextIngestRequest.model_validate(payload)
+    except ValidationError as exc:
+        return safe_error(exc)
+    project = _project_or_raise(context, req.project_id)
+    from .course_generator import _source_risk_flags
+
+    warnings = _source_risk_flags(req.text)
+    source = {
+        "source_id": f"source_{len(project.get('sources', [])) + 1}",
+        "source_type": req.source_type,
+        "title": req.title,
+        "extracted_text": req.text[:60_000],
+        "page_references": ["section:1"],
+        "warnings": warnings,
+        "object_storage": None,
+    }
+    project.setdefault("sources", []).append(source)
+    save_project(project)
+    output = SourceIngestResult(
+        project_id=req.project_id,
+        source_id=source["source_id"],
+        source_type=req.source_type,
+        title=req.title,
+        extracted_text_preview=req.text[:240].strip().lstrip("#").strip(),
+        page_references=source["page_references"],
+        warnings=warnings,
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, f"Source text ingested: {req.title}")
+    return _safe_return(tool_name, context, {"project_id": req.project_id, "title": req.title}, output)
 
 
 def _source_text(project: dict[str, Any]) -> str:
@@ -1852,6 +1893,30 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
         branding = {"footer_text": "Created with Samrat Course MCP — Free plan"}
     project = _project_or_raise(context, req.project_id)
     template = _project_template(project)
+    # Canonical-flow gate: when the user chose agent-generated images, the agent
+    # MUST have generated and attached them before export. Unfilled briefs block.
+    if not req.allow_missing_media:
+        media_mode = ((project.get("workflow") or {}).get("answers", {}).get("media_plan_mode") or {}).get("value")
+        content_artifact = latest_artifact(project, "course_content")
+        if media_mode == "agent_images" and content_artifact:
+            unfilled = build_media_briefs(content_artifact.get("payload", {}))["image_briefs"]
+            if unfilled:
+                _record(context, tool_name, req.project_id, "Export blocked: required images missing.")
+                return _error_return(
+                    tool_name,
+                    context,
+                    req.model_dump(),
+                    "media_incomplete",
+                    {
+                        "message": (
+                            "This course was planned with agent-generated images and "
+                            f"{len(unfilled)} image brief(s) are still unfilled. Generate each image "
+                            "with your own tools, upload_media_asset it, attach_media it, then export. "
+                            "Pass allow_missing_media=true only if the user explicitly waives images."
+                        ),
+                        "image_briefs": unfilled,
+                    },
+                )
     course_payload = _project_course_payload(project)
     quality_report = evaluate_superior_quality(
         course_payload,
@@ -2034,6 +2099,7 @@ TOOL_REGISTRY = {
     "generate_course_with_codex": generate_course_with_codex,
     "get_course_workflow_status": get_course_workflow_status,
     "ingest_course_source": ingest_course_source,
+    "ingest_source_text": ingest_source_text,
     "generate_course_blueprint": generate_course_blueprint,
     "submit_course_content": submit_course_content,
     "submit_course_module": submit_course_module,
