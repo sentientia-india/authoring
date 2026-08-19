@@ -59,6 +59,7 @@ class ScormPackageRequest(BaseModel):
     media_files: list[str] = Field(default_factory=list, max_length=60)
     branding: dict = Field(default_factory=dict)
     export_stamp: dict = Field(default_factory=dict)
+    narration_audio_object_keys: dict[str, str] | None = None
 
 
 class CourseMaterial(BaseModel):
@@ -494,6 +495,40 @@ class StorylineHandoffRequest(BaseModel):
     project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
 
 
+class OpenInStudioRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    # Course Studio only understands the MCP's own SCORM package shape (imsmanifest.xml +
+    # data/course.json) so this always runs a fresh SCORM export -- h5p is not importable.
+    scorm_version: Literal["1.2", "2004"] = "1.2"
+    branding: dict | None = None
+    # Escape hatch for the mandatory-images gate (media_plan_mode=agent_images), same as
+    # ExportPackageRequest since this always drives a fresh build_export_package call.
+    allow_missing_media: bool = False
+
+
+class OpenInStudioResult(BaseModel):
+    project_id: str
+    session: str
+    editor_url: str
+    package_path: str
+
+
+class ImportStudioEditsRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    # The agent must supply the Course Studio session id it received from open_in_studio's
+    # own earlier response -- the MCP does not persist which session a project was opened
+    # into, so there is nothing for this tool to look up on its own.
+    session_id: str = Field(min_length=1, max_length=200)
+
+
+class ImportStudioEditsResult(BaseModel):
+    project_id: str
+    session_id: str
+    version: int | None = None
+    module_count: int
+    lesson_count: int
+
+
 class ListArtifactsRequest(BaseModel):
     project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
 
@@ -558,6 +593,86 @@ class InteractiveVideoResult(BaseModel):
     video_id: str
     package_path: str
     files: list[str]
+    note: str
+
+
+class NarrationAudioRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    module_id: str | None = Field(default=None, pattern=r"^module_[0-9]{1,2}$")
+    voice_id: str | None = Field(default=None, max_length=80)
+
+
+class SceneNarrationResult(BaseModel):
+    scene_id: str
+    status: Literal["completed", "failed"]
+    object_key: str | None = None
+    sha256: str | None = None
+    size_bytes: int | None = None
+    error: str | None = None
+
+
+class NarrationAudioResult(BaseModel):
+    project_id: str
+    video_id: str
+    status: Literal["completed", "partial", "failed"]
+    scenes: list[SceneNarrationResult]
+    note: str
+    video_generation_mode: str | None = None
+
+
+class GeneratePresenterVideoRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    script: str | None = Field(default=None, min_length=1, max_length=4000)
+    avatar_id: str | None = Field(default=None, max_length=80)
+    voice_id: str | None = Field(default=None, max_length=80)
+
+
+class GeneratePresenterVideoResult(BaseModel):
+    project_id: str
+    job_id: str
+    status: Literal["processing", "completed", "failed"]
+    note: str
+
+
+class CheckPresenterVideoStatusRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+
+
+class CheckPresenterVideoStatusResult(BaseModel):
+    project_id: str
+    job_id: str
+    status: Literal["processing", "completed", "failed"]
+    object_key: str | None = None
+    sha256: str | None = None
+    size_bytes: int | None = None
+    note: str
+
+
+class GenerateVideoClipRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+    prompt: str | None = Field(default=None, min_length=1, max_length=4000)
+    aspect_ratio: str | None = Field(default=None, max_length=20)
+    duration_seconds: int | None = Field(default=None, ge=1, le=120)
+
+
+class GenerateVideoClipResult(BaseModel):
+    project_id: str
+    job_id: str
+    status: Literal["processing", "completed", "failed"]
+    note: str
+
+
+class CheckVideoClipStatusRequest(BaseModel):
+    project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
+
+
+class CheckVideoClipStatusResult(BaseModel):
+    project_id: str
+    job_id: str
+    status: Literal["processing", "completed", "failed"]
+    object_key: str | None = None
+    sha256: str | None = None
+    size_bytes: int | None = None
     note: str
 
 

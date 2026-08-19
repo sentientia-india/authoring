@@ -4,9 +4,6 @@ import re
 from dataclasses import dataclass, field
 from html import unescape
 from pathlib import Path
-from zipfile import ZipFile
-
-from defusedxml import ElementTree
 
 
 @dataclass(frozen=True)
@@ -22,61 +19,80 @@ def _collapse(text: str) -> str:
     return re.sub(r"\s+", " ", unescape(text)).strip()
 
 
-def _xml_text(xml: str) -> list[str]:
-    root = ElementTree.fromstring(xml)
-    return [_collapse(node.text or "") for node in root.iter() if node.text and _collapse(node.text)]
-
-
 def _extract_docx(path: Path) -> ExtractedSource:
-    with ZipFile(path) as package:
-        xml = package.read("word/document.xml").decode("utf-8", errors="ignore")
-    root = ElementTree.fromstring(xml)
+    import docx  # type: ignore
+
+    document = docx.Document(str(path))
     paragraphs: list[str] = []
     headings: list[str] = []
-    for para in root.iter():
-        if not para.tag.endswith("}p"):
-            continue
-        texts = [_collapse(node.text or "") for node in para.iter() if node.tag.endswith("}t") and node.text]
-        text = " ".join(part for part in texts if part).strip()
+    for paragraph in document.paragraphs:
+        text = _collapse(paragraph.text or "")
         if not text:
             continue
         paragraphs.append(text)
-        para_xml = ElementTree.tostring(para, encoding="unicode")
-        if "Heading" in para_xml:
+        style = paragraph.style
+        style_name = getattr(style, "name", "") or ""
+        if "Heading" in style_name:
             headings.append(text)
+
+    tables: list[list[str]] = []
+    table_lines: list[str] = []
+    for table_index, table in enumerate(document.tables, start=1):
+        rows: list[str] = []
+        for row in table.rows:
+            cells = [_collapse(cell.text or "") for cell in row.cells]
+            if any(cells):
+                rows.append(" | ".join(cells))
+        if rows:
+            tables.append(rows)
+            table_lines.append(f"[table {table_index}]")
+            table_lines.extend(rows)
+
     refs = [f"section:{heading}" for heading in headings] or ["section:body"]
-    return ExtractedSource(text="\n".join(paragraphs), headings=headings, references=refs)
+    return ExtractedSource(
+        text="\n".join(paragraphs + table_lines),
+        headings=headings,
+        references=refs,
+        tables=tables,
+    )
 
 
-def _slide_number(name: str) -> int:
-    match = re.search(r"(\d+)\.xml$", name)
-    return int(match.group(1)) if match else 0
+def _pptx_shape_text(shape: object) -> str:
+    if getattr(shape, "has_text_frame", False):
+        return _collapse(shape.text_frame.text or "")  # type: ignore[attr-defined]
+    if getattr(shape, "has_table", False):
+        cells: list[str] = []
+        for row in shape.table.rows:  # type: ignore[attr-defined]
+            for cell in row.cells:
+                text = _collapse(cell.text or "")
+                if text:
+                    cells.append(text)
+        return " ".join(cells)
+    return ""
 
 
 def _extract_pptx(path: Path) -> ExtractedSource:
+    from pptx import Presentation  # type: ignore
+
+    presentation = Presentation(str(path))
+    slides = list(presentation.slides)
     lines: list[str] = []
     refs: list[str] = []
-    with ZipFile(path) as package:
-        slide_names = sorted(
-            [name for name in package.namelist() if name.startswith("ppt/slides/slide")],
-            key=_slide_number,
-        )
-        note_names = sorted(
-            [name for name in package.namelist() if name.startswith("ppt/notesSlides/notesSlide")],
-            key=_slide_number,
-        )
-        for name in slide_names:
-            number = _slide_number(name)
-            text = " ".join(_xml_text(package.read(name).decode("utf-8", errors="ignore")))
-            if text:
-                lines.append(f"Slide {number}: {text}")
-                refs.append(f"slide:{number}")
-        for name in note_names:
-            number = _slide_number(name)
-            text = " ".join(_xml_text(package.read(name).decode("utf-8", errors="ignore")))
-            if text:
-                lines.append(f"Notes {number}: {text}")
-                refs.append(f"notes:{number}")
+
+    for slide_number, slide in enumerate(slides, start=1):
+        parts = [_pptx_shape_text(shape) for shape in slide.shapes]
+        text = " ".join(part for part in parts if part)
+        if text:
+            lines.append(f"Slide {slide_number}: {text}")
+            refs.append(f"slide:{slide_number}")
+
+    for slide_number, slide in enumerate(slides, start=1):
+        if slide.has_notes_slide:
+            notes = _collapse(slide.notes_slide.notes_text_frame.text or "")
+            if notes:
+                lines.append(f"Notes {slide_number}: {notes}")
+                refs.append(f"notes:{slide_number}")
+
     return ExtractedSource(text="\n".join(lines), references=refs)
 
 

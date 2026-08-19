@@ -1,24 +1,27 @@
-from zipfile import ZipFile
+import docx as docx_lib
+from pptx import Presentation
 
 import course_mcp_server.ingestion as ingestion
 
 from course_mcp_server.ingestion import extract_source
 
 
+def _build_docx(path, *, with_table: bool = False):
+    document = docx_lib.Document()
+    document.add_paragraph("Safety Policy", style="Heading 1")
+    document.add_paragraph("Inspect equipment before use.")
+    if with_table:
+        table = document.add_table(rows=2, cols=2)
+        table.rows[0].cells[0].text = "Item"
+        table.rows[0].cells[1].text = "Status"
+        table.rows[1].cells[0].text = "Helmet"
+        table.rows[1].cells[1].text = "OK"
+    document.save(str(path))
+
+
 def test_docx_extraction_reads_headings_and_body_text(tmp_path):
     docx = tmp_path / "policy.docx"
-    with ZipFile(docx, "w") as package:
-        package.writestr(
-            "word/document.xml",
-            """
-            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-              <w:body>
-                <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Safety Policy</w:t></w:r></w:p>
-                <w:p><w:r><w:t>Inspect equipment before use.</w:t></w:r></w:p>
-              </w:body>
-            </w:document>
-            """,
-        )
+    _build_docx(docx)
 
     result = extract_source(docx, "docx")
 
@@ -26,35 +29,40 @@ def test_docx_extraction_reads_headings_and_body_text(tmp_path):
     assert "Inspect equipment" in result.text
     assert result.headings == ["Safety Policy"]
     assert result.references == ["section:Safety Policy"]
+    assert result.tables == []
+
+
+def test_docx_extraction_reads_table_cells(tmp_path):
+    docx = tmp_path / "policy-with-table.docx"
+    _build_docx(docx, with_table=True)
+
+    result = extract_source(docx, "docx")
+
+    assert result.tables == [["Item | Status", "Helmet | OK"]]
+    assert "Item | Status" in result.text
+    assert "Helmet | OK" in result.text
 
 
 def test_pptx_extraction_reads_slide_order_and_notes(tmp_path):
     pptx = tmp_path / "deck.pptx"
-    with ZipFile(pptx, "w") as package:
-        package.writestr(
-            "ppt/slides/slide1.xml",
-            """
-            <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
-              xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-              <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Slide Title</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
-            </p:sld>
-            """,
-        )
-        package.writestr(
-            "ppt/notesSlides/notesSlide1.xml",
-            """
-            <p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
-              xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-              <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Speaker note</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
-            </p:notes>
-            """,
-        )
+    presentation = Presentation()
+    layout = presentation.slide_layouts[1]
+
+    slide1 = presentation.slides.add_slide(layout)
+    slide1.shapes.title.text = "Slide Title"
+    slide1.notes_slide.notes_text_frame.text = "Speaker note"
+
+    slide2 = presentation.slides.add_slide(layout)
+    slide2.shapes.title.text = "Second Slide"
+
+    presentation.save(str(pptx))
 
     result = extract_source(pptx, "pptx")
 
     assert "Slide 1: Slide Title" in result.text
+    assert "Slide 2: Second Slide" in result.text
     assert "Notes 1: Speaker note" in result.text
-    assert result.references == ["slide:1", "notes:1"]
+    assert result.references == ["slide:1", "slide:2", "notes:1"]
 
 
 def test_youtube_transcript_import_requires_controlled_text_file(tmp_path):

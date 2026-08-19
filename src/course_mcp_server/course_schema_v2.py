@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from .html_sanitizer import sanitize_html_fragment, strip_tags_to_text
+
 
 class Difficulty(str, Enum):
     beginner = "beginner"
@@ -81,9 +83,37 @@ class ContentBlock(BaseModel):
         "media_placeholder",
     ]
     text: str = Field(min_length=1, max_length=6000)
+    text_html: str | None = Field(
+        default=None,
+        max_length=9000,
+        description=(
+            "Optional small rich-text fragment (bold/italic/underline/links/lists only, "
+            "see html_sanitizer.ALLOWED_TAGS). Sanitized server-side on every write. "
+            "`text` is kept in sync as its tag-stripped plain-text equivalent so every "
+            "other consumer of `text` (word counts, dedup, image prompts, Adapt export) "
+            "is unaffected by rich text."
+        ),
+    )
     source_refs: list[SourceReference] = Field(default_factory=list, max_length=10)
     alt_text: str | None = Field(default=None, max_length=300)
     media: MediaAsset | None = None
+
+    @model_validator(mode="after")
+    def _sync_rich_text(self) -> "ContentBlock":
+        if not self.text_html:
+            self.text_html = None
+            return self
+        sanitized = sanitize_html_fragment(self.text_html)
+        plain = strip_tags_to_text(sanitized)
+        if not plain:
+            # Sanitization stripped every allowlisted tag/text node (e.g. the
+            # fragment was pure disallowed markup) — drop text_html and keep
+            # the existing plain-text `text` field untouched.
+            self.text_html = None
+            return self
+        self.text_html = sanitized
+        self.text = plain[:6000]
+        return self
 
 
 class GameOptions(BaseModel):

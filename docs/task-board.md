@@ -8,7 +8,17 @@ This is the project-level source of truth for work status. Update it whenever wo
 - `In Progress`: someone is actively coding it.
 - `Review`: code exists and needs review/integration.
 - `Blocked`: cannot move without a decision or dependency.
-- `Done`: integrated, tested, and documented.
+- `Done`: integrated, tested, and documented **against local/CI evidence only**.
+
+> **`Done` here means "merged, locally tested, in CI" — not "production-proven."** Several
+> `Done` rows below satisfy that local bar while the *external* acceptance evidence they
+> ultimately need (tracked Moodle conformance, the paused SCORM Cloud cross-check, three real
+> pilot-designer sign-offs, a live Stripe purchase, a hosted paying-tier demo run, 30 consecutive
+> days of measured SLOs) is still open. `docs/roadmap-next-layer.md` §"Delivery status" and
+> `docs/roadmap-production-best-in-class.md` §2.2 ("Competitive truth gate") are the authoritative
+> list of what remains before any `Done` row here can be called production-proven. Do not read
+> `Done` on this board as satisfying those gates; check the roadmap docs before making that claim
+> to a customer or in a launch decision. See also `docs/authoring-platform-plan.md` (F10).
 
 ## Active Work
 

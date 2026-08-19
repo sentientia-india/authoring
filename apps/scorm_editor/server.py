@@ -14,10 +14,12 @@ import argparse
 import base64
 import copy
 import hashlib
+import hmac
 import json
 import mimetypes
 import os
 import re
+import secrets
 import shutil
 import tempfile
 import threading
@@ -42,8 +44,29 @@ MAX_ZIP_FILES = 5_000
 MAX_COMPRESSION_RATIO = 200
 COURSE_DATA_RE = re.compile(r'(<script id="course-data" type="application/json">)(.*?)(</script>)', re.S)
 SESSION_TTL_SECONDS = int(os.getenv("EDITOR_SESSION_TTL_SECONDS", "86400"))
+# Session-scoped credential minted by import_package() and handed to a human via the
+# MCP's open_in_studio deep link (see tools.py). Narrower than the standing
+# EDITOR_API_TOKEN: bound to exactly one session id, and expires well inside
+# SESSION_TTL_SECONDS so a leaked link only exposes one session for a limited window.
+EDITOR_OPEN_TOKEN_TTL_SECONDS = int(os.getenv("EDITOR_OPEN_TOKEN_TTL_SECONDS", "14400"))
 _GENERATION_LOCKS: dict[str, threading.Lock] = {}
 _FILE_LOCKS: dict[str, threading.RLock] = {}
+
+
+def _read_secret(name: str) -> str | None:
+    """Deliberately self-contained: this service must not import MCP secrets/config
+    (see apps/scorm-editor/README.md — separate service, separate credentials)."""
+    file_path = os.getenv(f"{name}_FILE")
+    if file_path:
+        try:
+            return Path(file_path).read_text(encoding="utf-8").strip() or None
+        except OSError:
+            return None
+    return os.getenv(name) or None
+
+
+class AuthError(PermissionError):
+    pass
 
 
 class SessionExpiredError(FileNotFoundError):
@@ -130,6 +153,67 @@ def _safe_session(sid: str) -> str:
     if not re.fullmatch(r"[a-f0-9]{12}", sid or ""):
         raise ValueError("Invalid session id")
     return sid
+
+
+_SESSION_ROUTE_PREFIXES = (
+    "/api/course/",
+    "/course/",
+    "/api/media/",
+    "/api/export/",
+    "/api/revisions/",
+    "/api/compare/",
+    "/api/collaboration/",
+    "/api/sources/",
+    "/api/accessibility/",
+    "/api/localization/",
+    "/api/generation/",
+)
+
+
+def _route_session_id(route: str) -> str | None:
+    """Which session id (if any) this route targets, for scoped-token auth.
+
+    An explicit, exhaustive list of the route shapes that carry a session id as their
+    first path segment after the prefix. Deliberately not a generic parser: anything not
+    matched here (notably /api/new, /api/import, and the static shell) returns None,
+    which means a session-scoped open_token can NEVER authenticate it -- only the
+    standing EDITOR_API_TOKEN can. That's a safe default for routes we didn't anticipate.
+    """
+    for prefix in _SESSION_ROUTE_PREFIXES:
+        if route.startswith(prefix):
+            rest = route.removeprefix(prefix)
+            sid = rest.split("/", 1)[0]
+            return sid or None
+    return None
+
+
+def _check_open_token(sid: str, presented_token: str) -> bool:
+    """Validate a session-scoped open_token against the sid's stored hash + expiry.
+
+    Reads .editor-meta.json directly rather than going through _workspace()/_meta(),
+    which apply idle-expiry (SESSION_TTL_SECONDS) side effects unrelated to this
+    token's own, shorter TTL -- and we want auth failures here to just fall through to
+    AuthError, never raise.
+    """
+    try:
+        safe_sid = _safe_session(sid)
+    except ValueError:
+        return False
+    meta_path = workspace_root() / safe_sid / ".editor-meta.json"
+    if not meta_path.is_file():
+        return False
+    try:
+        meta = _read_json(meta_path)
+    except (OSError, json.JSONDecodeError):
+        return False
+    token_hash = meta.get("open_token_hash")
+    expires_at = meta.get("open_token_expires_at")
+    if not token_hash or not expires_at:
+        return False
+    if time.time() > float(expires_at):
+        return False
+    presented_hash = hashlib.sha256(presented_token.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(presented_hash, token_hash)
 
 
 def _workspace(sid: str) -> Path:
@@ -253,10 +337,26 @@ def import_package(blob: bytes) -> dict:
         raise ValueError("Missing data/course.json - this editor works with courses exported by the Course MCP.")
     course = json.loads((target / "data" / "course.json").read_text(encoding="utf-8"))
     now = time.time()
-    _write_json_atomic(target / ".editor-meta.json", {"version": 1, "created_at": now, "last_accessed_at": now})
+    # Mint a session-scoped credential here (the only place it's minted): import_package
+    # is the one Course Studio entry point an external, non-browser caller (the MCP's
+    # open_in_studio) drives, so it's the one that needs a narrower credential to hand to
+    # a human who doesn't hold the standing EDITOR_API_TOKEN. Only the SHA-256 hash is
+    # persisted -- the plaintext is returned once, here, and never stored on disk.
+    open_token = secrets.token_urlsafe(24)
+    open_token_hash = hashlib.sha256(open_token.encode("utf-8")).hexdigest()
+    _write_json_atomic(
+        target / ".editor-meta.json",
+        {
+            "version": 1,
+            "created_at": now,
+            "last_accessed_at": now,
+            "open_token_hash": open_token_hash,
+            "open_token_expires_at": now + EDITOR_OPEN_TOKEN_TTL_SECONDS,
+        },
+    )
     _snapshot(target, 1, course, "import", "Imported SCORM package")
     _write_json_atomic(target / ".collaboration.json", {"comments": [], "approvals": [], "roles": {}})
-    return {"session": sid, "course": course, "files": names, "version": 1}
+    return {"session": sid, "course": course, "files": names, "version": 1, "open_token": open_token}
 
 
 def create_course(title: str, audience: str = "General learners", template: str = "blank") -> dict:
@@ -315,6 +415,18 @@ def save_course(
     current_version = int(meta["version"])
     if expected_version is not None and expected_version != current_version:
         raise EditConflictError(current_version)
+    # course.json is persisted directly here — it never passes through the
+    # ContentBlock pydantic model (see course_schema_v2.py), so any rich-text
+    # `text_html` an author (or a direct API caller) wrote must be sanitized
+    # against the same allowlist here, on every save. Without this, a raw
+    # <script>/onclick payload saved through the editor would flow straight
+    # into data/course.json and the embedded page shells below, and — since
+    # /api/export/<sid> just re-zips those already-saved files rather than
+    # rebuilding them through exporters/scorm.py — straight into the
+    # learner-facing export too.
+    from course_mcp_server.html_sanitizer import sanitize_course_rich_text
+
+    sanitize_course_rich_text(course)
     payload = json.dumps(course, indent=2)
     course_path = workspace / "data" / "course.json"
     temporary = course_path.with_suffix(".json.tmp")
@@ -597,6 +709,19 @@ def generation_job_state(sid: str) -> dict:
 
 
 def _default_module_generator(course: dict, module: dict, sources: list[dict]) -> dict:
+    # PRD 3b (business model, fixed constraint): the calling agent authors content on the
+    # user's own Claude Code/Codex subscription; the server performs only cheap deterministic
+    # work plus "minor helper tasks, never full authoring." This path writes full lesson prose,
+    # activities and quiz questions from the server's own OpenRouter key, which is exactly the
+    # thing that constraint forbids by default. It stays off unless an operator explicitly opts
+    # in per deployment (e.g. an internal/demo instance willing to eat that inference cost) and
+    # the request has already cleared _require_auth.
+    if os.getenv("EDITOR_ALLOW_SERVER_AUTHORING") != "1":
+        raise PermissionError(
+            "Server-side module generation is disabled by default (see PRD 3b: agent authors, "
+            "server never fabricates). Use the MCP's submit_course_module from your own agent "
+            "instead, or set EDITOR_ALLOW_SERVER_AUTHORING=1 to opt this deployment in."
+        )
     from course_mcp_server.llm_openrouter import OpenRouterClient, OpenRouterError
 
     client = OpenRouterClient()
@@ -792,6 +917,38 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("Request too large")
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
+    def _require_auth(self, route: str) -> None:
+        """Deny by default. EDITOR_API_TOKEN (or _FILE) gates every route that reads or
+        writes course data. Only the static app shell (/, /static/*) is public — it carries
+        no tenant data. Unset token fails closed except when EDITOR_ALLOW_INSECURE_DEV=1,
+        so local `python -m apps.scorm_editor.server` keeps working without extra setup.
+
+        Second accepted credential form: a session-scoped open_token minted by
+        import_package(). Checked only when the standing-token comparison fails, and only
+        for routes _route_session_id() recognizes as carrying a session id -- so a scoped
+        token can authenticate its own session's data routes but never /api/new,
+        /api/import, or any other session's data."""
+        if route in ("/", "/index.html") or route.startswith("/static/"):
+            return
+        expected = _read_secret("EDITOR_API_TOKEN")
+        if not expected:
+            if os.getenv("EDITOR_ALLOW_INSECURE_DEV") == "1":
+                return
+            raise AuthError("EDITOR_API_TOKEN is not configured; refusing to serve course data")
+        header = self.headers.get("Authorization", "")
+        presented = header[7:] if header.startswith("Bearer ") else urlparse(self.path).query
+        presented_token = presented
+        if "=" in presented or "&" in presented:
+            from urllib.parse import parse_qs
+
+            presented_token = (parse_qs(presented).get("token") or [""])[0]
+        if presented_token and hmac.compare_digest(presented_token, expected):
+            return
+        sid = _route_session_id(route)
+        if presented_token and sid and _check_open_token(sid, presented_token):
+            return
+        raise AuthError("Missing or invalid editor token")
+
     def _serve_file(self, path: Path) -> bool:
         if not path.is_file():
             return False
@@ -803,6 +960,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         route = urlparse(self.path).path
         try:
+            self._require_auth(route)
             if route in ("/", "/index.html"):
                 self._serve_file(STATIC / "index.html")
                 return
@@ -856,6 +1014,9 @@ class Handler(BaseHTTPRequestHandler):
                 sid = route.removeprefix("/api/generation/")
                 self._json(HTTPStatus.OK, {"session": sid, "generation": generation_job_state(sid)})
                 return
+        except AuthError as exc:
+            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized", "message": str(exc)})
+            return
         except SessionExpiredError as exc:
             self._json(HTTPStatus.GONE, {"ok": False, "error": "session_expired", "message": str(exc)})
             return
@@ -867,6 +1028,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self) -> None:  # noqa: N802
         route = urlparse(self.path).path
         try:
+            self._require_auth(route)
             if route.startswith("/api/course/"):
                 sid = route.removeprefix("/api/course/")
                 body = self._body()
@@ -880,6 +1042,9 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 self._json(HTTPStatus.OK, {"ok": True, **result})
                 return
+        except AuthError as exc:
+            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized", "message": str(exc)})
+            return
         except EditConflictError as exc:
             self._json(
                 HTTPStatus.CONFLICT,
@@ -897,6 +1062,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         route = urlparse(self.path).path
         try:
+            self._require_auth(route)
             if route == "/api/import":
                 body = self._body()
                 result = import_package(_decode_blob(body.get("zip", "")))
@@ -957,6 +1123,9 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Invalid generation action")
                 self._json(HTTPStatus.ACCEPTED, {"ok": True, "generation": result})
                 return
+        except AuthError as exc:
+            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized", "message": str(exc)})
+            return
         except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
             return

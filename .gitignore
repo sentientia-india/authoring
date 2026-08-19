@@ -32,6 +32,9 @@ course_mcp_output/
 # Local client/reference packages. Preserve locally, do not deploy raw vendor zips.
 scorm reference/
 
+# Node (apps/scorm_editor build pipeline)
+node_modules/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

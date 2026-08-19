@@ -29,7 +29,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "apps"]
 extend-exclude = ["codex_next_step_pack", "output", "course_mcp_output"]
 
 [tool.pytest.ini_options]

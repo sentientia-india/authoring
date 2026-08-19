@@ -54,6 +54,20 @@ COURSE_DISCOVERY_QUESTIONS: list[dict[str, Any]] = [
         "required": True,
     },
     {
+        "id": "video_generation_mode",
+        "stage": "essentials",
+        "question": (
+            "Optional: should this course include AI-generated video from an external provider "
+            "(e.g. narrating the course as a video, or a presenter/avatar-style video), using your own "
+            "provider API key? Note: generation isn't wired up in this MCP yet - this only captures your "
+            "intent for a future integration. none / narration_only / avatar_or_broll."
+        ),
+        "type": "single_select",
+        "options": ["none", "narration_only", "avatar_or_broll"],
+        "default_if_blank": "none",
+        "required": False,
+    },
+    {
         "id": "video_links",
         "stage": "essentials",
         "question": "Optional: paste any video links (YouTube/Vimeo/Loom) to include, comma-separated.",

@@ -10,6 +10,7 @@ from course_mcp_server.tools import (
     ingest_course_source,
     list_course_templates,
     propose_course_outline,
+    propose_course_plan,
     propose_lesson_structure,
     recommend_course_templates,
     save_course_brief,
@@ -124,6 +125,54 @@ def test_next_question_asks_essentials_first_then_brief_details(tmp_path, monkey
     answered = {"course_title", "target_learner", "course_goal"}
     remaining_ids = [question["id"] for question in next_question["data"]["questions"]]
     assert not answered.intersection(remaining_ids)
+
+
+def test_video_generation_mode_is_reachable_and_flows_into_plan(tmp_path, monkeypatch):
+    context, project_id = _create_project(tmp_path, monkeypatch)
+    start_course_discovery({"project_id": project_id}, context)
+
+    save_course_discovery_answer(
+        {"project_id": project_id, "question_id": "course_brief_line", "answer": "Ramp safety basics for new ramp agents"},
+        context,
+    )
+    save_course_discovery_answer({"project_id": project_id, "question_id": "source_mode", "answer": "topic_only"}, context)
+    save_course_discovery_answer({"project_id": project_id, "question_id": "duration_preset", "answer": "standard"}, context)
+    save_course_discovery_answer({"project_id": project_id, "question_id": "media_plan_mode", "answer": "agent_images"}, context)
+
+    next_question = get_next_course_question({"project_id": project_id}, context)
+    assert next_question["data"]["next_question"]["id"] == "video_generation_mode"
+
+    answered = save_course_discovery_answer(
+        {"project_id": project_id, "question_id": "video_generation_mode", "answer": "narration_only"},
+        context,
+    )
+    assert answered["ok"] is True
+    assert answered["data"]["answer"]["value"] == "narration_only"
+    assert answered["data"]["next_question"]["id"] == "video_links"
+
+    save_course_discovery_answer({"project_id": project_id, "question_id": "video_links", "answer": ""}, context)
+
+    plan = propose_course_plan({"project_id": project_id}, context)
+    assert plan["ok"] is True
+    assert plan["data"]["plan"]["media_plan"]["video_generation_mode"] == "narration_only"
+
+
+def test_video_generation_mode_defaults_to_none_when_unanswered(tmp_path, monkeypatch):
+    context, project_id = _create_project(tmp_path, monkeypatch)
+    start_course_discovery({"project_id": project_id}, context)
+
+    for question_id, answer in (
+        ("course_brief_line", "Time management basics for busy professionals"),
+        ("source_mode", "topic_only"),
+        ("duration_preset", "micro"),
+        ("media_plan_mode", "text_only"),
+    ):
+        save_course_discovery_answer({"project_id": project_id, "question_id": question_id, "answer": answer}, context)
+
+    # video_generation_mode intentionally left unanswered (it is optional).
+    plan = propose_course_plan({"project_id": project_id}, context)
+    assert plan["ok"] is True
+    assert plan["data"]["plan"]["media_plan"]["video_generation_mode"] == "none"
 
 
 def test_discovery_flow_uses_user_answer_over_ai_default(tmp_path, monkeypatch):

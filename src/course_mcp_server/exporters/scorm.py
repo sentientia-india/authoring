@@ -8,7 +8,9 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from ..html_sanitizer import sanitize_course_rich_text
 from ..html_video_engine import build_video_project_from_course
+from ..object_store import ObjectStoreError, fetch_object_bytes
 from ..schemas import ScormPackageRequest, ScormPackageResult
 
 
@@ -1084,6 +1086,12 @@ def _fallback_module_activity(module: dict, module_index: int) -> dict:
 
 def _normalize_scorm_payload(payload: dict) -> dict:
     normalized = _sanitize_learner_strings(_remove_h5p_markers(copy.deepcopy(payload)))
+    # Defensive re-sanitization of `text_html`: course.json can reach this
+    # function without ever having passed through the ContentBlock pydantic
+    # model (e.g. Course Studio's autosave writes it directly — see
+    # apps/scorm_editor/server.py `save_course`), so this is the last line of
+    # defense before rich text is embedded into a learner-facing package.
+    sanitize_course_rich_text(normalized)
     modules = normalized.get("modules", [])
     global_seen: set[str] = set()
     for module_index, module in enumerate(modules):
@@ -1262,11 +1270,18 @@ function normalizeLessonDisplay(lesson) {
 }
 
 function renderTextBlock(block, label) {
-  const parts = segmentText(block.text);
+  // block.text_html, when present, has already been passed through the
+  // allowlist sanitizer server-side (course_schema_v2.py on write, and
+  // again defensively in exporters/scorm.py._normalize_scorm_payload at
+  // export time) — it is safe to inject as-is. Never escape it here: that
+  // would turn the intended <strong>/<a> markup into literal visible text.
+  var body = block.text_html
+    ? block.text_html
+    : segmentText(block.text).map((part) => `<p>${escapeHtml(part)}</p>`).join("");
   return `
     <section class="lesson-block" data-cb-id="${escapeHtml(block.id || "")}">
       <strong>${escapeHtml(label || blockTitle(block.type))}</strong>
-      ${parts.map((part) => `<p>${escapeHtml(part)}</p>`).join("")}
+      <div class="sp-body">${body}</div>
     </section>
   `;
 }
@@ -2200,6 +2215,27 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
         "interactive-video/sentientia_video_engine.js",
         "interactive-video/sentientia_video_engine.css",
     ]
+
+    # Narration audio: for each scene in the interactive-video project that has a matching
+    # completed narration_audio artifact object key, fetch the real bytes from the object
+    # store (local filesystem or S3, backend-agnostic via fetch_object_bytes) and bundle them
+    # as interactive-video/audio/<scene_id>.mp3 so a learner's browser can actually load and
+    # play them -- not just carry an inert object_key reference in the JSON.
+    video_project = build_video_project_from_course(course_payload)
+    narration_audio_object_keys = req.narration_audio_object_keys or {}
+    narration_audio_bytes: dict[str, bytes] = {}
+    narration_audio_files: list[str] = []
+    for scene in video_project.scenes:
+        key = narration_audio_object_keys.get(scene.id)
+        if not key:
+            continue
+        try:
+            audio_bytes = fetch_object_bytes(key)
+        except ObjectStoreError:
+            continue
+        narration_audio_bytes[scene.id] = audio_bytes
+        narration_audio_files.append(f"interactive-video/audio/{scene.id}.mp3")
+    video_files = [*video_files, *narration_audio_files]
     media_files: list[str] = []
     if req.media_files:
         upload_dir = Path(os.getenv("UPLOAD_DIR", "/app/output/uploads")).resolve()
@@ -2396,7 +2432,15 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
     (assets / "scorm_api.js").write_text(_runtime_js(), encoding="utf-8")
     (assets / "study-map.svg").write_text(_study_map_svg(), encoding="utf-8")
     (assets / "prompt-lab.svg").write_text(_prompt_lab_svg(), encoding="utf-8")
-    video_project = build_video_project_from_course(course_payload)
+    if narration_audio_bytes:
+        audio_dir = video_dir / "audio"
+        audio_dir.mkdir(exist_ok=True)
+        for scene in video_project.scenes:
+            audio_bytes = narration_audio_bytes.get(scene.id)
+            if audio_bytes is None:
+                continue
+            (audio_dir / f"{scene.id}.mp3").write_bytes(audio_bytes)
+            scene.narration_audio_src = f"audio/{scene.id}.mp3"
     video_project_payload = video_project.model_dump(mode="json")
     video_project_json = json.dumps(video_project_payload, indent=2)
     video_project_attribute = escape(json.dumps(video_project_payload), quote=True)
@@ -2405,6 +2449,12 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
         source = static_dir / asset_name
         if source.exists():
             (video_dir / asset_name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    narration_audio_elements = "\n    ".join(
+        f'<audio id="sv-narration-{escape(scene.id, quote=True)}" '
+        f'src="{escape(scene.narration_audio_src, quote=True)}" preload="none"></audio>'
+        for scene in video_project.scenes
+        if scene.narration_audio_src
+    )
     (video_dir / "index.html").write_text(
         f"""<!doctype html>
 <html lang="en">
@@ -2433,6 +2483,9 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
       <h2>Transcript</h2>
       <pre>{escape(video_project.transcript or "")}</pre>
     </aside>
+    <div class="sv-narration-audio" id="sv-narration-audio" hidden>
+    {narration_audio_elements}
+    </div>
   </main>
   <script src="sentientia_video_engine.js"></script>
 </body>

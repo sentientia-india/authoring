@@ -34,6 +34,13 @@ services:
       STRIPE_WEBHOOK_SECRET_FILE: /run/secrets/stripe_webhook_secret
       SMTP_PASSWORD_FILE: /run/secrets/smtp_password
       EMAIL_WEBHOOK_SECRET_FILE: /run/secrets/email_webhook_secret
+      # Lets open_in_studio call Course Studio's own POST /api/import server-to-server, and
+      # sign the ?token= deep link it hands back to the caller. Same secret the scorm-editor
+      # service already mounts below (editor_api_token) -- the MCP legitimately holding a
+      # credential to call an external-to-it service is the same pattern already used for
+      # Stripe/SMTP/S3 above; it does not violate editor->MCP secret isolation (one-directional).
+      EDITOR_API_TOKEN_FILE: /run/secrets/editor_api_token
+      EDITOR_INTERNAL_URL: http://scorm-editor:8788
       DATABASE_URL: postgresql://course_mcp:course_mcp@postgres:5432/course_mcp
       REDIS_URL: redis://redis:6379/0
       OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-course-mcp}
@@ -61,6 +68,7 @@ services:
       - stripe_webhook_secret
       - smtp_password
       - email_webhook_secret
+      - editor_api_token
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=128m
@@ -83,13 +91,25 @@ services:
       dockerfile: Dockerfile.scorm-editor
     image: samrat-scorm-editor:${RELEASE_ID:-local}
     container_name: samrat-scorm-editor
-    ports:
-      - "8788:8788"
+    environment:
+      EDITOR_API_TOKEN_FILE: /run/secrets/editor_api_token
+      EDITOR_WORKSPACE_DIR: /data/editor-workspaces
+    secrets:
+      - editor_api_token
+    # Only Caddy reaches this port (see Caddyfile `handle /editor*`); it is not published
+    # to the host/internet directly. Course data now requires EDITOR_API_TOKEN regardless.
+    expose:
+      - "8788"
     networks:
       - course-mcp-net
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
+    volumes:
+      # In-progress edits used to live only in the /tmp tmpfs above (wiped on every
+      # restart/redeploy, and capped at 64m against a 300MB extracted-package budget).
+      # This volume is the durable, size-safe home for session workspaces.
+      - course_mcp_editor_workspaces:/data/editor-workspaces
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -222,12 +242,15 @@ volumes:
   course_mcp_postgres:
   course_mcp_redis:
   course_mcp_objects:
+  course_mcp_editor_workspaces:
   caddy_data:
   caddy_config:
 
 secrets:
   mcp_api_token:
     file: ./secrets/mcp_api_token.txt
+  editor_api_token:
+    file: ./secrets/editor_api_token.txt
   openrouter_api_key:
     file: ./secrets/openrouter_api_key.txt
   pii_encryption_key:

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import hashlib
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from zipfile import ZipFile, ZIP_DEFLATED
 from typing import Any
 
@@ -28,6 +31,12 @@ from .exporters.h5p import build_h5p_package
 from .exporters.scorm import build_scorm_package
 from .generation import CodexGenerationContractBuilder
 from .html_video_engine import HtmlVideoRenderer, build_video_project_from_course
+from .video_providers import (
+    ElevenLabsNarrationProvider,
+    HeyGenPresenterProvider,
+    VeoClipProvider,
+    VideoProviderError,
+)
 from .ingestion import extract_source
 from .intake import create_ticket, generate_layout
 from .job_store import get_job_status, record_job
@@ -56,6 +65,17 @@ from .schemas import (
     GenerationReadinessResult,
     InteractiveVideoRequest,
     InteractiveVideoResult,
+    NarrationAudioRequest,
+    NarrationAudioResult,
+    GeneratePresenterVideoRequest,
+    GeneratePresenterVideoResult,
+    CheckPresenterVideoStatusRequest,
+    CheckPresenterVideoStatusResult,
+    GenerateVideoClipRequest,
+    GenerateVideoClipResult,
+    CheckVideoClipStatusRequest,
+    CheckVideoClipStatusResult,
+    SceneNarrationResult,
     MaterialTicketResult,
     JobStatusRequest,
     LessonDraftRequest,
@@ -92,6 +112,10 @@ from .schemas import (
     WorkflowStatusResult,
     QuizBankRequest,
     RoleplayScenarioRequest,
+    OpenInStudioRequest,
+    OpenInStudioResult,
+    ImportStudioEditsRequest,
+    ImportStudioEditsResult,
     ScormPackageRequest,
     SourceIngestRequest,
     SourceIngestResult,
@@ -100,7 +124,7 @@ from .schemas import (
     TemplateSelectionResult,
     StorylineHandoffRequest,
 )
-from .security import RequestContext, SecurityError, assert_tool_allowed, audit_event, redact_output
+from .security import RequestContext, SecurityError, assert_tool_allowed, audit_event, read_secret, redact_output
 from .storyline_handoff import build_storyline_handoff_package as build_storyline_handoff_zip
 
 
@@ -1393,6 +1417,15 @@ def attach_media(payload: dict, context: RequestContext) -> dict[str, Any]:
 
 
 def _project_course_payload(project: dict[str, Any]) -> dict[str, Any]:
+    # studio_content holds a human's Course-Studio edit and is ALREADY in the post-transform,
+    # player-facing shape (see import_studio_edits) -- return it as-is, never through
+    # _course_payload_from_submission, which recomputes fields like "objective" from
+    # objective_ids/learning_objectives and would silently discard a direct edit to that
+    # field. This check must come before the course_content branch below so a Studio edit
+    # is genuinely authoritative on every subsequent read.
+    studio_artifact = latest_artifact(project, "studio_content")
+    if studio_artifact:
+        return studio_artifact.get("payload", {})
     content_artifact = latest_artifact(project, "course_content")
     if content_artifact:
         return _course_payload_from_submission(project, content_artifact.get("payload", {}))
@@ -1876,6 +1909,390 @@ def generate_interactive_video(payload: dict, context: RequestContext) -> dict[s
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
+def generate_narration_audio(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Generate one narration audio asset per html_video_engine scene via ElevenLabs TTS.
+
+    ElevenLabs' text-to-speech call completes in seconds, so this runs synchronously inside
+    the tool call (see video_providers/base.py) -- there is no async job/worker involved,
+    consistent with every other generation tool in this codebase.
+
+    Decision on video_generation_mode (course_plan.media_plan.video_generation_mode, added by
+    discovery/workflow.py's build_course_plan): this tool checks it and surfaces a warning
+    when the discovery answer was "none", but does NOT block the call. The calling agent is
+    the one deciding whether to invoke this tool at all; the discovery answer is a planning
+    signal for the agent's own flow, not an authorization gate this tool should enforce -- an
+    agent may have a legitimate reason to generate narration audio even if the learner
+    originally said "no video" (e.g. plans changed, or narration-only audio is wanted without
+    a video wrapper). The response always reports video_generation_mode so the caller can
+    decide what to do with that signal.
+    """
+    tool_name = "generate_narration_audio"
+    assert_tool_allowed(tool_name)
+    req = NarrationAudioRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+
+    course_plan = ((project.get("workflow") or {}).get("course_plan") or {})
+    video_generation_mode = ((course_plan.get("media_plan") or {}).get("video_generation_mode"))
+
+    provider = ElevenLabsNarrationProvider()
+    if not provider.config.enabled:
+        _record(context, tool_name, req.project_id, "Narration audio blocked: ElevenLabs API key not configured.")
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "provider_not_configured",
+            {"message": "ELEVENLABS_API_KEY is not configured; narration audio generation is unavailable."},
+        )
+
+    course_payload = _project_course_payload(project)
+    if req.module_id:
+        course_payload = {
+            **course_payload,
+            "modules": [
+                module
+                for module in course_payload.get("modules", [])
+                if module.get("id") == req.module_id or module.get("module_id") == req.module_id
+            ],
+        } or course_payload
+    video_project = build_video_project_from_course(course_payload)
+
+    output_dir = Path(os.getenv("OUTPUT_DIR", "/app/output")).resolve() / "narration" / video_project.video_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    scene_results: list[SceneNarrationResult] = []
+    for scene in video_project.scenes:
+        brief: dict[str, Any] = {"text": scene.narration}
+        if req.voice_id:
+            brief["voice_id"] = req.voice_id
+        try:
+            submission = provider.submit(brief)
+            provider.poll(submission.job_id)
+            audio_bytes = provider.fetch(submission.job_id)
+        except VideoProviderError as exc:
+            scene_results.append(SceneNarrationResult(scene_id=scene.id, status="failed", error=str(exc)))
+            continue
+
+        audio_path = output_dir / f"{scene.id}.mp3"
+        audio_path.write_bytes(audio_bytes)
+        stored = store_path(
+            audio_path,
+            tenant_id=context.tenant_id,
+            kind="narration_audio",
+            object_id=video_project.video_id,
+            filename=audio_path.name,
+        )
+        scene_results.append(
+            SceneNarrationResult(
+                scene_id=scene.id,
+                status="completed",
+                object_key=stored["object_key"],
+                sha256=stored["sha256"],
+                size_bytes=stored["size_bytes"],
+            )
+        )
+
+    failed = [scene for scene in scene_results if scene.status == "failed"]
+    if not scene_results or len(failed) == len(scene_results):
+        overall_status = "failed"
+    elif failed:
+        overall_status = "partial"
+    else:
+        overall_status = "completed"
+
+    note = f"Narration audio generated for {len(scene_results) - len(failed)}/{len(scene_results)} scene(s)."
+    if video_generation_mode == "none":
+        note += " Note: course_plan.media_plan.video_generation_mode is 'none' for this project."
+
+    output = NarrationAudioResult(
+        project_id=req.project_id,
+        video_id=video_project.video_id,
+        status=overall_status,
+        scenes=scene_results,
+        note=note,
+        video_generation_mode=video_generation_mode,
+    ).model_dump(mode="json")
+
+    if overall_status == "failed":
+        _record(context, tool_name, req.project_id, "Narration audio generation failed for all scenes.")
+        return _error_return(tool_name, context, req.model_dump(), "generation_failed", output)
+
+    add_artifact(project, "narration_audio", output)
+    _record(context, tool_name, req.project_id, f"Narration audio generation {overall_status}.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def generate_presenter_video(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Kick off a HeyGen avatar/presenter video job for a course. Does NOT block.
+
+    HeyGen video generation genuinely takes minutes (see video_providers/heygen.py), so this
+    tool only calls submit() and stores the returned job reference as a
+    "presenter_video_job" artifact -- it returns immediately with status="processing" (or
+    whatever HeyGen's submit call reported). Call check_presenter_video_status in a LATER,
+    separate tool call to observe progress and, once complete, retrieve the stored video.
+    """
+    tool_name = "generate_presenter_video"
+    assert_tool_allowed(tool_name)
+    req = GeneratePresenterVideoRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+
+    provider = HeyGenPresenterProvider()
+    if not provider.config.enabled:
+        _record(context, tool_name, req.project_id, "Presenter video blocked: HeyGen API key not configured.")
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "provider_not_configured",
+            {"message": "HEYGEN_API_KEY is not configured; presenter video generation is unavailable."},
+        )
+
+    script = req.script
+    if not script:
+        course_payload = _project_course_payload(project)
+        title = course_payload.get("course_title") or "this course"
+        script = (
+            f"Welcome to {title}. This interactive video will guide you through the core "
+            "decisions, examples, and checks."
+        )
+
+    brief: dict[str, Any] = {"script": script}
+    if req.avatar_id:
+        brief["avatar_id"] = req.avatar_id
+    if req.voice_id:
+        brief["voice_id"] = req.voice_id
+
+    try:
+        submission = provider.submit(brief)
+    except VideoProviderError as exc:
+        _record(context, tool_name, req.project_id, "Presenter video submission failed.")
+        return _error_return(tool_name, context, req.model_dump(), "submission_failed", {"message": str(exc)})
+
+    output = GeneratePresenterVideoResult(
+        project_id=req.project_id,
+        job_id=submission.job_id,
+        status=submission.status,
+        note="Presenter video generation started; call check_presenter_video_status to poll for completion.",
+    ).model_dump(mode="json")
+
+    add_artifact(project, "presenter_video_job", output)
+    _record(context, tool_name, req.project_id, "Presenter video job submitted.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def check_presenter_video_status(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Poll this project's most recently submitted HeyGen presenter video job.
+
+    Tenant isolation is enforced the same way every other project-scoped tool enforces it:
+    via _project_or_raise, which only ever resolves a project belonging to the caller's own
+    tenant. There is no bare job_id-only lookup surface here -- the job_id is read from this
+    project's own "presenter_video_job" artifact, so a caller can only ever check status for
+    a job that was submitted against a project they can already access.
+
+    Safe to call repeatedly: while the job is still processing (or failed), this just returns
+    that status. Once HeyGen reports "completed", this downloads and stores the finished
+    video and appends a new "presenter_video_job" artifact recording the completed state
+    (artifacts are append-only in this codebase, matching add_artifact/latest_artifact's
+    design elsewhere -- see generate_narration_audio and _project_course_payload).
+    """
+    tool_name = "check_presenter_video_status"
+    assert_tool_allowed(tool_name)
+    req = CheckPresenterVideoStatusRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+
+    job_artifact = latest_artifact(project, "presenter_video_job")
+    if not job_artifact:
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "no_presenter_video_job",
+            {"message": "No presenter video job has been submitted for this project yet."},
+        )
+    job_id = job_artifact["payload"]["job_id"]
+
+    provider = HeyGenPresenterProvider()
+    try:
+        result = provider.poll(job_id)
+    except VideoProviderError as exc:
+        return _error_return(tool_name, context, req.model_dump(), "poll_failed", {"message": str(exc)})
+
+    if result.status != "completed":
+        output = CheckPresenterVideoStatusResult(
+            project_id=req.project_id,
+            job_id=job_id,
+            status=result.status,
+            note=f"Presenter video job is {result.status}.",
+        ).model_dump(mode="json")
+        return _safe_return(tool_name, context, req.model_dump(), output)
+
+    try:
+        video_bytes = provider.fetch(job_id)
+    except VideoProviderError as exc:
+        return _error_return(tool_name, context, req.model_dump(), "fetch_failed", {"message": str(exc)})
+
+    output_dir = Path(os.getenv("OUTPUT_DIR", "/app/output")).resolve() / "presenter_video" / req.project_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    video_path = output_dir / f"{job_id}.mp4"
+    video_path.write_bytes(video_bytes)
+    stored = store_path(
+        video_path,
+        tenant_id=context.tenant_id,
+        kind="presenter_video",
+        object_id=job_id,
+        filename=video_path.name,
+    )
+
+    output = CheckPresenterVideoStatusResult(
+        project_id=req.project_id,
+        job_id=job_id,
+        status="completed",
+        object_key=stored["object_key"],
+        sha256=stored["sha256"],
+        size_bytes=stored["size_bytes"],
+        note="Presenter video generation completed.",
+    ).model_dump(mode="json")
+
+    add_artifact(project, "presenter_video_job", output)
+    _record(context, tool_name, req.project_id, "Presenter video completed and stored.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def generate_video_clip(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Kick off a Veo (Gemini API) B-roll/scene-illustration video clip job. Does NOT block.
+
+    Distinct from generate_presenter_video: this is for an illustrative scene clip generated
+    from a text prompt, not a talking avatar presenter. Veo generation genuinely takes minutes
+    (see video_providers/veo.py), so this tool only calls submit() and stores the returned job
+    reference as a "video_clip_job" artifact -- it returns immediately with status="processing"
+    (or whatever Veo's submit call reported). Call check_video_clip_status in a LATER, separate
+    tool call to observe progress and, once complete, retrieve the stored clip.
+    """
+    tool_name = "generate_video_clip"
+    assert_tool_allowed(tool_name)
+    req = GenerateVideoClipRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+
+    provider = VeoClipProvider()
+    if not provider.config.enabled:
+        _record(context, tool_name, req.project_id, "Video clip blocked: Gemini API key not configured.")
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "provider_not_configured",
+            {"message": "GEMINI_API_KEY is not configured; video clip generation is unavailable."},
+        )
+
+    prompt = req.prompt
+    if not prompt:
+        course_payload = _project_course_payload(project)
+        title = course_payload.get("course_title") or "this course"
+        prompt = f"A short illustrative scene for a course titled '{title}'."
+
+    brief: dict[str, Any] = {"prompt": prompt}
+    if req.aspect_ratio:
+        brief["aspect_ratio"] = req.aspect_ratio
+    if req.duration_seconds:
+        brief["duration_seconds"] = req.duration_seconds
+
+    try:
+        submission = provider.submit(brief)
+    except VideoProviderError as exc:
+        _record(context, tool_name, req.project_id, "Video clip submission failed.")
+        return _error_return(tool_name, context, req.model_dump(), "submission_failed", {"message": str(exc)})
+
+    output = GenerateVideoClipResult(
+        project_id=req.project_id,
+        job_id=submission.job_id,
+        status=submission.status,
+        note="Video clip generation started; call check_video_clip_status to poll for completion.",
+    ).model_dump(mode="json")
+
+    add_artifact(project, "video_clip_job", output)
+    _record(context, tool_name, req.project_id, "Video clip job submitted.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def check_video_clip_status(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Poll this project's most recently submitted Veo video clip job.
+
+    Tenant isolation is enforced the same way every other project-scoped tool enforces it:
+    via _project_or_raise, which only ever resolves a project belonging to the caller's own
+    tenant. There is no bare job_id-only lookup surface here -- the job_id is read from this
+    project's own "video_clip_job" artifact, so a caller can only ever check status for a job
+    that was submitted against a project they can already access.
+
+    Safe to call repeatedly: while the job is still processing (or failed), this just returns
+    that status. Once Veo reports "completed", this downloads and stores the finished clip and
+    appends a new "video_clip_job" artifact recording the completed state (artifacts are
+    append-only in this codebase, matching add_artifact/latest_artifact's design elsewhere --
+    see generate_narration_audio and check_presenter_video_status).
+    """
+    tool_name = "check_video_clip_status"
+    assert_tool_allowed(tool_name)
+    req = CheckVideoClipStatusRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+
+    job_artifact = latest_artifact(project, "video_clip_job")
+    if not job_artifact:
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "no_video_clip_job",
+            {"message": "No video clip job has been submitted for this project yet."},
+        )
+    job_id = job_artifact["payload"]["job_id"]
+
+    provider = VeoClipProvider()
+    try:
+        result = provider.poll(job_id)
+    except VideoProviderError as exc:
+        return _error_return(tool_name, context, req.model_dump(), "poll_failed", {"message": str(exc)})
+
+    if result.status != "completed":
+        output = CheckVideoClipStatusResult(
+            project_id=req.project_id,
+            job_id=job_id,
+            status=result.status,
+            note=f"Video clip job is {result.status}.",
+        ).model_dump(mode="json")
+        return _safe_return(tool_name, context, req.model_dump(), output)
+
+    try:
+        video_bytes = provider.fetch(job_id)
+    except VideoProviderError as exc:
+        return _error_return(tool_name, context, req.model_dump(), "fetch_failed", {"message": str(exc)})
+
+    output_dir = Path(os.getenv("OUTPUT_DIR", "/app/output")).resolve() / "video_clip" / req.project_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_job_id = re.sub(r"[^A-Za-z0-9_.-]", "_", job_id)
+    video_path = output_dir / f"{safe_job_id}.mp4"
+    video_path.write_bytes(video_bytes)
+    stored = store_path(
+        video_path,
+        tenant_id=context.tenant_id,
+        kind="video_clip",
+        object_id=safe_job_id,
+        filename=video_path.name,
+    )
+
+    output = CheckVideoClipStatusResult(
+        project_id=req.project_id,
+        job_id=job_id,
+        status="completed",
+        object_key=stored["object_key"],
+        sha256=stored["sha256"],
+        size_bytes=stored["size_bytes"],
+        note="Video clip generation completed.",
+    ).model_dump(mode="json")
+
+    add_artifact(project, "video_clip_job", output)
+    _record(context, tool_name, req.project_id, "Video clip completed and stored.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
 def build_export_package(payload: dict, context: RequestContext) -> dict[str, Any]:
     tool_name = "build_export_package"
     assert_tool_allowed(tool_name)
@@ -1963,6 +2380,14 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
                 and str(media.get("src", "")).startswith("assets/media/")
             }
         )
+        narration_artifact = latest_artifact(project, "narration_audio")
+        narration_audio_object_keys: dict[str, str] | None = None
+        if narration_artifact:
+            narration_audio_object_keys = {
+                scene["scene_id"]: scene["object_key"]
+                for scene in narration_artifact.get("payload", {}).get("scenes", [])
+                if scene.get("status") == "completed" and scene.get("object_key")
+            } or None
         output = build_scorm_package(
             ScormPackageRequest(
                 course_title=project["course_title"],
@@ -1972,6 +2397,7 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
                 media_files=media_files,
                 branding=branding,
                 export_stamp=sign_export(req.project_id, context.tenant_id, context.tier),
+                narration_audio_object_keys=narration_audio_object_keys,
             ),
             os.getenv("OUTPUT_DIR", "/app/output"),
         )
@@ -1997,6 +2423,257 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
     )
     add_artifact(project, "export", output)
     _record(context, tool_name, req.project_id, "Export package generated.")
+    return _safe_return(tool_name, context, req.model_dump(), output)
+
+
+def open_in_studio(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Export the project fresh (via build_export_package) and hand the resulting SCORM
+    zip straight to Course Studio's existing POST /api/import, returning a ready deep link.
+
+    Course Studio only understands packages shaped like the MCP's own SCORM export
+    (imsmanifest.xml + data/course.json), so this always runs a fresh scorm export rather
+    than reusing a possibly-stale prior artifact -- build_export_package's own quota/quality
+    gates apply exactly as they would for a normal export.
+    """
+    tool_name = "open_in_studio"
+    assert_tool_allowed(tool_name)
+    req = OpenInStudioRequest.model_validate(payload)
+
+    export_payload: dict[str, Any] = {
+        "project_id": req.project_id,
+        "export_format": "scorm",
+        "scorm_version": req.scorm_version,
+        "allow_missing_media": req.allow_missing_media,
+    }
+    if req.branding is not None:
+        export_payload["branding"] = req.branding
+    export_result = build_export_package(export_payload, context)
+    if not export_result.get("ok"):
+        # build_export_package already recorded its own audit/job entry for this failure.
+        return export_result
+    package_path = export_result["data"]["package_path"]
+
+    editor_token = read_secret("EDITOR_API_TOKEN")
+    if not editor_token:
+        _record(context, tool_name, req.project_id, "Open in studio blocked: editor token not configured.")
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "editor_not_configured",
+            {"message": "EDITOR_API_TOKEN is not configured; Course Studio handoff is unavailable."},
+        )
+
+    try:
+        zip_bytes = Path(package_path).read_bytes()
+    except OSError as exc:
+        _record(context, tool_name, req.project_id, "Open in studio failed: exported package unreadable.")
+        return _error_return(
+            tool_name, context, req.model_dump(), "package_unreadable", {"message": str(exc)}
+        )
+
+    internal_url = os.getenv("EDITOR_INTERNAL_URL", "http://scorm-editor:8788").rstrip("/")
+    body = json.dumps({"zip": base64.b64encode(zip_bytes).decode("ascii")}).encode("utf-8")
+    request = Request(
+        f"{internal_url}/api/import",
+        data=body,
+        headers={"Authorization": f"Bearer {editor_token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:  # nosec B310 - internal service URL, not user input
+            imported = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        _record(context, tool_name, req.project_id, "Open in studio failed: Course Studio unreachable.")
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "editor_unreachable",
+            {"message": f"Could not reach Course Studio at {internal_url}: {exc}"},
+        )
+    except (ValueError, json.JSONDecodeError) as exc:
+        _record(context, tool_name, req.project_id, "Open in studio failed: bad response from Course Studio.")
+        return _error_return(
+            tool_name, context, req.model_dump(), "editor_response_invalid", {"message": str(exc)}
+        )
+
+    session = imported.get("session")
+    if not session:
+        _record(context, tool_name, req.project_id, "Open in studio failed: import response missing session id.")
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "editor_response_invalid",
+            {"message": "Course Studio import response did not include a session id.", "response": imported},
+        )
+
+    # P2-1b: Course Studio's import_package now mints a session-scoped, time-bounded
+    # open_token and returns it in /api/import's response -- use that instead of the
+    # standing EDITOR_API_TOKEN in the human-facing deep link, so a leaked link only
+    # exposes this one session for a bounded window rather than the whole editor. Fall
+    # back to the standing token (the prior behavior) if talking to an older Course
+    # Studio that hasn't been upgraded to return open_token -- and record that fallback
+    # explicitly rather than silently reusing the broader credential.
+    open_token = imported.get("open_token")
+    if open_token:
+        deep_link_token = open_token
+    else:
+        deep_link_token = editor_token
+        _record(
+            context,
+            tool_name,
+            req.project_id,
+            "Course Studio did not return a scoped open_token; falling back to the "
+            "standing EDITOR_API_TOKEN in the deep link (older Course Studio version?).",
+        )
+    public_base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+    editor_url = f"{public_base}/editor/?session={session}&token={deep_link_token}"
+
+    output = OpenInStudioResult(
+        project_id=req.project_id,
+        session=session,
+        editor_url=editor_url,
+        package_path=package_path,
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Course opened in Course Studio.")
+    response = _safe_return(tool_name, context, req.model_dump(), output)
+    # redact_output's secret-pattern scrubber matches literal "token=<value>" substrings,
+    # which would mangle the very editor_url this tool exists to return -- the token here is
+    # intentionally surfaced to the caller (see the KNOWN SIMPLIFICATION note above), so
+    # restore the real URL after the generic redaction pass.
+    response["data"]["editor_url"] = editor_url
+    return response
+
+
+def _validate_studio_course_shape(course: Any) -> str | None:
+    """Minimal structural sanity check for a Course-Studio-edited course.json.
+
+    Deliberately NOT full CourseProjectV2 validation: that schema is the pre-transform
+    AGENT-AUTHORING contract (required learning_objectives entries, specific id patterns,
+    etc.). Course Studio's course.json is already in the post-transform, player-facing
+    shape produced by the same exporter build_scorm_package uses, and a human editing a
+    paragraph of text in Course Studio has no obligation to satisfy the agent-authoring
+    schema. Erring toward permissive here on purpose: reject only what would actually
+    crash downstream consumers (build_export_package, the quality validators), and accept
+    everything else rather than guess at a stricter contract that doesn't really exist.
+    Returns an error message string, or None if the shape is acceptable.
+    """
+    if not isinstance(course, dict):
+        return "Course Studio content must be a JSON object."
+    modules = course.get("modules")
+    if not isinstance(modules, list):
+        return "Course Studio content is missing a 'modules' list."
+    for module in modules:
+        if not isinstance(module, dict):
+            return "Each module in Course Studio content must be an object."
+        lessons = module.get("lessons")
+        if not isinstance(lessons, list):
+            return "Each module in Course Studio content must have a 'lessons' list."
+        for lesson in lessons:
+            if not isinstance(lesson, dict):
+                return "Each lesson in Course Studio content must be an object."
+    return None
+
+
+def import_studio_edits(payload: dict, context: RequestContext) -> dict[str, Any]:
+    """Pull a Course Studio session's edited course.json back into the MCP project model.
+
+    This is the reverse of open_in_studio: rather than exporting the MCP's content and
+    handing it to Course Studio, this reads Course Studio's live GET /api/course/<sid>
+    (its current, human-edited state) and stores it as a new "studio_content" artifact --
+    distinct from "course_content" -- so _project_course_payload can return it directly
+    without re-running it through _course_payload_from_submission, which would otherwise
+    silently discard direct edits (e.g. to a lesson's "objective" text).
+    """
+    tool_name = "import_studio_edits"
+    assert_tool_allowed(tool_name)
+    req = ImportStudioEditsRequest.model_validate(payload)
+    project = _project_or_raise(context, req.project_id)
+
+    editor_token = read_secret("EDITOR_API_TOKEN")
+    if not editor_token:
+        _record(context, tool_name, req.project_id, "Import studio edits blocked: editor token not configured.")
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "editor_not_configured",
+            {"message": "EDITOR_API_TOKEN is not configured; Course Studio handoff is unavailable."},
+        )
+
+    internal_url = os.getenv("EDITOR_INTERNAL_URL", "http://scorm-editor:8788").rstrip("/")
+    request = Request(
+        f"{internal_url}/api/course/{req.session_id}",
+        headers={"Authorization": f"Bearer {editor_token}"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:  # nosec B310 - internal service URL, not user input
+            fetched = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code in (404, 400, 410):
+            _record(context, tool_name, req.project_id, "Import studio edits failed: session not found or expired.")
+            return _error_return(
+                tool_name,
+                context,
+                req.model_dump(),
+                "session_not_found",
+                {"message": f"Course Studio session '{req.session_id}' was not found or has expired.", "status": exc.code},
+            )
+        _record(context, tool_name, req.project_id, "Import studio edits failed: Course Studio unreachable.")
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "editor_unreachable",
+            {"message": f"Could not reach Course Studio at {internal_url}: {exc}"},
+        )
+    except (URLError, TimeoutError, OSError) as exc:
+        _record(context, tool_name, req.project_id, "Import studio edits failed: Course Studio unreachable.")
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "editor_unreachable",
+            {"message": f"Could not reach Course Studio at {internal_url}: {exc}"},
+        )
+    except (ValueError, json.JSONDecodeError) as exc:
+        _record(context, tool_name, req.project_id, "Import studio edits failed: bad response from Course Studio.")
+        return _error_return(
+            tool_name, context, req.model_dump(), "editor_response_invalid", {"message": str(exc)}
+        )
+
+    if not isinstance(fetched, dict) or "course" not in fetched:
+        _record(context, tool_name, req.project_id, "Import studio edits failed: malformed response from Course Studio.")
+        return _error_return(
+            tool_name,
+            context,
+            req.model_dump(),
+            "editor_response_invalid",
+            {"message": "Course Studio response did not include a 'course' field.", "response": fetched},
+        )
+
+    course = fetched.get("course")
+    shape_error = _validate_studio_course_shape(course)
+    if shape_error:
+        _record(context, tool_name, req.project_id, "Import studio edits failed: malformed course content.")
+        return _error_return(
+            tool_name, context, req.model_dump(), "course_content_invalid", {"message": shape_error}
+        )
+
+    add_artifact(project, "studio_content", course)
+
+    modules = course.get("modules", [])
+    output = ImportStudioEditsResult(
+        project_id=req.project_id,
+        session_id=req.session_id,
+        version=fetched.get("version"),
+        module_count=len(modules),
+        lesson_count=sum(len(module.get("lessons", [])) for module in modules),
+    ).model_dump(mode="json")
+    _record(context, tool_name, req.project_id, "Imported edited course content from Course Studio.")
     return _safe_return(tool_name, context, req.model_dump(), output)
 
 
@@ -2110,12 +2787,19 @@ TOOL_REGISTRY = {
     "generate_lesson_pack": generate_lesson_pack,
     "generate_interactive_activity": generate_interactive_activity,
     "generate_interactive_video": generate_interactive_video,
+    "generate_narration_audio": generate_narration_audio,
+    "generate_presenter_video": generate_presenter_video,
+    "check_presenter_video_status": check_presenter_video_status,
+    "generate_video_clip": generate_video_clip,
+    "check_video_clip_status": check_video_clip_status,
     "generate_assessment_bank": generate_assessment_bank,
     "generate_roleplay_simulation": generate_roleplay_simulation,
     "validate_instructional_quality": validate_instructional_quality,
     "validate_superior_course_quality": validate_superior_course_quality,
     "build_export_package": build_export_package,
     "build_storyline_handoff_package": build_storyline_handoff_package,
+    "open_in_studio": open_in_studio,
+    "import_studio_edits": import_studio_edits,
     "get_course_generation_status": get_course_generation_status,
     "list_course_artifacts": list_course_artifacts,
     "request_publish_approval": request_publish_approval,

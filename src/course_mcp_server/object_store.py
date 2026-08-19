@@ -62,14 +62,22 @@ class LocalObjectStore:
         shutil.rmtree(target)
         return count
 
-    def access(self, key: str) -> dict[str, str]:
+    def _resolve_readable(self, key: str) -> Path:
         relative = PurePosixPath(key)
         if relative.is_absolute() or ".." in relative.parts:
             raise ObjectStoreError("Unsafe object key")
         target = (self.root / Path(*relative.parts)).resolve()
         if self.root not in target.parents or not target.is_file():
             raise ObjectStoreError("Object not found")
+        return target
+
+    def access(self, key: str) -> dict[str, str]:
+        target = self._resolve_readable(key)
         return {"backend": "local", "path": str(target)}
+
+    def get_bytes(self, key: str) -> bytes:
+        target = self._resolve_readable(key)
+        return target.read_bytes()
 
 
 class S3ObjectStore:
@@ -121,6 +129,9 @@ class S3ObjectStore:
         )
         return {"backend": "s3", "url": url}
 
+    def get_bytes(self, key: str) -> bytes:
+        return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+
 
 def object_store():
     bucket = os.getenv("OBJECT_STORE_BUCKET", "").strip()
@@ -149,3 +160,7 @@ def store_path(
     )
     with source_path.open("rb") as source:
         return object_store().put(key, source)
+
+
+def fetch_object_bytes(object_key: str) -> bytes:
+    return object_store().get_bytes(object_key)

@@ -7,9 +7,11 @@ WORKDIR /app
 
 RUN addgroup --system --gid 10002 editorgroup \
     && adduser --system --uid 10002 --gid 10002 editoruser \
-    && chown -R editoruser:editorgroup /app
+    && mkdir -p /data/editor-workspaces \
+    && chown -R editoruser:editorgroup /app /data
 
 COPY apps /app/apps
+RUN chown -R editoruser:editorgroup /app
 
 USER editoruser
 

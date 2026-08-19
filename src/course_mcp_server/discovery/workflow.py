@@ -143,6 +143,7 @@ class CourseDiscoveryWorkflow:
                 ("source_mode", source_default),
                 ("duration_preset", "standard"),
                 ("media_plan_mode", "agent_images"),
+                ("video_generation_mode", "none"),
             ):
                 if field_id not in answers:
                     answers[field_id] = DiscoveryAnswer(
@@ -179,6 +180,7 @@ class CourseDiscoveryWorkflow:
         modules = proposed_modules or state.module_outline or []
         media_mode = str(answer("media_plan_mode", "agent_images"))
         video_links = [link.strip() for link in str(answer("video_links", "")).split(",") if link.strip()]
+        video_generation_mode = str(answer("video_generation_mode", "none"))
         plan = {
             "course_title": answer("course_title", "Generated Course"),
             "audience": answer("target_learner", "professional learners"),
@@ -194,6 +196,7 @@ class CourseDiscoveryWorkflow:
                 "images_mode": media_mode,
                 "image_briefs_planned": media_mode != "text_only",
                 "video_links": video_links,
+                "video_generation_mode": video_generation_mode,
                 "video_slots_planned": media_mode != "text_only",
             },
             "gamification": bool(answer("gamification_enabled", True)),

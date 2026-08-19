@@ -46,6 +46,7 @@ class VideoScene(BaseModel):
     checkpoint_question_id: str | None = Field(default=None, max_length=80)
     source_refs: list[dict[str, Any]] = Field(default_factory=list, max_length=10)
     captions: list[CaptionCue] = Field(default_factory=list, max_length=60)
+    narration_audio_src: str | None = Field(default=None, max_length=300)
 
 
 class HtmlVideoProject(BaseModel):
