@@ -13,6 +13,16 @@ from ..html_video_engine import build_video_project_from_course
 from ..object_store import ObjectStoreError, fetch_object_bytes
 from ..schemas import ScormPackageRequest, ScormPackageResult
 
+# Distinct, deliberately larger budget than apps/scorm_editor/server.py's MAX_UPLOAD_BYTES
+# (60MB), which is sized for images/documents uploaded through the editor UI. A short
+# AI-generated presenter video (HeyGen avatar clip) is legitimately bigger than that even at
+# modest quality, so it gets its own, separate cap rather than reusing the upload one. 150MB
+# is generous enough for a genuine short presenter clip while still bounding overall SCORM
+# package size for realistic LMS compatibility. Enforced by the caller (build_export_package
+# in tools.py) BEFORE fetch_object_bytes is ever called, using the size_bytes already recorded
+# on the completed presenter_video_job artifact -- an oversized video is never downloaded.
+MAX_PRESENTER_VIDEO_BYTES = 150 * 1024 * 1024
+
 
 TECHNICAL_UI_REPLACEMENTS = {
     "SCORM course player": "Course overview",
@@ -2236,6 +2246,25 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
         narration_audio_bytes[scene.id] = audio_bytes
         narration_audio_files.append(f"interactive-video/audio/{scene.id}.mp3")
     video_files = [*video_files, *narration_audio_files]
+
+    # Presenter video: a single, project-level HeyGen avatar video (NOT scene-scoped like
+    # narration audio -- GeneratePresenterVideoRequest/CheckPresenterVideoStatusResult have no
+    # scene-targeting field at all). Bundled as a real file at assets/presenter-video.mp4 and
+    # referenced from the main course landing page (index.html), not the separate
+    # interactive-video/ slideshow. The size budget is enforced upstream by the caller before
+    # this function is ever invoked with a presenter_video_object_key, so by the time we get
+    # here fetch_object_bytes is always safe to call.
+    presenter_video_bytes: bytes | None = None
+    presenter_video_files: list[str] = []
+    if req.presenter_video_object_key:
+        try:
+            presenter_video_bytes = fetch_object_bytes(req.presenter_video_object_key)
+        except ObjectStoreError:
+            presenter_video_bytes = None
+        if presenter_video_bytes is not None:
+            presenter_video_files.append("assets/presenter-video.mp4")
+    asset_files = [*asset_files, *presenter_video_files]
+
     media_files: list[str] = []
     if req.media_files:
         upload_dir = Path(os.getenv("UPLOAD_DIR", "/app/output/uploads")).resolve()
@@ -2316,6 +2345,17 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
         if first_video
         else ""
     )
+    presenter_video_block = (
+        '''<section class="interactive">
+          <h2>Meet your presenter</h2>
+          <video controls preload="none" src="assets/presenter-video.mp4">
+            Your browser does not support embedded video. The presenter video is bundled at
+            assets/presenter-video.mp4 inside this course package.
+          </video>
+        </section>'''
+        if presenter_video_files
+        else ""
+    )
     index = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -2369,6 +2409,7 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
           </div>
           {video_block}
         </section>
+        {presenter_video_block}
         <section class="module alt">
           <img src="assets/prompt-lab.svg" alt="Interactive prompt lab">
           <div class="module-text">
@@ -2432,6 +2473,8 @@ def build_scorm_package(req: ScormPackageRequest, output_dir: str) -> dict:
     (assets / "scorm_api.js").write_text(_runtime_js(), encoding="utf-8")
     (assets / "study-map.svg").write_text(_study_map_svg(), encoding="utf-8")
     (assets / "prompt-lab.svg").write_text(_prompt_lab_svg(), encoding="utf-8")
+    if presenter_video_bytes is not None:
+        (assets / "presenter-video.mp4").write_bytes(presenter_video_bytes)
     if narration_audio_bytes:
         audio_dir = video_dir / "audio"
         audio_dir.mkdir(exist_ok=True)

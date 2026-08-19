@@ -28,7 +28,7 @@ from .course_templates import TemplateRegistry
 from .discovery import CourseDiscoveryState, CourseDiscoveryWorkflow
 from .delivery import build_delivery_metadata
 from .exporters.h5p import build_h5p_package
-from .exporters.scorm import build_scorm_package
+from .exporters.scorm import MAX_PRESENTER_VIDEO_BYTES, build_scorm_package
 from .generation import CodexGenerationContractBuilder
 from .html_video_engine import HtmlVideoRenderer, build_video_project_from_course
 from .video_providers import (
@@ -2388,6 +2388,38 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
                 for scene in narration_artifact.get("payload", {}).get("scenes", [])
                 if scene.get("status") == "completed" and scene.get("object_key")
             } or None
+
+        # Presenter video: unlike narration audio, this is a single project-level HeyGen
+        # video, not per-scene. Check the size budget using the size_bytes already recorded
+        # on the completed presenter_video_job artifact BEFORE any object-store download is
+        # attempted (fetch_object_bytes only happens later, inside build_scorm_package, and
+        # only once we know we're under budget) -- an oversized video must fail the export
+        # loudly rather than being silently downloaded and then dropped or truncated.
+        presenter_video_artifact = latest_artifact(project, "presenter_video_job")
+        presenter_video_object_key: str | None = None
+        if presenter_video_artifact:
+            presenter_payload = presenter_video_artifact.get("payload", {})
+            if presenter_payload.get("status") == "completed" and presenter_payload.get("object_key"):
+                size_bytes = presenter_payload.get("size_bytes") or 0
+                if size_bytes > MAX_PRESENTER_VIDEO_BYTES:
+                    _record(context, tool_name, req.project_id, "Export blocked: presenter video exceeds size budget.")
+                    return _error_return(
+                        tool_name,
+                        context,
+                        req.model_dump(),
+                        "presenter_video_too_large",
+                        {
+                            "message": (
+                                f"The generated presenter video is {size_bytes} bytes, which exceeds this "
+                                f"course's {MAX_PRESENTER_VIDEO_BYTES} byte export budget. Regenerate the "
+                                "presenter video with a shorter script, or export without it for now."
+                            ),
+                            "size_bytes": size_bytes,
+                            "max_bytes": MAX_PRESENTER_VIDEO_BYTES,
+                        },
+                    )
+                presenter_video_object_key = presenter_payload["object_key"]
+
         output = build_scorm_package(
             ScormPackageRequest(
                 course_title=project["course_title"],
@@ -2398,6 +2430,7 @@ def build_export_package(payload: dict, context: RequestContext) -> dict[str, An
                 branding=branding,
                 export_stamp=sign_export(req.project_id, context.tenant_id, context.tier),
                 narration_audio_object_keys=narration_audio_object_keys,
+                presenter_video_object_key=presenter_video_object_key,
             ),
             os.getenv("OUTPUT_DIR", "/app/output"),
         )

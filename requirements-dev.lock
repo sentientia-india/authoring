@@ -287,7 +287,9 @@ charset-normalizer==3.4.9 \
     --hash=sha256:f86c6358749bd4fda175388691e3ba8c46e24c5347d0afd20f9b7edfc9faf07d \
     --hash=sha256:fa36ec09ef71d158186bc79e359ff5fdd6e7996fe8ab638f00d6b93139ba4fcf \
     --hash=sha256:fe2c7201c642b7c308f1675355ad7ff7b66acfe3541625efe5a3ad38f29d6115
-    # via requests
+    # via
+    #   reportlab
+    #   requests
 click==8.4.2 \
     --hash=sha256:9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6 \
     --hash=sha256:e6f9f66136c816745b9d65817da91d61d957fb16e02e4dcd0552553c5a197b76
@@ -788,7 +790,9 @@ pillow==12.3.0 \
     --hash=sha256:fdafc9cce40277e0f7a0feabce0ee50dd2fa1800f3b38015e51296b5e814048d \
     --hash=sha256:fe3cca2e4e8a592be0f269a1ca4835c25199d9f3ce815c8491048f785b0a0198 \
     --hash=sha256:ffd0c5368496f41b0944be820fcb7a838aa6e623d250b01acf2643939c3f99d7
-    # via python-pptx
+    # via
+    #   python-pptx
+    #   reportlab
 pip==26.1.2 \
     --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab \
     --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
@@ -1166,6 +1170,10 @@ referencing==0.37.0 \
     #   jsonschema
     #   jsonschema-path
     #   jsonschema-specifications
+reportlab==5.0.0 \
+    --hash=sha256:9d5a3affa84919e1111ede580031266a570e93b1ce388219621347965ff1d93c \
+    --hash=sha256:e4494a0c6623ae213bb856fba523171b2b54a7bf629fda02d5e525a7b899a784
+    # via samrat-course-mcp (pyproject.toml)
 requests==2.34.2 \
     --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0 \
     --hash=sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed

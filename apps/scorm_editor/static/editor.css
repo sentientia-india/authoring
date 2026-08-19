@@ -89,6 +89,8 @@ button, input, select, textarea { font-family: inherit; font-size: 13.5px; color
 .file-button { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 8px; }
 .file-button input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .file-button.big { padding: 13px 26px; font-size: 15px; }
+.file-button.drag-active, .source-drop-zone.drag-active { box-shadow: inset 0 0 0 2px var(--accent-2); }
+.source-drop-zone { border: 1px dashed var(--line); border-radius: 8px; padding: 16px; font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 10px; }
 
 /* ---------- layout ---------- */
 .layout {

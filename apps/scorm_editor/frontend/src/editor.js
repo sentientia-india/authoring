@@ -4,6 +4,7 @@ import { escapeHtml } from "./escape-html.js";
 import { moveItem } from "./move-item.js";
 import { moveBetweenLists } from "./move-between-lists.js";
 import { sanitizeRichTextHtml, richTextToPlainText } from "./rich-text.js";
+import { routeDroppedFile } from "./upload-route.js";
 
 import { Editor } from "@tiptap/core";
 import Document from "@tiptap/extension-document";
@@ -303,12 +304,41 @@ var RICH_TEXT_EXTENSIONS = [
     fetch("/api/sources/" + state.session).then(function (res) { return res.json(); }).then(function (data) {
       box.replaceChildren();
       var heading=document.createElement("h3"); heading.textContent="Source intake"; box.appendChild(heading);
+      function uploadSourceFile(file) {
+        if (!file) return;
+        var route = routeDroppedFile(file.name);
+        if (route.kind !== "source") {
+          toast("Unsupported file type for a source (" + (route.extension || "no extension") + "). Drop a PDF, DOCX, or PPTX.");
+          return;
+        }
+        var reader = new FileReader();
+        reader.onload = function () {
+          fetch("/api/sources/" + state.session + "/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename: file.name, content_base64: reader.result }),
+          })
+            .then(function (res) { return res.json(); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.error || "Source upload failed");
+              toast("Source extracted from " + file.name + ". Use its ID in lesson citations.");
+              renderSources();
+            })
+            .catch(function (error) { toast(error.message); });
+        };
+        reader.readAsDataURL(file);
+      }
+      var dropZone = document.createElement("div");
+      dropZone.className = "source-drop-zone";
+      dropZone.textContent = "Drop a PDF, DOCX, or PPTX here to extract a page-anchored source automatically.";
+      wireFileDropZone(dropZone, "drag-active", uploadSourceFile);
+      box.appendChild(dropZone);
       var form=document.createElement("form"); form.className="review-form";
       var title=document.createElement("input"); title.required=true; title.placeholder="Source title"; title.setAttribute("aria-label","Source title");
       var text=document.createElement("textarea"); text.required=true; text.minLength=20; text.placeholder="Paste source text. It remains in the authoring workspace and is not added to the exported course."; text.setAttribute("aria-label","Source text");
       var button=document.createElement("button"); button.className="primary"; button.type="submit"; button.textContent="Add source";
       form.append(title,text,button); form.addEventListener("submit",function(event){event.preventDefault();fetch("/api/sources/"+state.session,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:title.value,text:text.value})}).then(function(res){return res.json();}).then(function(result){if(!result.ok)throw new Error(result.error||"Source intake failed");toast("Source added. Use its ID in lesson citations.");renderSources();}).catch(function(error){toast(error.message);});}); box.appendChild(form);
-      (data.sources||[]).forEach(function(source){var row=document.createElement("p");row.className="review-row";row.textContent=source.title+" · "+source.source_id+" · "+source.character_count+" characters";box.appendChild(row);});
+      (data.sources||[]).forEach(function(source){var row=document.createElement("p");row.className="review-row";var refCount=(source.references||[]).length;row.textContent=source.title+" · "+source.source_id+" · "+source.character_count+" characters"+(refCount?" · "+refCount+" reference"+(refCount===1?"":"s"):"");box.appendChild(row);});
     }).catch(function(error){box.textContent="Sources unavailable: "+error.message;});
   }
 
@@ -908,6 +938,29 @@ var RICH_TEXT_EXTENSIONS = [
     return wrap;
   }
 
+  // Wires real OS drag-and-drop (as opposed to the app's own internal drag system used for
+  // tree reordering and template insertion, which uses dataTransfer.setData("text/plain")
+  // with a JSON payload -- see handleDrop/dragstart above) onto `el`. Calls onFile(file) with
+  // the single dropped File on drop; toggles activeClass for hover feedback, mirroring the
+  // `.drop-before`/`.drop-after` P1-4 indicator style rather than inventing a new visual
+  // language (see editor.css).
+  function wireFileDropZone(el, activeClass, onFile) {
+    el.addEventListener("dragover", function (event) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      el.classList.add(activeClass);
+    });
+    el.addEventListener("dragleave", function () {
+      el.classList.remove(activeClass);
+    });
+    el.addEventListener("drop", function (event) {
+      event.preventDefault();
+      el.classList.remove(activeClass);
+      var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) onFile(file);
+    });
+  }
+
   function mediaEditor(owner) {
     var wrap = document.createElement("div");
     wrap.style.display = "grid";
@@ -935,12 +988,13 @@ var RICH_TEXT_EXTENSIONS = [
           preview.innerHTML = '<img src="' + escapeHtml(withToken("/course/" + state.session + "/" + media.src)) + '" alt="">';
           wrap.appendChild(preview);
         }
-        var upload = document.createElement("label");
-        upload.className = "ghost file-button";
-        upload.innerHTML = 'Upload image<input type="file" accept="image/*">';
-        upload.querySelector("input").addEventListener("change", function (event) {
-          var file = event.target.files[0];
+        function uploadMediaFile(file) {
           if (!file) return;
+          var route = routeDroppedFile(file.name);
+          if (route.kind && route.kind !== "media") {
+            toast("That file looks like a source document (" + route.extension + "). Drop it on the Sources tab instead.");
+            return;
+          }
           var reader = new FileReader();
           reader.onload = function () {
             fetch("/api/media/" + state.session, {
@@ -957,7 +1011,14 @@ var RICH_TEXT_EXTENSIONS = [
               .catch(function (error) { toast(error.message); });
           };
           reader.readAsDataURL(file);
+        }
+        var upload = document.createElement("label");
+        upload.className = "ghost file-button";
+        upload.innerHTML = 'Upload or drop image<input type="file" accept="image/*">';
+        upload.querySelector("input").addEventListener("change", function (event) {
+          uploadMediaFile(event.target.files[0]);
         });
+        wireFileDropZone(upload, "drag-active", uploadMediaFile);
         wrap.appendChild(upload);
       }
     }

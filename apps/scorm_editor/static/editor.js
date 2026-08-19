@@ -110,6 +110,26 @@
     return text.replace(/\s+/g, " ").trim();
   }
 
+  // frontend/src/upload-route.js
+  var MEDIA_UPLOAD_EXTENSIONS = [".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".mp4", ".webm", ".mp3"];
+  var SOURCE_UPLOAD_EXTENSIONS = { ".pdf": "pdf", ".docx": "docx", ".pptx": "pptx", ".ppt": "ppt" };
+  function extensionOf(filename) {
+    var name = String(filename || "");
+    var dot = name.lastIndexOf(".");
+    return dot >= 0 ? name.slice(dot).toLowerCase() : "";
+  }
+  function routeDroppedFile(filename) {
+    var extension = extensionOf(filename);
+    if (MEDIA_UPLOAD_EXTENSIONS.indexOf(extension) >= 0) {
+      return { kind: "media", extension };
+    }
+    var sourceType = SOURCE_UPLOAD_EXTENSIONS[extension];
+    if (sourceType) {
+      return { kind: "source", extension, sourceType };
+    }
+    return { kind: null, extension };
+  }
+
   // node_modules/orderedmap/dist/index.js
   function OrderedMap(content) {
     this.content = content;
@@ -22856,6 +22876,36 @@ img.ProseMirror-separator {
         var heading = document.createElement("h3");
         heading.textContent = "Source intake";
         box.appendChild(heading);
+        function uploadSourceFile(file) {
+          if (!file) return;
+          var route = routeDroppedFile(file.name);
+          if (route.kind !== "source") {
+            toast("Unsupported file type for a source (" + (route.extension || "no extension") + "). Drop a PDF, DOCX, or PPTX.");
+            return;
+          }
+          var reader = new FileReader();
+          reader.onload = function() {
+            fetch("/api/sources/" + state.session + "/upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ filename: file.name, content_base64: reader.result })
+            }).then(function(res) {
+              return res.json();
+            }).then(function(result) {
+              if (!result.ok) throw new Error(result.error || "Source upload failed");
+              toast("Source extracted from " + file.name + ". Use its ID in lesson citations.");
+              renderSources();
+            }).catch(function(error) {
+              toast(error.message);
+            });
+          };
+          reader.readAsDataURL(file);
+        }
+        var dropZone = document.createElement("div");
+        dropZone.className = "source-drop-zone";
+        dropZone.textContent = "Drop a PDF, DOCX, or PPTX here to extract a page-anchored source automatically.";
+        wireFileDropZone(dropZone, "drag-active", uploadSourceFile);
+        box.appendChild(dropZone);
         var form = document.createElement("form");
         form.className = "review-form";
         var title = document.createElement("input");
@@ -22888,7 +22938,8 @@ img.ProseMirror-separator {
         (data.sources || []).forEach(function(source) {
           var row = document.createElement("p");
           row.className = "review-row";
-          row.textContent = source.title + " \xB7 " + source.source_id + " \xB7 " + source.character_count + " characters";
+          var refCount = (source.references || []).length;
+          row.textContent = source.title + " \xB7 " + source.source_id + " \xB7 " + source.character_count + " characters" + (refCount ? " \xB7 " + refCount + " reference" + (refCount === 1 ? "" : "s") : "");
           box.appendChild(row);
         });
       }).catch(function(error) {
@@ -23442,6 +23493,22 @@ img.ProseMirror-separator {
       wrap2.appendChild(add);
       return wrap2;
     }
+    function wireFileDropZone(el, activeClass, onFile) {
+      el.addEventListener("dragover", function(event) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        el.classList.add(activeClass);
+      });
+      el.addEventListener("dragleave", function() {
+        el.classList.remove(activeClass);
+      });
+      el.addEventListener("drop", function(event) {
+        event.preventDefault();
+        el.classList.remove(activeClass);
+        var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+        if (file) onFile(file);
+      });
+    }
     function mediaEditor(owner) {
       var wrap2 = document.createElement("div");
       wrap2.style.display = "grid";
@@ -23471,18 +23538,13 @@ img.ProseMirror-separator {
           set("alt", value);
         })));
         if (media.kind === "image") {
-          if (media.src) {
-            var preview = document.createElement("div");
-            preview.className = "media-preview";
-            preview.innerHTML = '<img src="' + escapeHtml(withToken("/course/" + state.session + "/" + media.src)) + '" alt="">';
-            wrap2.appendChild(preview);
-          }
-          var upload = document.createElement("label");
-          upload.className = "ghost file-button";
-          upload.innerHTML = 'Upload image<input type="file" accept="image/*">';
-          upload.querySelector("input").addEventListener("change", function(event) {
-            var file = event.target.files[0];
+          let uploadMediaFile = function(file) {
             if (!file) return;
+            var route = routeDroppedFile(file.name);
+            if (route.kind && route.kind !== "media") {
+              toast("That file looks like a source document (" + route.extension + "). Drop it on the Sources tab instead.");
+              return;
+            }
             var reader = new FileReader();
             reader.onload = function() {
               fetch("/api/media/" + state.session, {
@@ -23500,7 +23562,20 @@ img.ProseMirror-separator {
               });
             };
             reader.readAsDataURL(file);
+          };
+          if (media.src) {
+            var preview = document.createElement("div");
+            preview.className = "media-preview";
+            preview.innerHTML = '<img src="' + escapeHtml(withToken("/course/" + state.session + "/" + media.src)) + '" alt="">';
+            wrap2.appendChild(preview);
+          }
+          var upload = document.createElement("label");
+          upload.className = "ghost file-button";
+          upload.innerHTML = 'Upload or drop image<input type="file" accept="image/*">';
+          upload.querySelector("input").addEventListener("change", function(event) {
+            uploadMediaFile(event.target.files[0]);
           });
+          wireFileDropZone(upload, "drag-active", uploadMediaFile);
           wrap2.appendChild(upload);
         }
       }

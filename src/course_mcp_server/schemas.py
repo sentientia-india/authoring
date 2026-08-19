@@ -60,6 +60,7 @@ class ScormPackageRequest(BaseModel):
     branding: dict = Field(default_factory=dict)
     export_stamp: dict = Field(default_factory=dict)
     narration_audio_object_keys: dict[str, str] | None = None
+    presenter_video_object_key: str | None = None
 
 
 class CourseMaterial(BaseModel):

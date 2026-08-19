@@ -246,3 +246,120 @@ class TestScopedOpenToken:
         status, body = _get(running_server + f"/api/course/{sid}", token=TOKEN)
         assert status == 200
         assert json.loads(body)["session"] == sid
+
+
+def _real_pdf_base64(page_texts) -> str:
+    from io import BytesIO
+
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer)
+    for text in page_texts:
+        pdf.drawString(72, 720, text)
+        pdf.showPage()
+    pdf.save()
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+class TestSourceUploadRoute:
+    """HTTP-level coverage of POST /api/sources/<sid>/upload (docs/authoring-platform-plan.md
+    3.4 -- dropping a PDF/DOCX/PPTX creates a real, page-anchored source instead of inert
+    media). Distinct from the pre-existing text-only POST /api/sources/<sid>."""
+
+    def test_upload_route_denies_without_token(self, running_server):
+        imported = _import(running_server)
+        sid = imported["session"]
+        status, body = _post(running_server + f"/api/sources/{sid}/upload", "", {"filename": "a.pdf", "content_base64": ""})
+        assert status == 401
+        assert body["error"] == "unauthorized"
+
+    def test_upload_route_accepts_scoped_open_token_for_its_own_session(self, running_server):
+        imported = _import(running_server)
+        sid = imported["session"]
+        open_token = imported["open_token"]
+        payload_b64 = _real_pdf_base64(["Verify the account owner before any change."])
+
+        status, body = _post(
+            running_server + f"/api/sources/{sid}/upload",
+            open_token,
+            {"filename": "handbook.pdf", "content_base64": payload_b64},
+        )
+        assert status == 201, body
+        assert body["ok"] is True
+        assert body["source"]["references"] == ["page:1"]
+
+    def test_upload_route_extracts_real_pdf_text_and_page_references(self, running_server):
+        imported = _import(running_server)
+        sid = imported["session"]
+        payload_b64 = _real_pdf_base64(["Always verify the account owner first.", "Escalate disputes to a lead."])
+
+        status, body = _post(
+            running_server + f"/api/sources/{sid}/upload",
+            TOKEN,
+            {"filename": "Customer Handbook.pdf", "content_base64": payload_b64},
+        )
+        assert status == 201, body
+        source = body["source"]
+        assert source["title"] == "Customer Handbook"
+        assert source["references"] == ["page:1", "page:2"]
+        assert "text" not in source  # public record never returns full source text over the list/upload APIs
+
+        status, body = _get(running_server + f"/api/sources/{sid}", token=TOKEN)
+        assert status == 200
+        listed = json.loads(body)["sources"]
+        assert any(item["source_id"] == source["source_id"] and item["references"] == ["page:1", "page:2"] for item in listed)
+
+    def test_upload_route_rejects_unsupported_extension(self, running_server):
+        imported = _import(running_server)
+        sid = imported["session"]
+        payload_b64 = base64.b64encode(b"plain text notes").decode("ascii")
+
+        status, body = _post(
+            running_server + f"/api/sources/{sid}/upload",
+            TOKEN,
+            {"filename": "notes.txt", "content_base64": payload_b64},
+        )
+        assert status == 400
+        assert "Unsupported source file type" in body["error"]
+
+    def test_upload_route_rejects_extraction_failure_cleanly(self, running_server):
+        imported = _import(running_server)
+        sid = imported["session"]
+        payload_b64 = base64.b64encode(b"not a real docx zip file at all").decode("ascii")
+
+        status, body = _post(
+            running_server + f"/api/sources/{sid}/upload",
+            TOKEN,
+            {"filename": "broken.docx", "content_base64": payload_b64},
+        )
+        assert status == 400
+        assert "Could not extract text from" in body["error"]
+
+    def test_upload_route_enforces_size_limit(self, monkeypatch, running_server):
+        import apps.scorm_editor.server as server_module
+
+        imported = _import(running_server)
+        sid = imported["session"]
+        monkeypatch.setattr(server_module, "MAX_UPLOAD_BYTES", 100)
+        payload_b64 = base64.b64encode(b"x" * 200).decode("ascii")
+
+        status, body = _post(
+            running_server + f"/api/sources/{sid}/upload",
+            TOKEN,
+            {"filename": "big.pdf", "content_base64": payload_b64},
+        )
+        assert status == 400
+        assert "too large" in body["error"].lower()
+
+    def test_existing_text_paste_route_still_works_unchanged(self, running_server):
+        imported = _import(running_server)
+        sid = imported["session"]
+
+        status, body = _post(
+            running_server + f"/api/sources/{sid}",
+            TOKEN,
+            {"title": "Pasted notes", "text": "Pasted text with no page anchors at all here."},
+        )
+        assert status == 201, body
+        assert "references" not in body["source"]

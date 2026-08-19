@@ -25,6 +25,7 @@ from apps.scorm_editor.server import (
     start_generation_job,
     update_collaboration,
     update_localization,
+    upload_source,
 )
 
 
@@ -220,6 +221,61 @@ def test_editor_source_intake_is_digest_verified_and_excluded_from_export(tmp_pa
     assert list_sources(created["session"])[0]["title"] == "Customer handbook"
     with ZipFile(BytesIO(export_package(created["session"]))) as package:
         assert not any("sources" in name for name in package.namelist())
+
+
+def _real_pdf_bytes(page_texts):
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer)
+    for text in page_texts:
+        pdf.drawString(72, 720, text)
+        pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
+
+
+def test_editor_source_upload_extracts_pdf_text_and_page_references(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Evidence-led onboarding")
+    blob = _real_pdf_bytes(["Always verify the account owner first.", "Escalate unresolved disputes to a lead."])
+    source = upload_source(created["session"], "Customer Handbook.pdf", blob)
+    assert source["source_id"].startswith("source_")
+    assert source["title"] == "Customer Handbook"
+    assert source["references"] == ["page:1", "page:2"]
+    stored = list_sources(created["session"])[0]
+    assert stored["references"] == ["page:1", "page:2"]
+
+
+def test_editor_source_upload_rejects_unsupported_extension(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Evidence-led onboarding")
+    with pytest.raises(ValueError, match="Unsupported source file type"):
+        upload_source(created["session"], "notes.txt", b"plain text notes")
+
+
+def test_editor_source_upload_rejects_pdf_with_no_extractable_text(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Evidence-led onboarding")
+    # A malformed PDF still falls back to a regex text scrape (see ingestion._extract_pdf)
+    # rather than raising; this payload survives that fallback with under 20 chars of text,
+    # which is upload_source's own no-extractable-content rejection, not extract_source's.
+    with pytest.raises(ValueError, match="No extractable text"):
+        upload_source(created["session"], "broken.pdf", b"\x00\x01\x02garbage%%\x03")
+
+
+def test_editor_source_upload_rejects_malformed_docx_cleanly(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Evidence-led onboarding")
+    with pytest.raises(ValueError, match="Could not extract text from"):
+        upload_source(created["session"], "broken.docx", b"not a real docx zip file at all")
+
+
+def test_editor_text_source_ingest_stays_backward_compatible_without_references(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOR_WORKSPACE_DIR", str(tmp_path / "workspaces"))
+    created = create_course("Evidence-led onboarding")
+    source = ingest_source(created["session"], "Pasted notes", "Pasted text with no page anchors at all here.")
+    assert "references" not in source
 
 
 def test_editor_accessibility_report_blocks_missing_media_alternatives(tmp_path, monkeypatch):

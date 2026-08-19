@@ -658,7 +658,7 @@ def update_localization(sid: str, action: str, payload: dict) -> dict:
     return state
 
 
-def ingest_source(sid: str, title: str, text: str) -> dict:
+def ingest_source(sid: str, title: str, text: str, references: list[str] | None = None) -> dict:
     workspace = _workspace(sid)
     title = str(title or "").strip()[:200]
     text = str(text or "").strip()
@@ -679,10 +679,46 @@ def ingest_source(sid: str, title: str, text: str) -> dict:
         "created_at": time.time(),
         "text": text,
     }
+    # Additive, optional field (docs/authoring-platform-plan.md 3.4's page-anchored
+    # source_refs): pasted-text sources (the pre-existing path) simply never set it, so
+    # old records and callers that omit the argument stay exactly as they were.
+    if references:
+        record["references"] = [str(ref) for ref in references][:2000]
     _write_json_atomic(path, record)
     public = dict(record)
     public.pop("text")
     return public
+
+
+SOURCE_UPLOAD_EXTENSIONS = {".pdf": "pdf", ".docx": "docx", ".pptx": "pptx", ".ppt": "ppt"}
+
+
+def upload_source(sid: str, filename: str, blob: bytes) -> dict:
+    """Extract text (and page/slide-anchored references) from an uploaded PDF/DOCX/PPTX and
+    store it as a real source via ingest_source(), instead of dropping it as inert media.
+
+    Reuses course_mcp_server.ingestion.extract_source() -- the same consolidated extractor
+    the MCP server's own ingestion tools use -- so a PDF gets ["page:1", "page:2", ...] and
+    a PPTX gets ["slide:1", "notes:1", ...] in the stored record's references field.
+    """
+    from course_mcp_server.ingestion import extract_source
+
+    name = Path(str(filename or "").replace("\\", "/")).name
+    suffix = Path(name).suffix.lower()
+    source_type = SOURCE_UPLOAD_EXTENSIONS.get(suffix)
+    if not name or source_type is None:
+        raise ValueError("Unsupported source file type. Upload a PDF, DOCX, or PPTX.")
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir) / name
+        tmp_path.write_bytes(blob)
+        try:
+            extracted = extract_source(tmp_path, source_type)
+        except Exception as exc:  # malformed/unsupported file content, not a crash
+            raise ValueError(f"Could not extract text from {name}: {exc}") from exc
+    if len(extracted.text.strip()) < 20:
+        raise ValueError("No extractable text found in the uploaded file.")
+    title = Path(name).stem.strip()[:200] or name
+    return ingest_source(sid, title, extracted.text, extracted.references)
 
 
 def list_sources(sid: str) -> list[dict]:
@@ -1098,6 +1134,12 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._body()
                 result = update_collaboration(sid, str(body.get("action") or ""), body)
                 self._json(HTTPStatus.OK, {"ok": True, "collaboration": result})
+                return
+            if route.startswith("/api/sources/") and route.endswith("/upload"):
+                sid = route.removeprefix("/api/sources/").removesuffix("/upload")
+                body = self._body()
+                result = upload_source(sid, str(body.get("filename") or ""), _decode_blob(body.get("content_base64", "")))
+                self._json(HTTPStatus.CREATED, {"ok": True, "source": result})
                 return
             if route.startswith("/api/sources/"):
                 sid = route.removeprefix("/api/sources/")
