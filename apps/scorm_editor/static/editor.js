@@ -130,6 +130,908 @@
     return { kind: null, extension };
   }
 
+  // frontend/src/ai-settings.js
+  var KNOWN_TEXT_PROVIDERS = [
+    { id: "openrouter", label: "OpenRouter" },
+    { id: "deepseek", label: "DeepSeek" },
+    { id: "openai", label: "OpenAI" },
+    { id: "anthropic", label: "Anthropic" },
+    { id: "gemini", label: "Gemini" },
+    { id: "openai_compatible", label: "Custom endpoint" }
+  ];
+  var KNOWN_PROVIDER_IDS = KNOWN_TEXT_PROVIDERS.map(function(entry) {
+    return entry.id;
+  });
+  function emptySettings() {
+    return { provider: "openrouter", apiKey: "", baseUrl: "", model: "" };
+  }
+  var settings = emptySettings();
+  function requiresCustomEndpointFields(providerId) {
+    return providerId === "openai_compatible";
+  }
+  function getAiSettings() {
+    return Object.assign({}, settings);
+  }
+  function setAiSettings(partial) {
+    partial = partial || {};
+    if (partial.provider !== void 0) {
+      if (KNOWN_PROVIDER_IDS.indexOf(partial.provider) === -1) {
+        throw new Error("Unknown text provider: " + partial.provider);
+      }
+      settings.provider = partial.provider;
+    }
+    if (partial.apiKey !== void 0) settings.apiKey = String(partial.apiKey || "");
+    if (partial.baseUrl !== void 0) settings.baseUrl = String(partial.baseUrl || "");
+    if (partial.model !== void 0) settings.model = String(partial.model || "");
+    return getAiSettings();
+  }
+  function buildAiRequestFields() {
+    var fields = { text_provider: settings.provider };
+    if (settings.apiKey) fields.text_provider_api_key = settings.apiKey;
+    if (requiresCustomEndpointFields(settings.provider)) {
+      fields.text_provider_base_url = settings.baseUrl;
+      fields.text_provider_model = settings.model;
+    } else if (settings.model) {
+      fields.text_provider_model = settings.model;
+    }
+    return fields;
+  }
+
+  // frontend/src/undo-stack.js
+  var DEFAULT_MAX_DEPTH = 50;
+  function createUndoStack(maxDepth) {
+    return { entries: [], index: -1, maxDepth: maxDepth > 0 ? maxDepth : DEFAULT_MAX_DEPTH };
+  }
+  function pushEntry(stack, entry) {
+    stack.entries = stack.entries.slice(0, stack.index + 1);
+    stack.entries.push(entry);
+    if (stack.entries.length > stack.maxDepth) stack.entries.shift();
+    stack.index = stack.entries.length - 1;
+    return stack;
+  }
+  function canUndo(stack) {
+    return stack.index > 0;
+  }
+  function canRedo(stack) {
+    return stack.index < stack.entries.length - 1;
+  }
+  function undoEntry(stack) {
+    if (!canUndo(stack)) return null;
+    stack.index -= 1;
+    return stack.entries[stack.index];
+  }
+  function redoEntry(stack) {
+    if (!canRedo(stack)) return null;
+    stack.index += 1;
+    return stack.entries[stack.index];
+  }
+
+  // frontend/src/save-status.js
+  function initialSaveStatus() {
+    return { phase: "idle", lastSavedAt: null, version: null, error: null };
+  }
+  function saveStatusReducer(state, event) {
+    switch (event.type) {
+      case "saving":
+        return Object.assign({}, state, { phase: "saving", error: null });
+      case "success":
+        return { phase: "saved", lastSavedAt: event.at, version: event.version, error: null };
+      case "failure":
+        return Object.assign({}, state, { phase: "failed", error: event.reason || "Save failed" });
+      case "blocked":
+        return Object.assign({}, state, { phase: "blocked", error: event.reason || "Save blocked" });
+      default:
+        return state;
+    }
+  }
+  function formatRelativeTime(fromMs, nowMs) {
+    var deltaSeconds = Math.max(0, Math.round((nowMs - fromMs) / 1e3));
+    if (deltaSeconds < 10) return "just now";
+    if (deltaSeconds < 60) return deltaSeconds + " seconds ago";
+    var minutes = Math.round(deltaSeconds / 60);
+    if (minutes < 60) return minutes + " minute" + (minutes === 1 ? "" : "s") + " ago";
+    var hours = Math.round(minutes / 60);
+    return hours + " hour" + (hours === 1 ? "" : "s") + " ago";
+  }
+  function formatSaveStatus(state, nowMs) {
+    if (state.phase === "saving") return { text: "Saving\u2026", showRetry: false };
+    if (state.phase === "failed") {
+      var suffix = state.error ? " \u2014 " + state.error : "";
+      return { text: "Save failed" + suffix, showRetry: true };
+    }
+    if (state.phase === "blocked") return { text: state.error || "Save blocked", showRetry: false };
+    if (state.phase === "saved" && state.lastSavedAt != null) {
+      return { text: "Saved " + formatRelativeTime(state.lastSavedAt, nowMs), showRetry: false };
+    }
+    return { text: "Ready", showRetry: false };
+  }
+
+  // frontend/src/content-block-ai.js
+  var CONTENT_BLOCK_TRANSFORMS = {
+    rewrite: {
+      id: "rewrite",
+      label: "Rewrite",
+      systemPrompt: "You are editing one content block of an e-learning lesson. Rewrite the given text to improve clarity and flow. Do not change its meaning and do not materially change its length, and do not introduce new facts, examples, or claims that are not already present in the text. Preserve its content block role (e.g. intro, explanation, example, summary). Return plain text only -- no markdown, no HTML tags."
+    },
+    expand: {
+      id: "expand",
+      label: "Expand",
+      systemPrompt: "You are editing one content block of an e-learning lesson. Expand the given text with more detail, explanation, or a concrete example, while preserving its original meaning and its content block role. Do not contradict or remove anything already stated in the original text. Return plain text only -- no markdown, no HTML tags."
+    },
+    simplify: {
+      id: "simplify",
+      label: "Simplify",
+      systemPrompt: "You are editing one content block of an e-learning lesson. Rewrite the given text at a lower reading level: shorter sentences, plainer vocabulary, one idea per sentence. Preserve its original meaning, its content block role, and every piece of information a learner needs -- simplify the language, not the substance. Return plain text only -- no markdown, no HTML tags."
+    }
+  };
+  var CONTENT_BLOCK_TRANSFORM_IDS = Object.keys(CONTENT_BLOCK_TRANSFORMS);
+  var CONTEXT_EXCERPT_LENGTH = 160;
+  function excerpt(text) {
+    text = String(text || "").trim();
+    if (text.length <= CONTEXT_EXCERPT_LENGTH) return text;
+    return text.slice(0, CONTEXT_EXCERPT_LENGTH).trim() + "\u2026";
+  }
+  function buildContentBlockAiRequest(transformId, block, lessonTitle, siblingBlocks, aiRequestFields) {
+    var transform = CONTENT_BLOCK_TRANSFORMS[transformId];
+    if (!transform) throw new Error("Unknown content block AI transform: " + transformId);
+    if (!block || !String(block.text || "").trim()) throw new Error("This block has no text to transform.");
+    var blocks = siblingBlocks || [];
+    var index = blocks.indexOf(block);
+    var before = index > 0 ? blocks[index - 1] : null;
+    var after = index >= 0 && index < blocks.length - 1 ? blocks[index + 1] : null;
+    var payload = {
+      role: block.type || "explanation",
+      text: block.text,
+      lesson_title: lessonTitle || ""
+    };
+    if (before) payload.previous_block = { role: before.type || "explanation", excerpt: excerpt(before.text) };
+    if (after) payload.next_block = { role: after.type || "explanation", excerpt: excerpt(after.text) };
+    var body = {
+      system_prompt: transform.systemPrompt,
+      user_payload: payload,
+      schema_name: "content_block_rewrite"
+    };
+    Object.keys(aiRequestFields || {}).forEach(function(key) {
+      body[key] = aiRequestFields[key];
+    });
+    return body;
+  }
+  function extractRewrittenText(result) {
+    if (!result || typeof result !== "object") throw new Error("The AI response was empty.");
+    var text = typeof result.text === "string" ? result.text.trim() : "";
+    if (!text) throw new Error("The AI response did not include rewritten text.");
+    return text;
+  }
+
+  // frontend/src/quiz-from-content-ai.js
+  var QUIZ_FROM_CONTENT_QUESTION_COUNT = 4;
+  var QUIZ_FROM_CONTENT_SYSTEM_PROMPT = "You are creating a short quiz for one lesson of an e-learning course. Write exactly " + String(QUIZ_FROM_CONTENT_QUESTION_COUNT) + ' questions, each either multiple-choice or true/false, strictly grounded in the given lesson content -- every question must test something explicitly stated in the provided text. Do not invent facts, numbers, names, or examples that are not present in the text. Each question must have exactly one correct answer and 1 to 5 plausible, clearly incorrect distractors (a true/false question must use exactly the two options "True" and "False"). Return JSON with this exact shape: {"course_title": string, "questions": [{"id": "q1", "type": "mcq" or "true_false", "difficulty": "beginner" or "intermediate" or "advanced", "objective": a short string naming what the question checks, "question": string, "options": an array of option strings, "answer": the exact text of the single correct option copied verbatim from options, "explanation": a short string explaining why that answer is correct}]}. Number question ids sequentially starting at "q1". Return plain JSON only -- no markdown, no text outside the JSON object.';
+  var CONTENT_LENGTH_LIMIT = 6e3;
+  function blockLabel(block) {
+    return String(block && block.type || "explanation");
+  }
+  function buildQuizFromContentRequest(scope, lessonTitle, scopedBlocks, aiRequestFields) {
+    if (scope !== "block" && scope !== "lesson") throw new Error("Unknown quiz scope: " + scope);
+    var blocks = (scopedBlocks || []).filter(function(block) {
+      return block && String(block.text || "").trim();
+    });
+    if (!blocks.length) throw new Error("There is no text here to generate a quiz from.");
+    var content = blocks.map(function(block) {
+      return "[" + blockLabel(block) + "] " + String(block.text).trim();
+    }).join("\n\n").slice(0, CONTENT_LENGTH_LIMIT);
+    var body = {
+      system_prompt: QUIZ_FROM_CONTENT_SYSTEM_PROMPT,
+      user_payload: {
+        scope,
+        lesson_title: lessonTitle || "",
+        question_count: QUIZ_FROM_CONTENT_QUESTION_COUNT,
+        content
+      },
+      schema_name: "quiz_from_content"
+    };
+    Object.keys(aiRequestFields || {}).forEach(function(key) {
+      body[key] = aiRequestFields[key];
+    });
+    return body;
+  }
+  function extractQuizQuestions(result) {
+    if (!result || typeof result !== "object") throw new Error("The AI response was empty.");
+    var rawQuestions = Array.isArray(result.questions) ? result.questions : [];
+    if (!rawQuestions.length) throw new Error("The AI response did not include any quiz questions.");
+    return rawQuestions.map(function(raw, index) {
+      var question = typeof (raw && raw.question) === "string" ? raw.question.trim() : "";
+      var options = Array.isArray(raw && raw.options) ? raw.options.map(function(option) {
+        return String(option || "").trim();
+      }).filter(Boolean) : [];
+      var answer = typeof (raw && raw.answer) === "string" ? raw.answer.trim() : "";
+      var explanation = typeof (raw && raw.explanation) === "string" ? raw.explanation.trim() : "";
+      if (!question || options.length < 2 || !answer || options.indexOf(answer) === -1) {
+        throw new Error("The AI response contained a malformed quiz question (#" + (index + 1) + ").");
+      }
+      return {
+        question,
+        options,
+        correct_answers: [answer],
+        explanation: explanation || "Explain why this answer is correct."
+      };
+    });
+  }
+
+  // frontend/src/branching-scenario-ai.js
+  var BRANCHING_SCENARIO_MIN_NODES = 3;
+  var BRANCHING_SCENARIO_MAX_NODES = 6;
+  var BRANCHING_SCENARIO_SYSTEM_PROMPT = "You are creating a short branching dialogue scenario for one lesson of an e-learning course, from a short premise the author supplies. Produce between " + String(BRANCHING_SCENARIO_MIN_NODES) + " and " + String(BRANCHING_SCENARIO_MAX_NODES) + " scenario nodes (scenes) in total -- no more than " + String(BRANCHING_SCENARIO_MAX_NODES) + " and no fewer than " + String(BRANCHING_SCENARIO_MIN_NODES) + `. Return JSON with this exact shape: {"title": string, "persona": {"name": string, "role": string} or null, "items": [{"id": "node_1", "scenario": string, "choices": [{"label": string, "result": "best" or "risk", "feedback": string, "next_node_id": string or null}]}]}. Every node's "id" must be unique within items. Every choice must either be terminal ("next_node_id": null, ending the scene right there with "feedback" as the outcome the learner sees) or continue the scenario by setting "next_node_id" to the EXACT "id" of one of the OTHER nodes you are defining in this SAME "items" array -- never invent, reuse a deleted, or reference a node id that is not present in "items", and never leave a dangling reference. Each node must have 2 to 4 choices, with at least one choice marked "result": "best" and at least one marked "result": "risk". Ground every scene strictly in the supplied premise and lesson context; do not introduce unrelated topics or invent facts not implied by the premise. Return plain JSON only -- no markdown, no text outside the JSON object.`;
+  function buildBranchingScenarioFromPremiseRequest(premise, lessonTitle, lessonObjective, aiRequestFields) {
+    var trimmedPremise = String(premise || "").trim();
+    if (!trimmedPremise) throw new Error("Describe a scenario premise first.");
+    var body = {
+      system_prompt: BRANCHING_SCENARIO_SYSTEM_PROMPT,
+      user_payload: {
+        premise: trimmedPremise,
+        lesson_title: lessonTitle || "",
+        lesson_objective: lessonObjective || "",
+        min_nodes: BRANCHING_SCENARIO_MIN_NODES,
+        max_nodes: BRANCHING_SCENARIO_MAX_NODES
+      },
+      schema_name: "branching_scenario_from_premise"
+    };
+    Object.keys(aiRequestFields || {}).forEach(function(key) {
+      body[key] = aiRequestFields[key];
+    });
+    return body;
+  }
+  function extractBranchingScenarioActivity(result, lessonObjective) {
+    if (!result || typeof result !== "object") throw new Error("The AI response was empty.");
+    var rawItems = Array.isArray(result.items) ? result.items : Array.isArray(result.nodes) ? result.nodes : [];
+    if (!rawItems.length) throw new Error("The AI response did not include any scenario nodes.");
+    var items = rawItems.map(function(node, index) {
+      var scenario = typeof (node && node.scenario) === "string" ? node.scenario.trim() : "";
+      if (!scenario) throw new Error("The AI response contained a scene with no scenario text (#" + (index + 1) + ").");
+      var rawChoices = Array.isArray(node && node.choices) ? node.choices : [];
+      if (!rawChoices.length) throw new Error("The AI response contained a scene with no choices (#" + (index + 1) + ").");
+      var choices = rawChoices.map(function(choice, choiceIndex) {
+        var label = typeof (choice && choice.label) === "string" ? choice.label.trim() : "";
+        if (!label) {
+          throw new Error("The AI response contained a choice with no label (scene #" + (index + 1) + ", choice #" + (choiceIndex + 1) + ").");
+        }
+        var out = {
+          label,
+          result: choice && choice.result === "best" ? "best" : "risk",
+          feedback: typeof (choice && choice.feedback) === "string" ? choice.feedback.trim() : ""
+        };
+        if (choice && typeof choice.next_node_id === "string" && choice.next_node_id.trim()) {
+          out.next_node_id = choice.next_node_id.trim();
+        }
+        return out;
+      });
+      var id = node && typeof node.id === "string" && node.id.trim() ? node.id.trim() : "node_" + index;
+      return { id, scenario, choices };
+    });
+    var persona = null;
+    if (result.persona && typeof result.persona === "object") {
+      var name = typeof result.persona.name === "string" ? result.persona.name.trim() : "";
+      var role = typeof result.persona.role === "string" ? result.persona.role.trim() : "";
+      if (name && role) persona = { name, role };
+    }
+    var title = typeof result.title === "string" && result.title.trim() ? result.title.trim() : "Branching scenario";
+    var activity = {
+      activity_type: "branching_scenario",
+      title,
+      objective: lessonObjective || "Lead the conversation.",
+      items
+    };
+    if (persona) activity.persona = persona;
+    return activity;
+  }
+
+  // frontend/src/translate-block-ai.js
+  var CONTEXT_EXCERPT_LENGTH2 = 160;
+  function excerpt2(text) {
+    text = String(text || "").trim();
+    if (text.length <= CONTEXT_EXCERPT_LENGTH2) return text;
+    return text.slice(0, CONTEXT_EXCERPT_LENGTH2).trim() + "\u2026";
+  }
+  function buildTranslateSystemPrompt(targetLanguage) {
+    var language = String(targetLanguage || "").trim();
+    return "You are translating one content block of an e-learning lesson into " + language + ". Translate the given text faithfully: preserve its meaning, structure, tone, and any formatting markers (such as lists or emphasis) exactly, without adding, omitting, or altering any information. Do not summarize, expand, or editorialize -- produce a direct, faithful translation only. Return plain text only -- no markdown, no HTML tags, and do not include the original text or any language name/label in the output.";
+  }
+  function buildTranslateBlockRequest(block, lessonTitle, targetLanguage, siblingBlocks, aiRequestFields) {
+    var language = String(targetLanguage || "").trim();
+    if (!language) throw new Error("Choose a target language first.");
+    if (!block || !String(block.text || "").trim()) throw new Error("This block has no text to translate.");
+    var blocks = siblingBlocks || [];
+    var index = blocks.indexOf(block);
+    var before = index > 0 ? blocks[index - 1] : null;
+    var after = index >= 0 && index < blocks.length - 1 ? blocks[index + 1] : null;
+    var payload = {
+      role: block.type || "explanation",
+      text: block.text,
+      lesson_title: lessonTitle || "",
+      target_language: language
+    };
+    if (before) payload.previous_block = { role: before.type || "explanation", excerpt: excerpt2(before.text) };
+    if (after) payload.next_block = { role: after.type || "explanation", excerpt: excerpt2(after.text) };
+    var body = {
+      system_prompt: buildTranslateSystemPrompt(language),
+      user_payload: payload,
+      schema_name: "content_block_translate"
+    };
+    Object.keys(aiRequestFields || {}).forEach(function(key) {
+      body[key] = aiRequestFields[key];
+    });
+    return body;
+  }
+  function extractTranslatedText(result) {
+    if (!result || typeof result !== "object") throw new Error("The AI response was empty.");
+    var text = typeof result.text === "string" ? result.text.trim() : "";
+    if (!text) throw new Error("The AI response did not include translated text.");
+    return text;
+  }
+
+  // frontend/src/alt-text-ai.js
+  var ALT_TEXT_CONTEXT_ONLY_NOTE = "Written from the surrounding lesson text and caption, not from the image itself.";
+  var ALT_TEXT_SYSTEM_PROMPT = `You are writing accessible alt text for one image in an e-learning lesson. You cannot see the image itself -- you are given only the lesson title, the content block's role and text, and the image's caption and filename (if any). Write a concise alt text (roughly 5 to 20 words) that describes what the image most likely shows, inferred solely from that surrounding context. Do not describe visual details (colors, exact composition, specific people) you cannot know from text alone -- describe the image's likely subject and purpose in this lesson instead. Do not start with "Image of" or "Picture of". Return plain text only -- no markdown, no quotation marks, no HTML tags.`;
+  function filenameFromSrc(src) {
+    var value = String(src || "").trim();
+    if (!value) return "";
+    var withoutQuery = value.split(/[?#]/)[0];
+    var parts = withoutQuery.split("/");
+    return parts[parts.length - 1] || "";
+  }
+  function buildAltTextRequest(block, lessonTitle, aiRequestFields) {
+    if (!block || !block.media || block.media.kind !== "image") {
+      throw new Error("This block has no image to describe.");
+    }
+    var media = block.media;
+    var blockText = String(block.text || "").trim();
+    var caption = String(media.caption || "").trim();
+    var filename = filenameFromSrc(media.src);
+    if (!blockText && !caption && !filename) {
+      throw new Error("Add a caption or some block text describing the image first.");
+    }
+    var payload = {
+      role: block.type || "example",
+      lesson_title: lessonTitle || "",
+      block_text: blockText,
+      caption,
+      filename
+    };
+    var existingAlt = String(media.alt || "").trim();
+    if (existingAlt) payload.current_alt_text = existingAlt;
+    var body = {
+      system_prompt: ALT_TEXT_SYSTEM_PROMPT,
+      user_payload: payload,
+      schema_name: "image_alt_text"
+    };
+    Object.keys(aiRequestFields || {}).forEach(function(key) {
+      body[key] = aiRequestFields[key];
+    });
+    return body;
+  }
+  function extractAltText(result) {
+    if (!result || typeof result !== "object") throw new Error("The AI response was empty.");
+    var text = typeof result.alt_text === "string" ? result.alt_text.trim() : "";
+    if (!text) throw new Error("The AI response did not include alt text.");
+    return text;
+  }
+
+  // frontend/src/fill-blank.js
+  function countBlankTokens(text) {
+    if (!text) return 0;
+    const matches2 = String(text).match(/\{\{blank\}\}/g);
+    return matches2 ? matches2.length : 0;
+  }
+  function normalizeAnswers(raw) {
+    const list = Array.isArray(raw) ? raw : String(raw ?? "").split(",");
+    return list.filter((entry) => entry !== void 0 && entry !== null).map((entry) => String(entry).trim().toLowerCase()).filter(Boolean);
+  }
+
+  // frontend/src/hotspot-geometry.js
+  function computeRegionPercentages(displayedRect, drawnRect) {
+    const imgWidth = displayedRect.width || 1;
+    const imgHeight = displayedRect.height || 1;
+    const left = Math.min(drawnRect.left, drawnRect.left + drawnRect.width);
+    const top = Math.min(drawnRect.top, drawnRect.top + drawnRect.height);
+    const width = Math.abs(drawnRect.width);
+    const height = Math.abs(drawnRect.height);
+    const clampPct = (value) => Math.min(100, Math.max(0, value));
+    const xPct = clampPct((left - displayedRect.left) / imgWidth * 100);
+    const yPct = clampPct((top - displayedRect.top) / imgHeight * 100);
+    const widthPct = clampPct(Math.min(width / imgWidth * 100, 100 - xPct));
+    const heightPct = clampPct(Math.min(height / imgHeight * 100, 100 - yPct));
+    return { x_pct: xPct, y_pct: yPct, width_pct: widthPct, height_pct: heightPct };
+  }
+  function rectFromPoints(startPoint, endPoint) {
+    return {
+      left: startPoint.x,
+      top: startPoint.y,
+      width: endPoint.x - startPoint.x,
+      height: endPoint.y - startPoint.y
+    };
+  }
+  function isRegionSizeUsable(drawnRect, minSizePx) {
+    const threshold = minSizePx == null ? 4 : minSizePx;
+    return Math.abs(drawnRect.width) >= threshold && Math.abs(drawnRect.height) >= threshold;
+  }
+
+  // frontend/src/course-health.js
+  var CATEGORY_MISSING_ALT_TEXT = "missing_alt_text";
+  var CATEGORY_EMPTY_BLOCK = "empty_content_block";
+  var CATEGORY_QUIZ_NO_CORRECT_ANSWER = "quiz_no_correct_answer";
+  var CATEGORY_BRANCHING_GRAPH = "branching_graph_issue";
+  var CATEGORY_UNCOVERED_OBJECTIVE = "objective_no_assessment";
+  var CATEGORY_UNCONFIGURED_BLANK = "fill_blank_no_accepted_answers";
+  var CATEGORY_BLANK_TOKEN_MISMATCH = "fill_blank_token_row_mismatch";
+  var CATEGORY_LABELS = {};
+  CATEGORY_LABELS[CATEGORY_MISSING_ALT_TEXT] = "Missing alt text";
+  CATEGORY_LABELS[CATEGORY_EMPTY_BLOCK] = "Empty or placeholder content blocks";
+  CATEGORY_LABELS[CATEGORY_QUIZ_NO_CORRECT_ANSWER] = "Quiz questions with no correct answer marked";
+  CATEGORY_LABELS[CATEGORY_BRANCHING_GRAPH] = "Orphaned branching-scenario nodes";
+  CATEGORY_LABELS[CATEGORY_UNCOVERED_OBJECTIVE] = "Objectives with no assessment coverage";
+  CATEGORY_LABELS[CATEGORY_UNCONFIGURED_BLANK] = "Fill-in-the-blank items with no accepted answer";
+  CATEGORY_LABELS[CATEGORY_BLANK_TOKEN_MISMATCH] = "Fill-in-the-blank items with mismatched blank counts";
+  var EMPTY_BLOCK_MIN_CHARS = 10;
+  function iterateLessons(course) {
+    var rows = [];
+    (course && course.modules || []).forEach(function(module) {
+      (module.lessons || []).forEach(function(lesson) {
+        rows.push({ module, lesson });
+      });
+    });
+    return rows;
+  }
+  function locationLabel(moduleTitle, lessonTitle, detail) {
+    var parts = [];
+    if (moduleTitle) parts.push(moduleTitle);
+    if (lessonTitle) parts.push(lessonTitle);
+    if (detail) parts.push(detail);
+    return parts.length ? parts.join(" > ") : "Course";
+  }
+  function findMissingAltText(course) {
+    var findings = [];
+    iterateLessons(course).forEach(function(row) {
+      (row.lesson.content_blocks || []).forEach(function(block, index) {
+        var media = block && block.media;
+        if (!media || media.kind !== "image") return;
+        var alt = String(media.alt || "").trim();
+        if (alt) return;
+        findings.push({
+          category: CATEGORY_MISSING_ALT_TEXT,
+          location: locationLabel(row.module.title, row.lesson.title, "Block " + (index + 1) + " (" + (block.type || "image") + ")"),
+          message: "Image block has no alt text."
+        });
+      });
+    });
+    return findings;
+  }
+  function findEmptyBlocks(course) {
+    var findings = [];
+    iterateLessons(course).forEach(function(row) {
+      (row.lesson.content_blocks || []).forEach(function(block, index) {
+        var text = String(block && block.text || "").trim();
+        if (text.length >= EMPTY_BLOCK_MIN_CHARS) return;
+        findings.push({
+          category: CATEGORY_EMPTY_BLOCK,
+          location: locationLabel(row.module.title, row.lesson.title, "Block " + (index + 1) + " (" + (block.type || "content") + ")"),
+          message: text.length === 0 ? "Content block is empty." : "Content block is suspiciously short (" + text.length + " character" + (text.length === 1 ? "" : "s") + ", under the " + EMPTY_BLOCK_MIN_CHARS + "-character threshold)."
+        });
+      });
+    });
+    return findings;
+  }
+  function questionAnswerIssue(question) {
+    var correct = Array.isArray(question && question.correct_answers) ? question.correct_answers.filter(function(value) {
+      return String(value || "").trim();
+    }) : [];
+    if (!correct.length) return "no_answer";
+    var options = Array.isArray(question.options) ? question.options : [];
+    var allListed = correct.every(function(value) {
+      return options.indexOf(value) !== -1;
+    });
+    if (!allListed) return "not_in_options";
+    return null;
+  }
+  function questionLabel(question, index) {
+    var prefix = "Question " + (index + 1);
+    var text = String(question && question.question || "").trim();
+    if (!text) return prefix;
+    return prefix + ': "' + (text.length > 60 ? text.slice(0, 60) + "\u2026" : text) + '"';
+  }
+  function questionFinding(location2, issue) {
+    return {
+      category: CATEGORY_QUIZ_NO_CORRECT_ANSWER,
+      location: location2,
+      message: issue === "no_answer" ? "Quiz question has no correct answer marked." : "Quiz question's marked correct answer is not one of its listed options."
+    };
+  }
+  function findUnansweredQuizQuestions(course) {
+    var findings = [];
+    iterateLessons(course).forEach(function(row) {
+      (row.lesson.quiz_questions || []).forEach(function(question, index) {
+        var issue = questionAnswerIssue(question);
+        if (!issue) return;
+        findings.push(questionFinding(
+          locationLabel(row.module.title, row.lesson.title, questionLabel(question, index)),
+          issue
+        ));
+      });
+    });
+    var finalQuestions = course && course.final_assessment && course.final_assessment.questions || [];
+    finalQuestions.forEach(function(question, index) {
+      var issue = questionAnswerIssue(question);
+      if (!issue) return;
+      findings.push(questionFinding("Final assessment > " + questionLabel(question, index), issue));
+    });
+    return findings;
+  }
+  function checkBranchingGraph(rawNodes) {
+    var nodes = Array.isArray(rawNodes) ? rawNodes : [];
+    var ids = nodes.map(function(node, index) {
+      return node && node.id ? node.id : "node_" + index;
+    });
+    var counts = /* @__PURE__ */ new Map();
+    ids.forEach(function(id) {
+      counts.set(id, (counts.get(id) || 0) + 1);
+    });
+    var duplicateIds = Array.from(counts.keys()).filter(function(id) {
+      return counts.get(id) > 1;
+    }).sort();
+    var idSet = new Set(ids);
+    var dangling = [];
+    nodes.forEach(function(node, index) {
+      (node && node.choices ? node.choices : []).forEach(function(choice) {
+        var next = choice && choice.next_node_id;
+        if (next !== null && next !== void 0 && next !== "" && !idSet.has(next)) {
+          dangling.push(ids[index] + " -> " + next);
+        }
+      });
+    });
+    return { duplicateIds, dangling, ok: duplicateIds.length === 0 && dangling.length === 0 };
+  }
+  function isBranchingActivity(activity) {
+    var type = String(activity && (activity.activity_type || activity.type) || "");
+    return type.indexOf("branching") >= 0 || type.indexOf("scenario") >= 0 || type.indexOf("decision") >= 0;
+  }
+  function findOrphanedBranchingNodes(course) {
+    var findings = [];
+    iterateLessons(course).forEach(function(row) {
+      (row.lesson.activities || []).forEach(function(activity, index) {
+        if (!isBranchingActivity(activity)) return;
+        var nodes = activity.items || activity.nodes || [];
+        var result = checkBranchingGraph(nodes);
+        if (result.ok) return;
+        var label = "Activity " + (index + 1) + (activity.title ? ' ("' + activity.title + '")' : "");
+        var location2 = locationLabel(row.module.title, row.lesson.title, label);
+        if (result.duplicateIds.length) {
+          findings.push({
+            category: CATEGORY_BRANCHING_GRAPH,
+            location: location2,
+            message: "Duplicate branching node id(s): " + result.duplicateIds.join(", ") + "."
+          });
+        }
+        if (result.dangling.length) {
+          findings.push({
+            category: CATEGORY_BRANCHING_GRAPH,
+            location: location2,
+            message: "Choice references a node that does not exist: " + result.dangling.join(", ") + "."
+          });
+        }
+      });
+    });
+    return findings;
+  }
+  function findUncoveredObjectives(course) {
+    var objectives = course && course.learning_objectives || [];
+    if (!objectives.length) return [];
+    var assessed = {};
+    iterateLessons(course).forEach(function(row) {
+      (row.lesson.quiz_questions || []).forEach(function(question) {
+        (question.objective_ids || []).forEach(function(id) {
+          assessed[id] = true;
+        });
+      });
+    });
+    var finalQuestions = course && course.final_assessment && course.final_assessment.questions || [];
+    finalQuestions.forEach(function(question) {
+      (question.objective_ids || []).forEach(function(id) {
+        assessed[id] = true;
+      });
+    });
+    var findings = [];
+    objectives.forEach(function(objective, index) {
+      var id = objective && objective.id;
+      if (!id || assessed[id]) return;
+      var text = String(objective && objective.text || "").trim();
+      findings.push({
+        category: CATEGORY_UNCOVERED_OBJECTIVE,
+        location: "Learning objective " + (index + 1) + (text ? ': "' + (text.length > 80 ? text.slice(0, 80) + "\u2026" : text) + '"' : ""),
+        message: "No quiz question (lesson or final assessment) references this objective."
+      });
+    });
+    return findings;
+  }
+  function isBlankUnconfigured(blank) {
+    var raw = blank && (blank.answers !== void 0 ? blank.answers : blank.answer);
+    return normalizeAnswers(raw).length === 0;
+  }
+  function findUnconfiguredBlanks(course) {
+    var findings = [];
+    iterateLessons(course).forEach(function(row) {
+      (row.lesson.activities || []).forEach(function(activity, index) {
+        var type = String(activity && (activity.activity_type || activity.type) || "");
+        if (type.indexOf("fill_blank") < 0) return;
+        var blanks = activity && activity.blanks || [];
+        var unconfiguredCount = blanks.filter(isBlankUnconfigured).length;
+        if (!unconfiguredCount) return;
+        var label = "Activity " + (index + 1) + (activity.title ? ' ("' + activity.title + '")' : "");
+        findings.push({
+          category: CATEGORY_UNCONFIGURED_BLANK,
+          location: locationLabel(row.module.title, row.lesson.title, label),
+          message: unconfiguredCount + " of " + blanks.length + " blank" + (blanks.length === 1 ? "" : "s") + " has no accepted answer configured -- learners cannot get it right."
+        });
+      });
+    });
+    return findings;
+  }
+  function findBlankTokenMismatch(course) {
+    var findings = [];
+    iterateLessons(course).forEach(function(row) {
+      (row.lesson.activities || []).forEach(function(activity, index) {
+        var type = String(activity && (activity.activity_type || activity.type) || "");
+        if (type.indexOf("fill_blank") < 0) return;
+        var tokenCount = countBlankTokens(activity && activity.text);
+        var blanks = activity && activity.blanks || [];
+        if (tokenCount === blanks.length) return;
+        var label = "Activity " + (index + 1) + (activity.title ? ' ("' + activity.title + '")' : "");
+        findings.push({
+          category: CATEGORY_BLANK_TOKEN_MISMATCH,
+          location: locationLabel(row.module.title, row.lesson.title, label),
+          message: tokenCount + " {{blank}} token" + (tokenCount === 1 ? "" : "s") + " in the text but " + blanks.length + " answer row" + (blanks.length === 1 ? "" : "s") + " configured -- " + (tokenCount > blanks.length ? "learners cannot complete the missing blank" + (tokenCount - blanks.length === 1 ? "" : "s") + "." : "there " + (blanks.length - tokenCount === 1 ? "is an" : "are") + " extra unused answer row" + (blanks.length - tokenCount === 1 ? "" : "s") + ".")
+        });
+      });
+    });
+    return findings;
+  }
+  function runCourseHealthCheck(course) {
+    if (!course) return [];
+    return [].concat(findMissingAltText(course)).concat(findEmptyBlocks(course)).concat(findUnansweredQuizQuestions(course)).concat(findOrphanedBranchingNodes(course)).concat(findUncoveredObjectives(course)).concat(findUnconfiguredBlanks(course)).concat(findBlankTokenMismatch(course));
+  }
+
+  // frontend/src/lesson-skeletons.js
+  function introBlock(idFactory, text) {
+    return { id: idFactory("cb"), type: "intro", text };
+  }
+  function explanationBlock(idFactory, text) {
+    return { id: idFactory("cb"), type: "explanation", text };
+  }
+  function summaryBlock(idFactory, text) {
+    return { id: idFactory("cb"), type: "summary", text };
+  }
+  function checklistBlock(idFactory, text) {
+    return { id: idFactory("cb"), type: "checklist", text };
+  }
+  function mcqQuestion(idFactory, question, options, correctIndex, explanation) {
+    return {
+      id: idFactory("q"),
+      type: "mcq",
+      objective_ids: [],
+      question,
+      options,
+      correct_answers: [options[correctIndex]],
+      explanation
+    };
+  }
+  function decisionActivity(idFactory, title, objective, scenarioText) {
+    return {
+      activity_id: idFactory("act"),
+      activity_type: "scenario_decision_tree",
+      title,
+      objective,
+      items: [
+        {
+          scenario: scenarioText,
+          choices: [
+            { label: "Best action", result: "best", feedback: "Why this is right." },
+            { label: "Risky action", result: "risk", feedback: "Why this backfires." }
+          ]
+        }
+      ]
+    };
+  }
+  var LESSON_SKELETONS = {
+    standard_onboarding: {
+      name: "Standard onboarding module",
+      icon: "\u{1F6AA}",
+      note: "Intro, two explanation blocks, a knowledge-check quiz, and a summary.",
+      build: function(idFactory, objectiveIds) {
+        return {
+          id: idFactory("lesson"),
+          title: "New onboarding lesson",
+          duration_minutes: 12,
+          objective_ids: objectiveIds || [],
+          objective: "Describe what the learner will be able to do after this lesson. (placeholder -- edit me)",
+          content_blocks: [
+            introBlock(idFactory, "Open with why this lesson matters to a new hire. (placeholder -- edit me)"),
+            explanationBlock(idFactory, "Explain the first key concept here, in plain language. (placeholder -- edit me)"),
+            explanationBlock(idFactory, "Explain the second key concept here, building on the first. (placeholder -- edit me)"),
+            summaryBlock(idFactory, "Recap the key points from this lesson in one or two sentences. (placeholder -- edit me)")
+          ],
+          activities: [],
+          quiz_questions: [
+            mcqQuestion(
+              idFactory,
+              "Write a knowledge-check question about the first concept. (placeholder -- edit me)",
+              ["Correct answer (placeholder)", "Distractor (placeholder)"],
+              0,
+              "Explain why the correct answer is right. (placeholder -- edit me)"
+            ),
+            mcqQuestion(
+              idFactory,
+              "Write a knowledge-check question about the second concept. (placeholder -- edit me)",
+              ["Correct answer (placeholder)", "Distractor (placeholder)"],
+              0,
+              "Explain why the correct answer is right. (placeholder -- edit me)"
+            )
+          ]
+        };
+      }
+    },
+    compliance_training: {
+      name: "Compliance training module",
+      icon: "\u{1F4CB}",
+      note: "Intro, policy explanation, a decision scenario, a mandatory quiz, and a summary.",
+      build: function(idFactory, objectiveIds) {
+        return {
+          id: idFactory("lesson"),
+          title: "New compliance lesson",
+          duration_minutes: 15,
+          objective_ids: objectiveIds || [],
+          objective: "Describe the policy or requirement the learner must be able to follow. (placeholder -- edit me)",
+          content_blocks: [
+            introBlock(idFactory, "Open with why this policy exists and who it applies to. (placeholder -- edit me)"),
+            explanationBlock(idFactory, "State the policy requirement in plain language. (placeholder -- edit me)"),
+            explanationBlock(idFactory, "Explain the consequences of not following the policy. (placeholder -- edit me)"),
+            summaryBlock(idFactory, "Recap the policy requirement and where to go with questions. (placeholder -- edit me)")
+          ],
+          activities: [
+            decisionActivity(
+              idFactory,
+              "Choose the compliant response",
+              "Pick the action that follows policy.",
+              "Describe a realistic situation where this policy applies. (placeholder -- edit me)"
+            )
+          ],
+          quiz_questions: [
+            mcqQuestion(
+              idFactory,
+              "Write a mandatory quiz question checking understanding of this policy. (placeholder -- edit me)",
+              ["Correct answer (placeholder)", "Distractor (placeholder)"],
+              0,
+              "Explain why the correct answer is right. (placeholder -- edit me)"
+            )
+          ]
+        };
+      }
+    },
+    quick_reference: {
+      name: "Quick reference module",
+      icon: "\u{1F4CE}",
+      note: "A single dense explanation block plus a checklist.",
+      build: function(idFactory, objectiveIds) {
+        return {
+          id: idFactory("lesson"),
+          title: "New quick reference lesson",
+          duration_minutes: 5,
+          objective_ids: objectiveIds || [],
+          objective: "Describe what the learner will be able to look up or do after this lesson. (placeholder -- edit me)",
+          content_blocks: [
+            explanationBlock(idFactory, "Write the dense reference content here -- steps, definitions, or a quick summary of what to remember. (placeholder -- edit me)"),
+            checklistBlock(idFactory, "- First item to check (placeholder -- edit me)\n- Second item to check (placeholder -- edit me)\n- Third item to check (placeholder -- edit me)")
+          ],
+          activities: [],
+          quiz_questions: []
+        };
+      }
+    }
+  };
+  var LESSON_SKELETON_IDS = Object.keys(LESSON_SKELETONS);
+  function buildLessonFromSkeleton(skeletonId, idFactory, objectiveIds) {
+    var skeleton = LESSON_SKELETONS[skeletonId];
+    if (!skeleton) throw new Error("Unknown lesson skeleton: " + skeletonId);
+    if (typeof idFactory !== "function") throw new Error("buildLessonFromSkeleton requires an idFactory function.");
+    return skeleton.build(idFactory, objectiveIds);
+  }
+
+  // frontend/src/outline-regenerate-ai.js
+  var OUTLINE_REGENERATE_MIN_ITEMS = 1;
+  var OUTLINE_REGENERATE_MAX_ITEMS = 8;
+  var OUTLINE_BLOCK_ROLES = [
+    "intro",
+    "explanation",
+    "example",
+    "scenario",
+    "practice",
+    "summary",
+    "callout",
+    "warning",
+    "checklist",
+    "reflection"
+  ];
+  function blockSkeletonShape() {
+    return '{"role": one of "' + OUTLINE_BLOCK_ROLES.join('", "') + '", "direction": a short one-sentence string describing what this block should eventually cover}';
+  }
+  var OUTLINE_REGENERATE_MODULE_SYSTEM_PROMPT = "You are restructuring one module of an e-learning course. The author will give you the module's current lesson titles and short guidance describing how they want the module reshaped. Produce a NEW outline for this module ONLY -- a list of between " + String(OUTLINE_REGENERATE_MIN_ITEMS) + " and " + String(OUTLINE_REGENERATE_MAX_ITEMS) + " lessons, each with a title, a one-sentence objective, and a skeleton of between " + String(OUTLINE_REGENERATE_MIN_ITEMS) + " and " + String(OUTLINE_REGENERATE_MAX_ITEMS) + ' content block roles that lesson should eventually contain. Do NOT write full lesson content, prose, or examples -- structure only. Return JSON with this exact shape: {"lessons": [{"title": string, "objective": string, "blocks": [' + blockSkeletonShape() + "]}]}. Ground the new outline strictly in the author's guidance and the module's existing lesson titles; do not invent unrelated topics. Return plain JSON only -- no markdown, no text outside the JSON object.";
+  var OUTLINE_REGENERATE_LESSON_SYSTEM_PROMPT = "You are restructuring one lesson of an e-learning course. The author will give you the lesson's current title/objective and current content block roles, plus short guidance describing how they want the lesson reshaped. Produce a NEW outline for this lesson ONLY -- a one-sentence objective and a skeleton of between " + String(OUTLINE_REGENERATE_MIN_ITEMS) + " and " + String(OUTLINE_REGENERATE_MAX_ITEMS) + ' content block roles this lesson should eventually contain. Do NOT write full block content, prose, or examples -- structure only. Return JSON with this exact shape: {"objective": string, "blocks": [' + blockSkeletonShape() + "]}. Ground the new outline strictly in the author's guidance and the lesson's current title/objective/blocks; do not invent unrelated topics. Return plain JSON only -- no markdown, no text outside the JSON object.";
+  function buildOutlineRegenerateRequest(scope, target, guidance, aiRequestFields) {
+    if (scope !== "module" && scope !== "lesson") throw new Error("Unknown outline regeneration scope: " + scope);
+    var trimmedGuidance = String(guidance || "").trim();
+    if (!trimmedGuidance) throw new Error("Describe how you'd like this " + scope + " reshaped first.");
+    var systemPrompt = scope === "module" ? OUTLINE_REGENERATE_MODULE_SYSTEM_PROMPT : OUTLINE_REGENERATE_LESSON_SYSTEM_PROMPT;
+    var schemaName = scope === "module" ? "outline_regenerate_module" : "outline_regenerate_lesson";
+    var body = {
+      system_prompt: systemPrompt,
+      user_payload: {
+        scope,
+        guidance: trimmedGuidance,
+        current: target || {}
+      },
+      schema_name: schemaName
+    };
+    Object.keys(aiRequestFields || {}).forEach(function(key) {
+      body[key] = aiRequestFields[key];
+    });
+    return body;
+  }
+  function normalizeRole(role) {
+    var value = typeof role === "string" ? role.trim() : "";
+    return OUTLINE_BLOCK_ROLES.indexOf(value) === -1 ? "explanation" : value;
+  }
+  function normalizeDirection(direction) {
+    return typeof direction === "string" ? direction.trim() : "";
+  }
+  function placeholderBlock(idFactory, raw) {
+    var role = normalizeRole(raw && raw.role);
+    var direction = normalizeDirection(raw && raw.direction);
+    var text = direction ? direction + " (placeholder -- edit me)" : "Write the " + role + " content here. (placeholder -- edit me)";
+    return { id: idFactory("cb"), type: role, text };
+  }
+  function extractBlocks(rawBlocks, idFactory, label) {
+    var list = Array.isArray(rawBlocks) ? rawBlocks : [];
+    if (!list.length) throw new Error("The AI response did not include any blocks for " + label + ".");
+    return list.map(function(raw) {
+      return placeholderBlock(idFactory, raw);
+    });
+  }
+  function extractRegeneratedModuleOutline(result, idFactory, objectiveIds) {
+    if (!result || typeof result !== "object") throw new Error("The AI response was empty.");
+    if (typeof idFactory !== "function") throw new Error("extractRegeneratedModuleOutline requires an idFactory function.");
+    var rawLessons = Array.isArray(result.lessons) ? result.lessons : [];
+    if (!rawLessons.length) throw new Error("The AI response did not include any lessons.");
+    return rawLessons.map(function(raw, index) {
+      var title = raw && typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "New lesson";
+      var objective = raw && typeof raw.objective === "string" && raw.objective.trim() ? raw.objective.trim() : "Describe what the learner will be able to do after this lesson. (placeholder -- edit me)";
+      return {
+        id: idFactory("lesson"),
+        title,
+        duration_minutes: 8,
+        objective_ids: objectiveIds || [],
+        objective,
+        content_blocks: extractBlocks(raw && raw.blocks, idFactory, "lesson #" + (index + 1) + ' ("' + title + '")'),
+        activities: [],
+        quiz_questions: []
+      };
+    });
+  }
+  function extractRegeneratedLessonOutline(result, idFactory) {
+    if (!result || typeof result !== "object") throw new Error("The AI response was empty.");
+    if (typeof idFactory !== "function") throw new Error("extractRegeneratedLessonOutline requires an idFactory function.");
+    var objective = typeof result.objective === "string" && result.objective.trim() ? result.objective.trim() : "Describe what the learner will be able to do after this lesson. (placeholder -- edit me)";
+    return {
+      objective,
+      content_blocks: extractBlocks(result.blocks, idFactory, "this lesson")
+    };
+  }
+
   // node_modules/orderedmap/dist/index.js
   function OrderedMap(content) {
     this.content = content;
@@ -22467,9 +23369,10 @@ img.ProseMirror-separator {
       version: null,
       saving: false,
       conflicted: false,
-      history: [],
-      historyIndex: -1,
-      selected: { kind: "course" }
+      undoStack: createUndoStack(50),
+      selected: { kind: "course" },
+      saveStatus: initialSaveStatus(),
+      lastSaveArgs: null
     };
     var $ = function(id) {
       return document.getElementById(id);
@@ -22492,6 +23395,20 @@ img.ProseMirror-separator {
     }
     function setSaveStatus(message) {
       $("save-status").textContent = message;
+    }
+    function renderSaveIndicator() {
+      var display = formatSaveStatus(state.saveStatus, Date.now());
+      $("save-status").textContent = display.text;
+      var retryBtn = $("btn-save-retry");
+      if (retryBtn) retryBtn.hidden = !display.showRetry;
+    }
+    function dispatchSaveStatus(event) {
+      state.saveStatus = saveStatusReducer(state.saveStatus, event);
+      renderSaveIndicator();
+    }
+    function retrySave() {
+      if (!state.lastSaveArgs) return;
+      save(state.lastSaveArgs.structural, true);
     }
     function recoveryKey() {
       return state.session ? "course-studio-recovery:" + state.session : null;
@@ -22553,31 +23470,29 @@ img.ProseMirror-separator {
       return hit;
     }
     function pushHistory() {
-      state.history = state.history.slice(0, state.historyIndex + 1);
-      state.history.push(clone(state.course));
-      if (state.history.length > 60) state.history.shift();
-      state.historyIndex = state.history.length - 1;
+      pushEntry(state.undoStack, clone(state.course));
       updateUndoButtons();
     }
     function updateUndoButtons() {
-      $("btn-undo").disabled = state.historyIndex <= 0;
-      $("btn-redo").disabled = state.historyIndex >= state.history.length - 1;
+      $("btn-undo").disabled = !canUndo(state.undoStack);
+      $("btn-redo").disabled = !canRedo(state.undoStack);
     }
     function undo() {
-      if (state.historyIndex <= 0) return;
-      state.historyIndex -= 1;
-      state.course = clone(state.history[state.historyIndex]);
+      var entry = undoEntry(state.undoStack);
+      if (entry === null) return;
+      state.course = clone(entry);
       updateUndoButtons();
       save(true, true);
     }
     function redo() {
-      if (state.historyIndex >= state.history.length - 1) return;
-      state.historyIndex += 1;
-      state.course = clone(state.history[state.historyIndex]);
+      var entry = redoEntry(state.undoStack);
+      if (entry === null) return;
+      state.course = clone(entry);
       updateUndoButtons();
       save(true, true);
     }
     function save(structural, recorded) {
+      state.lastSaveArgs = { structural };
       if (state.conflicted) {
         toast("Reload the newer revision before saving.");
         return Promise.resolve();
@@ -22585,7 +23500,12 @@ img.ProseMirror-separator {
       if (!recorded) pushHistory();
       persistRecovery();
       state.saving = true;
-      setSaveStatus(navigator.onLine ? "Saving\u2026" : "Offline \xB7 recovery saved");
+      var blockedThisAttempt = false;
+      if (!navigator.onLine) {
+        setSaveStatus("Offline \xB7 recovery saved");
+      } else {
+        dispatchSaveStatus({ type: "saving" });
+      }
       return fetch("/api/course/" + state.session, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -22598,19 +23518,21 @@ img.ProseMirror-separator {
       }).then(function(data) {
         if (data.httpStatus === 409) {
           state.conflicted = true;
+          blockedThisAttempt = true;
           $("conflict-banner").hidden = false;
-          setSaveStatus("Conflict \xB7 reload required");
+          dispatchSaveStatus({ type: "blocked", reason: "Conflict \xB7 reload required" });
           throw new Error("Another tab saved a newer revision");
         }
         if (data.httpStatus === 410) {
-          setSaveStatus("Session expired \xB7 recovery available");
+          blockedThisAttempt = true;
+          dispatchSaveStatus({ type: "blocked", reason: "Session expired \xB7 recovery available" });
           throw new Error("Session expired");
         }
         if (!data.ok) throw new Error(data.error || "Save failed");
         state.version = data.version;
         state.saving = false;
         clearRecovery();
-        setSaveStatus("Saved \xB7 revision " + data.version);
+        dispatchSaveStatus({ type: "success", version: data.version, at: Date.now() });
         if (state.channel) state.channel.postMessage({ session: state.session, version: state.version });
         if (structural) reloadCanvas();
         renderTree();
@@ -22618,7 +23540,7 @@ img.ProseMirror-separator {
       }).catch(function(error) {
         state.saving = false;
         persistRecovery();
-        if (!state.conflicted) setSaveStatus("Recovery saved locally");
+        if (!state.conflicted && !blockedThisAttempt) dispatchSaveStatus({ type: "failure", reason: error.message });
         toast("Save failed: " + error.message);
       });
     }
@@ -22640,6 +23562,64 @@ img.ProseMirror-separator {
         renderReview();
         return data;
       });
+    }
+    var lastCourseHealthResults = null;
+    function renderCourseHealthSection(box) {
+      var section = document.createElement("div");
+      section.className = "course-health";
+      var heading = document.createElement("h4");
+      heading.textContent = "Course health";
+      section.appendChild(heading);
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Advisory scan for missing alt text, thin content, unanswered quiz questions, broken branching links, and objectives with no assessment coverage. This never blocks export.";
+      section.appendChild(hint);
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost";
+      button.textContent = "Run course health check";
+      button.addEventListener("click", function() {
+        lastCourseHealthResults = runCourseHealthCheck(state.course);
+        paint();
+      });
+      section.appendChild(button);
+      var results = document.createElement("div");
+      results.className = "course-health-results";
+      results.setAttribute("role", "status");
+      section.appendChild(results);
+      function paint() {
+        results.innerHTML = "";
+        if (!lastCourseHealthResults) return;
+        if (!lastCourseHealthResults.length) {
+          var pass = document.createElement("p");
+          pass.className = "review-row";
+          pass.textContent = "All checks passed \u2014 no issues found.";
+          results.appendChild(pass);
+          return;
+        }
+        var byCategory = {};
+        lastCourseHealthResults.forEach(function(finding) {
+          (byCategory[finding.category] = byCategory[finding.category] || []).push(finding);
+        });
+        Object.keys(byCategory).forEach(function(category) {
+          var group = byCategory[category];
+          var groupTitle = document.createElement("p");
+          groupTitle.className = "review-row";
+          groupTitle.style.fontWeight = "700";
+          groupTitle.textContent = (CATEGORY_LABELS[category] || category) + " (" + group.length + ")";
+          results.appendChild(groupTitle);
+          var list = document.createElement("ul");
+          list.className = "course-health-list";
+          group.forEach(function(finding) {
+            var li = document.createElement("li");
+            li.textContent = finding.location + " \u2014 " + finding.message;
+            list.appendChild(li);
+          });
+          results.appendChild(list);
+        });
+      }
+      paint();
+      box.appendChild(section);
     }
     function renderReview() {
       var box = $("tab-review");
@@ -22701,6 +23681,7 @@ img.ProseMirror-separator {
           actions.appendChild(button);
         });
         box.appendChild(actions);
+        renderCourseHealthSection(box);
         var generationTitle = document.createElement("h4");
         generationTitle.textContent = "Background generation";
         box.appendChild(generationTitle);
@@ -22944,6 +23925,89 @@ img.ProseMirror-separator {
         });
       }).catch(function(error) {
         box.textContent = "Sources unavailable: " + error.message;
+      });
+    }
+    function renderAiSettings() {
+      var box = $("tab-ai");
+      if (!box) return;
+      box.replaceChildren();
+      var heading = document.createElement("h3");
+      heading.textContent = "AI settings";
+      box.appendChild(heading);
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Your API key is kept only in this browser tab's memory for this session. It is never saved to the course, written to disk, or sent anywhere except your chosen provider's own request.";
+      box.appendChild(hint);
+      var current = getAiSettings();
+      var form = document.createElement("form");
+      form.className = "review-form";
+      var providerLabel = document.createElement("label");
+      providerLabel.textContent = "Provider";
+      var providerSelect = document.createElement("select");
+      providerSelect.setAttribute("aria-label", "AI text provider");
+      KNOWN_TEXT_PROVIDERS.forEach(function(entry) {
+        var option = document.createElement("option");
+        option.value = entry.id;
+        option.textContent = entry.label;
+        option.selected = entry.id === current.provider;
+        providerSelect.appendChild(option);
+      });
+      providerLabel.appendChild(providerSelect);
+      form.appendChild(providerLabel);
+      var keyLabel = document.createElement("label");
+      keyLabel.textContent = "API key";
+      var keyInput = document.createElement("input");
+      keyInput.type = "password";
+      keyInput.autocomplete = "off";
+      keyInput.placeholder = "sk-...";
+      keyInput.value = current.apiKey;
+      keyInput.setAttribute("aria-label", "AI provider API key");
+      keyLabel.appendChild(keyInput);
+      form.appendChild(keyLabel);
+      var customFields = document.createElement("div");
+      customFields.hidden = !requiresCustomEndpointFields(current.provider);
+      var baseUrlLabel = document.createElement("label");
+      baseUrlLabel.textContent = "Base URL";
+      var baseUrlInput = document.createElement("input");
+      baseUrlInput.placeholder = "https://api.example.com/v1";
+      baseUrlInput.value = current.baseUrl;
+      baseUrlInput.setAttribute("aria-label", "Custom endpoint base URL");
+      baseUrlLabel.appendChild(baseUrlInput);
+      var modelLabel = document.createElement("label");
+      modelLabel.textContent = "Model";
+      var modelInput = document.createElement("input");
+      modelInput.placeholder = "model-name";
+      modelInput.value = current.model;
+      modelInput.setAttribute("aria-label", "Custom endpoint model");
+      modelLabel.appendChild(modelInput);
+      customFields.append(baseUrlLabel, modelLabel);
+      form.appendChild(customFields);
+      providerSelect.addEventListener("change", function() {
+        customFields.hidden = !requiresCustomEndpointFields(providerSelect.value);
+      });
+      var saveButton = document.createElement("button");
+      saveButton.className = "primary";
+      saveButton.type = "submit";
+      saveButton.textContent = "Save for this session";
+      form.appendChild(saveButton);
+      var status = document.createElement("p");
+      status.className = "hint";
+      status.setAttribute("role", "status");
+      box.appendChild(form);
+      box.appendChild(status);
+      form.addEventListener("submit", function(event) {
+        event.preventDefault();
+        try {
+          setAiSettings({
+            provider: providerSelect.value,
+            apiKey: keyInput.value,
+            baseUrl: baseUrlInput.value,
+            model: modelInput.value
+          });
+          status.textContent = "Saved for this browser tab only.";
+        } catch (error) {
+          status.textContent = error.message;
+        }
       });
     }
     function importZip(file) {
@@ -23320,18 +24384,96 @@ img.ProseMirror-separator {
         if (focusTarget) focusTarget.focus();
       }
     }
+    var ACTIVITY_TEMPLATE_REGISTRY = {
+      flashcards: {
+        icon: "\u{1F0CF}",
+        name: "Flashcards",
+        note: "Flip cards for terms and definitions.",
+        build: function() {
+          return { activity_id: uid("act"), activity_type: "flashcards", title: "Key terms", objective: "Flip each card and say the answer first.", items: [{ front: "Term", back: "Definition" }] };
+        }
+      },
+      matching: {
+        icon: "\u{1F517}",
+        name: "Matching",
+        note: "Match prompts to their answers.",
+        build: function() {
+          return { activity_id: uid("act"), activity_type: "matching", title: "Match the pairs", objective: "Match each prompt to its answer.", items: [{ prompt: "Prompt", match: "Answer" }] };
+        }
+      },
+      accordion: {
+        icon: "\u{1F4C2}",
+        name: "Accordion",
+        note: "Expandable review sections.",
+        build: function() {
+          return { activity_id: uid("act"), activity_type: "accordion", title: "Review points", objective: "Open each section.", items: [{ title: "Point one", detail: "Detail for point one." }] };
+        }
+      },
+      decision: {
+        icon: "\u{1F33F}",
+        name: "Decision scenario",
+        note: "One scene with best/risk choices.",
+        build: function() {
+          return { activity_id: uid("act"), activity_type: "scenario_decision_tree", title: "Choose the best response", objective: "Pick the strongest action.", items: [{ scenario: "Describe the situation\u2026", choices: [{ label: "Best action", result: "best", feedback: "Why this is right." }, { label: "Risky action", result: "risk", feedback: "Why this backfires." }] }] };
+        }
+      },
+      branching: {
+        icon: "\u{1F3AD}",
+        name: "Branching character scene",
+        note: "Persona-driven multi-scene dialogue.",
+        build: function() {
+          return { activity_id: uid("act"), activity_type: "branching_scenario", title: "Conversation scene", objective: "Lead the conversation.", persona: { name: "Alex", role: "Stakeholder" }, items: [{ scenario: "Alex opens with\u2026", choices: [{ label: "Strong reply", result: "best", feedback: "Great choice." }, { label: "Weak reply", result: "risk", feedback: "This loses trust." }] }] };
+        }
+      },
+      timeline: {
+        icon: "\u{1F4C5}",
+        name: "Timeline",
+        note: "Ordered steps with detail.",
+        build: function() {
+          return { activity_id: uid("act"), activity_type: "timeline", title: "The steps", objective: "Walk the steps in order.", items: [{ label: "Step 1", detail: "What happens first." }] };
+        }
+      },
+      fill_blank: {
+        icon: "\u270F\uFE0F",
+        name: "Fill in the blank",
+        note: "Text with {{blank}} tokens the learner fills in.",
+        build: function() {
+          return { activity_id: uid("act"), activity_type: "fill_blank", title: "Fill in the blank", objective: "Type the missing word for each blank.", text: "The capital of France is {{blank}}.", blanks: [{ answers: "Paris" }] };
+        }
+      },
+      hotspot: {
+        icon: "\u{1F3AF}",
+        name: "Image hotspot",
+        note: "Click regions on an image to find the right spot.",
+        build: function() {
+          return { activity_id: uid("act"), activity_type: "image_hotspot", title: "Find the right spot", objective: "Click the correct area on the image.", image: { src: "", alt: "" }, regions: [] };
+        }
+      },
+      sorting: {
+        icon: "\u{1F522}",
+        name: "Sorting / ranking",
+        note: "Learner reorders items back into the correct sequence.",
+        build: function() {
+          return {
+            activity_id: uid("act"),
+            activity_type: "sorting",
+            title: "Put the steps in order",
+            objective: "Reorder the items into the correct sequence.",
+            items: [{ text: "First step" }, { text: "Second step" }, { text: "Third step" }]
+          };
+        }
+      }
+    };
     var TEMPLATES = [
       { id: "text", icon: "\u{1F4DD}", name: "Text block", note: "A paragraph of learner-facing content." },
       { id: "image", icon: "\u{1F5BC}\uFE0F", name: "Image block", note: "Text with an image (upload or URL)." },
-      { id: "video", icon: "\u{1F3AC}", name: "Video block", note: "Text with a YouTube/Vimeo/Loom or mp4 video." },
-      { id: "flashcards", icon: "\u{1F0CF}", name: "Flashcards", note: "Flip cards for terms and definitions." },
-      { id: "matching", icon: "\u{1F517}", name: "Matching", note: "Match prompts to their answers." },
-      { id: "accordion", icon: "\u{1F4C2}", name: "Accordion", note: "Expandable review sections." },
-      { id: "decision", icon: "\u{1F33F}", name: "Decision scenario", note: "One scene with best/risk choices." },
-      { id: "branching", icon: "\u{1F3AD}", name: "Branching character scene", note: "Persona-driven multi-scene dialogue." },
-      { id: "timeline", icon: "\u{1F4C5}", name: "Timeline", note: "Ordered steps with detail." },
+      { id: "video", icon: "\u{1F3AC}", name: "Video block", note: "Text with a YouTube/Vimeo/Loom or mp4 video." }
+    ].concat(Object.keys(ACTIVITY_TEMPLATE_REGISTRY).map(function(id) {
+      var entry = ACTIVITY_TEMPLATE_REGISTRY[id];
+      return { id, icon: entry.icon, name: entry.name, note: entry.note };
+    })).concat([
       { id: "mcq", icon: "\u2753", name: "Quiz question", note: "MCQ with feedback (lesson or final)." }
-    ];
+    ]);
     function templatePayload(templateId) {
       switch (templateId) {
         case "text":
@@ -23340,23 +24482,132 @@ img.ProseMirror-separator {
           return { target: "block", value: { id: uid("cb"), type: "example", text: "Describe what the image shows.", media: { kind: "image", src: "", alt: "", caption: "" } } };
         case "video":
           return { target: "block", value: { id: uid("cb"), type: "example", text: "Introduce the video.", media: { kind: "video", src: "", caption: "Watch the walkthrough" } } };
-        case "flashcards":
-          return { target: "activity", value: { activity_id: uid("act"), activity_type: "flashcards", title: "Key terms", objective: "Flip each card and say the answer first.", items: [{ front: "Term", back: "Definition" }] } };
-        case "matching":
-          return { target: "activity", value: { activity_id: uid("act"), activity_type: "matching", title: "Match the pairs", objective: "Match each prompt to its answer.", items: [{ prompt: "Prompt", match: "Answer" }] } };
-        case "accordion":
-          return { target: "activity", value: { activity_id: uid("act"), activity_type: "accordion", title: "Review points", objective: "Open each section.", items: [{ title: "Point one", detail: "Detail for point one." }] } };
-        case "decision":
-          return { target: "activity", value: { activity_id: uid("act"), activity_type: "scenario_decision_tree", title: "Choose the best response", objective: "Pick the strongest action.", items: [{ scenario: "Describe the situation\u2026", choices: [{ label: "Best action", result: "best", feedback: "Why this is right." }, { label: "Risky action", result: "risk", feedback: "Why this backfires." }] }] } };
-        case "branching":
-          return { target: "activity", value: { activity_id: uid("act"), activity_type: "branching_scenario", title: "Conversation scene", objective: "Lead the conversation.", persona: { name: "Alex", role: "Stakeholder" }, items: [{ scenario: "Alex opens with\u2026", choices: [{ label: "Strong reply", result: "best", feedback: "Great choice." }, { label: "Weak reply", result: "risk", feedback: "This loses trust." }] }] } };
-        case "timeline":
-          return { target: "activity", value: { activity_id: uid("act"), activity_type: "timeline", title: "The steps", objective: "Walk the steps in order.", items: [{ label: "Step 1", detail: "What happens first." }] } };
         case "mcq":
           return { target: "question", value: { id: uid("q"), type: "mcq", objective_ids: [], question: "Write the question here?", options: ["Correct answer", "Distractor"], correct_answers: ["Correct answer"], explanation: "Explain why the correct answer is right." } };
-        default:
-          return null;
+        default: {
+          var entry = ACTIVITY_TEMPLATE_REGISTRY[templateId];
+          return entry ? { target: "activity", value: entry.build() } : null;
+        }
       }
+    }
+    function lessonSkeletonPicker(module) {
+      var select2 = document.createElement("select");
+      var placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Start from scratch (choose a template instead)\u2026";
+      select2.appendChild(placeholder);
+      LESSON_SKELETON_IDS.forEach(function(skeletonId) {
+        var skeleton = LESSON_SKELETONS[skeletonId];
+        var option = document.createElement("option");
+        option.value = skeletonId;
+        option.textContent = (skeleton.icon ? skeleton.icon + " " : "") + skeleton.name + " \u2014 " + skeleton.note;
+        select2.appendChild(option);
+      });
+      select2.addEventListener("change", function() {
+        var skeletonId = select2.value;
+        select2.value = "";
+        if (!skeletonId) return;
+        var lesson = buildLessonFromSkeleton(skeletonId, uid, module.objective_ids || []);
+        (module.lessons = module.lessons || []).push(lesson);
+        save(true);
+        toast("Inserted \u201C" + LESSON_SKELETONS[skeletonId].name + "\u201D \u2014 now edit the placeholder text.");
+      });
+      return field("Or start a new lesson from a template", select2);
+    }
+    var aiOutlineRequestInFlight = {};
+    var aiOutlineGuidanceDraft = {};
+    function runAiAction(config) {
+      if (config.flight.map[config.flight.key]) return;
+      if (config.confirm && !confirm(config.confirm)) return;
+      var body;
+      try {
+        body = config.request.build();
+      } catch (error) {
+        toast(error.message);
+        return;
+      }
+      config.flight.map[config.flight.key] = config.flight.value === void 0 ? true : config.flight.value;
+      renderInspector();
+      config.request.send(body).then(function(result) {
+        config.result.onSuccess(result);
+      }).catch(function(error) {
+        toast(config.result.failureMessage(error));
+      }).finally(function() {
+        delete config.flight.map[config.flight.key];
+        if (config.rerender) config.rerender();
+        else renderInspector();
+      });
+    }
+    function postAiGenerate(body) {
+      return fetch("/api/ai/" + state.session + "/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      }).then(function(res) {
+        return res.json().then(function(data) {
+          data.httpStatus = res.status;
+          return data;
+        });
+      }).then(function(data) {
+        if (!data.ok) throw new Error(data.error || "AI request failed.");
+        return data;
+      });
+    }
+    function outlineRegenerateActionsSection(scope, flightKey, label, run4) {
+      var wrap2 = document.createElement("div");
+      wrap2.className = "ai-outline-actions";
+      wrap2.appendChild(sectionLabel("AI actions"));
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Regenerate this " + scope + "'s outline with AI (titles/roles only -- you fill in the real content afterward). This REPLACES the current structure.";
+      wrap2.appendChild(hint);
+      var busy = Boolean(aiOutlineRequestInFlight[flightKey]);
+      var textarea = textInput(aiOutlineGuidanceDraft[flightKey] || "", function(value) {
+        aiOutlineGuidanceDraft[flightKey] = value;
+      }, "area");
+      textarea.placeholder = 'e.g. "make this more example-heavy" or "add a section on refunds"';
+      textarea.disabled = busy;
+      wrap2.appendChild(textarea);
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost";
+      button.textContent = busy ? "Regenerating outline\u2026" : label;
+      button.disabled = busy;
+      button.setAttribute("aria-label", label);
+      button.addEventListener("click", run4);
+      wrap2.appendChild(button);
+      if (busy) {
+        var status = document.createElement("p");
+        status.className = "hint";
+        status.setAttribute("role", "status");
+        status.textContent = "Regenerating outline \u2014 this can take a few seconds\u2026";
+        wrap2.appendChild(status);
+      }
+      return wrap2;
+    }
+    function runOutlineRegenerateAiAction(scope, flightKey, confirmMessage, buildTarget, apply2) {
+      runAiAction({
+        flight: { map: aiOutlineRequestInFlight, key: flightKey },
+        confirm: confirmMessage,
+        request: {
+          build: function() {
+            var guidance = aiOutlineGuidanceDraft[flightKey] || "";
+            return buildOutlineRegenerateRequest(scope, buildTarget(), guidance, buildAiRequestFields());
+          },
+          send: postAiGenerate
+        },
+        result: {
+          onSuccess: function(data) {
+            var summary = apply2(data.result);
+            delete aiOutlineGuidanceDraft[flightKey];
+            save(true);
+            toast("Regenerated " + summary + " \u2014 now fill in the placeholder content.");
+          },
+          failureMessage: function(error) {
+            return "Outline regeneration failed: " + error.message;
+          }
+        }
+      });
     }
     function insertTemplate(templateId, target) {
       var payload = templatePayload(templateId);
@@ -23509,7 +24760,373 @@ img.ProseMirror-separator {
         if (file) onFile(file);
       });
     }
-    function mediaEditor(owner) {
+    var aiBlockRequestInFlight = {};
+    function aiBlockActionsSection(block) {
+      var wrap2 = document.createElement("div");
+      wrap2.className = "ai-block-actions";
+      wrap2.appendChild(sectionLabel("AI actions"));
+      var buttonRow = document.createElement("div");
+      buttonRow.style.display = "flex";
+      buttonRow.style.gap = "8px";
+      buttonRow.style.flexWrap = "wrap";
+      var busyTransform = aiBlockRequestInFlight[block.id] || null;
+      CONTENT_BLOCK_TRANSFORM_IDS.forEach(function(transformId) {
+        var transform = CONTENT_BLOCK_TRANSFORMS[transformId];
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "ghost";
+        button.textContent = busyTransform === transformId ? transform.label + "\u2026" : transform.label;
+        button.disabled = Boolean(busyTransform);
+        button.setAttribute("aria-label", transform.label + " this content block with AI");
+        button.addEventListener("click", function() {
+          runContentBlockAiTransform(transformId, block.id);
+        });
+        buttonRow.appendChild(button);
+      });
+      wrap2.appendChild(buttonRow);
+      if (busyTransform) {
+        var status = document.createElement("p");
+        status.className = "hint";
+        status.setAttribute("role", "status");
+        status.textContent = "Running " + CONTENT_BLOCK_TRANSFORMS[busyTransform].label.toLowerCase() + "\u2026";
+        wrap2.appendChild(status);
+      }
+      return wrap2;
+    }
+    function runContentBlockAiTransform(transformId, cbId) {
+      if (aiBlockRequestInFlight[cbId]) return;
+      var found2 = findBlock(cbId);
+      if (!found2) return;
+      runAiAction({
+        flight: { map: aiBlockRequestInFlight, key: cbId, value: transformId },
+        request: {
+          build: function() {
+            return buildContentBlockAiRequest(
+              transformId,
+              found2.block,
+              found2.row.lesson.title,
+              found2.row.lesson.content_blocks || [],
+              buildAiRequestFields()
+            );
+          },
+          send: postAiGenerate
+        },
+        result: {
+          onSuccess: function(data) {
+            var text = extractRewrittenText(data.result);
+            var stillThere = findBlock(cbId);
+            if (!stillThere) return;
+            stillThere.block.text = text;
+            stillThere.block.text_html = sanitizeRichTextHtml("<p>" + escapeHtml(text) + "</p>");
+            save(true);
+            toast(CONTENT_BLOCK_TRANSFORMS[transformId].label + " applied.");
+          },
+          failureMessage: function(error) {
+            return CONTENT_BLOCK_TRANSFORMS[transformId].label + " failed: " + error.message;
+          }
+        },
+        rerender: function() {
+          if (state.selected.kind === "block" && state.selected.cbId === cbId) renderInspector();
+        }
+      });
+    }
+    var aiQuizRequestInFlight = {};
+    function quizFromContentActionsSection(flightKey, label, run4) {
+      var wrap2 = document.createElement("div");
+      wrap2.className = "ai-quiz-actions";
+      wrap2.appendChild(sectionLabel("AI actions"));
+      var busy = Boolean(aiQuizRequestInFlight[flightKey]);
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost";
+      button.textContent = busy ? "Generating quiz\u2026" : label;
+      button.disabled = busy;
+      button.setAttribute("aria-label", label);
+      button.addEventListener("click", run4);
+      wrap2.appendChild(button);
+      if (busy) {
+        var status = document.createElement("p");
+        status.className = "hint";
+        status.setAttribute("role", "status");
+        status.textContent = "Generating a quiz \u2014 this can take a few seconds\u2026";
+        wrap2.appendChild(status);
+      }
+      return wrap2;
+    }
+    function runQuizFromContentAiAction(scope, flightKey, lesson, scopedBlocks) {
+      runAiAction({
+        flight: { map: aiQuizRequestInFlight, key: flightKey },
+        request: {
+          build: function() {
+            return buildQuizFromContentRequest(scope, lesson.title, scopedBlocks, buildAiRequestFields());
+          },
+          send: postAiGenerate
+        },
+        result: {
+          onSuccess: function(data) {
+            var questions = extractQuizQuestions(data.result);
+            lesson.quiz_questions = lesson.quiz_questions || [];
+            questions.forEach(function(question) {
+              lesson.quiz_questions.push({
+                id: uid("q"),
+                type: "mcq",
+                objective_ids: [],
+                question: question.question,
+                options: question.options,
+                correct_answers: question.correct_answers,
+                explanation: question.explanation
+              });
+            });
+            save(true);
+            toast("Generated " + questions.length + " quiz question" + (questions.length === 1 ? "" : "s") + ".");
+          },
+          failureMessage: function(error) {
+            return "Quiz generation failed: " + error.message;
+          }
+        }
+      });
+    }
+    var aiBranchingRequestInFlight = {};
+    var aiBranchingPremiseDraft = {};
+    function branchingScenarioActionsSection(lessonKey, lesson) {
+      var wrap2 = document.createElement("div");
+      wrap2.className = "ai-branching-actions";
+      wrap2.appendChild(sectionLabel("AI actions"));
+      var busy = Boolean(aiBranchingRequestInFlight[lessonKey]);
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Generate a new branching character scene from a short premise.";
+      wrap2.appendChild(hint);
+      var textarea = textInput(aiBranchingPremiseDraft[lessonKey] || "", function(value) {
+        aiBranchingPremiseDraft[lessonKey] = value;
+      }, "area");
+      textarea.placeholder = 'e.g. "A customer calls in angry about a billing error."';
+      textarea.disabled = busy;
+      wrap2.appendChild(textarea);
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost";
+      button.textContent = busy ? "Generating scenario\u2026" : "Generate branching scenario";
+      button.disabled = busy;
+      button.setAttribute("aria-label", "Generate branching scenario");
+      button.addEventListener("click", function() {
+        runBranchingScenarioAiAction(lessonKey, lesson);
+      });
+      wrap2.appendChild(button);
+      if (busy) {
+        var status = document.createElement("p");
+        status.className = "hint";
+        status.setAttribute("role", "status");
+        status.textContent = "Generating a branching scenario \u2014 this can take a few seconds\u2026";
+        wrap2.appendChild(status);
+      }
+      return wrap2;
+    }
+    function runBranchingScenarioAiAction(lessonKey, lesson) {
+      runAiAction({
+        flight: { map: aiBranchingRequestInFlight, key: lessonKey },
+        request: {
+          build: function() {
+            var premise = aiBranchingPremiseDraft[lessonKey] || "";
+            return buildBranchingScenarioFromPremiseRequest(premise, lesson.title, lesson.objective, buildAiRequestFields());
+          },
+          send: postAiGenerate
+        },
+        result: {
+          onSuccess: function(data) {
+            var activity = extractBranchingScenarioActivity(data.result, lesson.objective);
+            activity.activity_id = uid("act");
+            lesson.activities = lesson.activities || [];
+            lesson.activities.push(activity);
+            save(true);
+            delete aiBranchingPremiseDraft[lessonKey];
+            toast("Generated a branching scenario with " + activity.items.length + " scene" + (activity.items.length === 1 ? "" : "s") + ".");
+          },
+          failureMessage: function(error) {
+            return "Branching scenario generation failed: " + error.message;
+          }
+        }
+      });
+    }
+    var aiTranslateRequestInFlight = {};
+    var aiTranslateTargetLanguage = "";
+    function translateActionsSection(flightKey, label, run4) {
+      var wrap2 = document.createElement("div");
+      wrap2.className = "ai-translate-actions";
+      wrap2.appendChild(sectionLabel("AI actions"));
+      var busy = Boolean(aiTranslateRequestInFlight[flightKey]);
+      var langInput = document.createElement("input");
+      langInput.type = "text";
+      langInput.placeholder = "Target language (e.g. Spanish)";
+      langInput.value = aiTranslateTargetLanguage;
+      langInput.disabled = busy;
+      langInput.setAttribute("aria-label", "Target language");
+      langInput.addEventListener("change", function() {
+        aiTranslateTargetLanguage = langInput.value;
+      });
+      wrap2.appendChild(langInput);
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost";
+      button.textContent = busy ? "Translating\u2026" : label;
+      button.disabled = busy;
+      button.setAttribute("aria-label", label);
+      button.addEventListener("click", function() {
+        aiTranslateTargetLanguage = langInput.value;
+        run4(aiTranslateTargetLanguage);
+      });
+      wrap2.appendChild(button);
+      if (busy) {
+        var status = document.createElement("p");
+        status.className = "hint";
+        status.setAttribute("role", "status");
+        status.textContent = "Translating \u2014 this can take a few seconds\u2026";
+        wrap2.appendChild(status);
+      }
+      return wrap2;
+    }
+    function translatableBlocksOf(lesson) {
+      return (lesson.content_blocks || []).filter(function(block) {
+        return block && String(block.text || "").trim();
+      }).map(function(block) {
+        return { lesson, block };
+      });
+    }
+    function runTranslateAiAction(scope, flightKey, targets) {
+      var language;
+      runAiAction({
+        flight: { map: aiTranslateRequestInFlight, key: flightKey },
+        request: {
+          build: function() {
+            language = String(aiTranslateTargetLanguage || "").trim();
+            if (!language) throw new Error("Choose a target language first.");
+            if (!targets.length) throw new Error("There is no text here to translate.");
+            return targets.map(function(target) {
+              return buildTranslateBlockRequest(
+                target.block,
+                target.lesson.title,
+                language,
+                target.lesson.content_blocks || [],
+                buildAiRequestFields()
+              );
+            });
+          },
+          // One AI call per block, batched via Promise.all rather than postAiGenerate's single
+          // fetch -- see the module comment above this function's original declaration for why
+          // (nothing is written to any lesson.content_blocks until every request in the batch has
+          // resolved successfully).
+          send: function(bodies) {
+            return Promise.all(bodies.map(postAiGenerate)).then(function(dataList) {
+              return dataList.map(function(data) {
+                return extractTranslatedText(data.result);
+              });
+            });
+          }
+        },
+        result: {
+          onSuccess: function(translatedTexts) {
+            var lessonGroups = [];
+            targets.forEach(function(target, i) {
+              var group = null;
+              for (var g = 0; g < lessonGroups.length; g++) {
+                if (lessonGroups[g].lesson === target.lesson) {
+                  group = lessonGroups[g];
+                  break;
+                }
+              }
+              if (!group) {
+                group = { lesson: target.lesson, items: [] };
+                lessonGroups.push(group);
+              }
+              group.items.push({ block: target.block, text: translatedTexts[i] });
+            });
+            lessonGroups.forEach(function(group) {
+              var blocks = group.lesson.content_blocks || (group.lesson.content_blocks = []);
+              group.items.map(function(entryItem) {
+                return { entryItem, index: blocks.indexOf(entryItem.block) };
+              }).filter(function(entry) {
+                return entry.index !== -1;
+              }).sort(function(a, b) {
+                return b.index - a.index;
+              }).forEach(function(entry) {
+                var text = entry.entryItem.text;
+                blocks.splice(entry.index + 1, 0, {
+                  id: uid("cb"),
+                  type: entry.entryItem.block.type,
+                  text,
+                  text_html: sanitizeRichTextHtml("<p>" + escapeHtml(text) + "</p>"),
+                  language,
+                  translated_from: entry.entryItem.block.id
+                });
+              });
+            });
+            save(true);
+            toast(
+              "Translated " + targets.length + " block" + (targets.length === 1 ? "" : "s") + " into " + language + "."
+            );
+          },
+          failureMessage: function(error) {
+            return "Translation failed: " + error.message;
+          }
+        }
+      });
+    }
+    var aiAltTextRequestInFlight = {};
+    function altTextActionsSection(block, lessonTitle) {
+      var wrap2 = document.createElement("div");
+      wrap2.className = "ai-alt-text-actions";
+      var busy = Boolean(aiAltTextRequestInFlight[block.id]);
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost";
+      var media = block.media || {};
+      var hasExisting = Boolean(String(media.alt || "").trim());
+      var label = hasExisting ? "Regenerate alt text" : "Generate alt text";
+      button.textContent = busy ? "Generating\u2026" : label;
+      button.disabled = busy;
+      button.setAttribute("aria-label", label + " for this image with AI");
+      button.addEventListener("click", function() {
+        runAltTextAiAction(block, lessonTitle);
+      });
+      wrap2.appendChild(button);
+      var note = document.createElement("p");
+      note.className = "hint";
+      note.textContent = busy ? "Generating alt text\u2026" : ALT_TEXT_CONTEXT_ONLY_NOTE;
+      if (busy) note.setAttribute("role", "status");
+      wrap2.appendChild(note);
+      return wrap2;
+    }
+    function runAltTextAiAction(block, lessonTitle) {
+      var existingAlt = String(block.media && block.media.alt || "").trim();
+      var confirmMessage = existingAlt ? 'This will replace the existing alt text:\n\n"' + existingAlt + '"\n\nContinue?' : null;
+      runAiAction({
+        flight: { map: aiAltTextRequestInFlight, key: block.id },
+        confirm: confirmMessage,
+        request: {
+          build: function() {
+            return buildAltTextRequest(block, lessonTitle, buildAiRequestFields());
+          },
+          send: postAiGenerate
+        },
+        result: {
+          onSuccess: function(data) {
+            var text = extractAltText(data.result);
+            var stillThere = findBlock(block.id);
+            if (!stillThere || !stillThere.block.media || stillThere.block.media.kind !== "image") return;
+            stillThere.block.media.alt = text;
+            save(true);
+            toast("Alt text generated.");
+          },
+          failureMessage: function(error) {
+            return "Alt text generation failed: " + error.message;
+          }
+        },
+        rerender: function() {
+          if (state.selected.kind === "block" && state.selected.cbId === block.id) renderInspector();
+        }
+      });
+    }
+    function mediaEditor(owner, lessonTitle) {
       var wrap2 = document.createElement("div");
       wrap2.style.display = "grid";
       wrap2.style.gap = "10px";
@@ -23563,6 +25180,7 @@ img.ProseMirror-separator {
             };
             reader.readAsDataURL(file);
           };
+          wrap2.appendChild(altTextActionsSection(owner, lessonTitle));
           if (media.src) {
             var preview = document.createElement("div");
             preview.className = "media-preview";
@@ -23646,6 +25264,462 @@ img.ProseMirror-separator {
       }, "area")));
       return box;
     }
+    var ACTIVITY_INSPECTORS = [
+      {
+        key: "flashcard",
+        match: function(type) {
+          return type.indexOf("flashcard") >= 0;
+        },
+        render: function(activity, box, refresh) {
+          box.appendChild(sectionLabel("Cards"));
+          box.appendChild(itemListEditor(activity.items = activity.items || [], [
+            { key: "front", label: "Front (term)" },
+            { key: "back", label: "Back (answer)", area: true }
+          ], refresh, "+ Add card", { front: "", back: "" }));
+        }
+      },
+      {
+        key: "matching",
+        match: function(type) {
+          return type.indexOf("matching") >= 0;
+        },
+        render: function(activity, box, refresh) {
+          box.appendChild(sectionLabel("Pairs"));
+          box.appendChild(itemListEditor(activity.items = activity.items || [], [
+            { key: "prompt", label: "Prompt" },
+            { key: "match", label: "Match" }
+          ], refresh, "+ Add pair", { prompt: "", match: "" }));
+        }
+      },
+      {
+        key: "accordion",
+        match: function(type) {
+          return type.indexOf("accordion") >= 0 || type.indexOf("tabs") >= 0;
+        },
+        render: function(activity, box, refresh) {
+          box.appendChild(sectionLabel("Sections"));
+          box.appendChild(itemListEditor(activity.items = activity.items || [], [
+            { key: "title", label: "Title" },
+            { key: "detail", label: "Detail", area: true }
+          ], refresh, "+ Add section", { title: "", detail: "" }));
+        }
+      },
+      {
+        key: "timeline",
+        match: function(type) {
+          return type.indexOf("timeline") >= 0;
+        },
+        render: function(activity, box, refresh) {
+          box.appendChild(sectionLabel("Steps"));
+          box.appendChild(itemListEditor(activity.items = activity.items || [], [
+            { key: "label", label: "Step label" },
+            { key: "detail", label: "Detail", area: true }
+          ], refresh, "+ Add step", { label: "", detail: "" }));
+        }
+      },
+      {
+        key: "fill_blank",
+        match: function(type) {
+          return type.indexOf("fill_blank") >= 0;
+        },
+        render: function(activity, box, refresh) {
+          var text = textInput(activity.text || "", function(value) {
+            activity.text = value;
+            save(true);
+          }, "area");
+          text.placeholder = "Passage text -- mark each blank with {{blank}}";
+          box.appendChild(field("Text (use {{blank}} for each blank)", text));
+          box.appendChild(sectionLabel("Blanks (one row per {{blank}}, in order)"));
+          var blanks = activity.blanks = activity.blanks || [];
+          var blankCount = countBlankTokens(activity.text);
+          if (blankCount !== blanks.length) {
+            var hint = document.createElement("p");
+            hint.className = "hint";
+            hint.textContent = "Text has " + blankCount + " {{blank}} token" + (blankCount === 1 ? "" : "s") + " but " + blanks.length + " answer row" + (blanks.length === 1 ? "" : "s") + " -- add or remove rows to match.";
+            box.appendChild(hint);
+          }
+          box.appendChild(itemListEditor(blanks, [
+            { key: "answers", label: "Accepted answer(s), comma-separated" }
+          ], refresh, "+ Add blank", { answers: "" }));
+        }
+      },
+      {
+        key: "scenes",
+        match: function(type) {
+          return type.indexOf("branching") >= 0 || type.indexOf("scenario") >= 0 || type.indexOf("decision") >= 0;
+        },
+        render: function(activity, box) {
+          var type = String(activity.activity_type || activity.type || "");
+          if (type.indexOf("branching") >= 0) {
+            activity.persona = activity.persona || { name: "Alex", role: "Stakeholder" };
+            box.appendChild(sectionLabel("Character"));
+            box.appendChild(field("Name", textInput(activity.persona.name, function(value) {
+              activity.persona.name = value;
+              save(true);
+            })));
+            box.appendChild(field("Role", textInput(activity.persona.role, function(value) {
+              activity.persona.role = value;
+              save(true);
+            })));
+          }
+          box.appendChild(sectionLabel("Scenes"));
+          (activity.items = activity.items || []).forEach(function(item, index) {
+            var scene = document.createElement("div");
+            scene.className = "item-row";
+            var head = document.createElement("div");
+            head.className = "item-row-head";
+            head.innerHTML = "<span>Scene " + (index + 1) + '</span><button type="button">\u2715</button>';
+            head.querySelector("button").addEventListener("click", function() {
+              activity.items.splice(index, 1);
+              save(true);
+            });
+            scene.appendChild(head);
+            var scenario = textInput(item.scenario, function(value) {
+              item.scenario = value;
+              save(true);
+            }, "area");
+            scenario.placeholder = "Scenario text";
+            scene.appendChild(scenario);
+            (item.choices = item.choices || []).forEach(function(choice, choiceIndex) {
+              var row = document.createElement("div");
+              row.className = "option-row";
+              var best = document.createElement("input");
+              best.type = "radio";
+              best.name = "best-" + (activity.activity_id || "a") + "-" + index;
+              best.title = "Best choice";
+              best.checked = choice.result === "best";
+              best.addEventListener("change", function() {
+                item.choices.forEach(function(c) {
+                  c.result = "risk";
+                });
+                choice.result = "best";
+                save(true);
+              });
+              var label = textInput(choice.label, function(value) {
+                choice.label = value;
+                save(true);
+              });
+              label.placeholder = "Choice label";
+              var del2 = document.createElement("button");
+              del2.type = "button";
+              del2.textContent = "\u2715";
+              del2.style.cssText = "background:none;border:0;color:var(--muted);cursor:pointer";
+              del2.addEventListener("click", function() {
+                item.choices.splice(choiceIndex, 1);
+                save(true);
+              });
+              row.appendChild(best);
+              row.appendChild(label);
+              row.appendChild(del2);
+              scene.appendChild(row);
+              var feedback = textInput(choice.feedback, function(value) {
+                choice.feedback = value;
+                save(true);
+              });
+              feedback.placeholder = "Feedback for this choice";
+              scene.appendChild(feedback);
+            });
+            var addChoice = document.createElement("button");
+            addChoice.className = "add-item";
+            addChoice.type = "button";
+            addChoice.textContent = "+ Add choice";
+            addChoice.addEventListener("click", function() {
+              item.choices.push({ label: "New choice", result: "risk", feedback: "" });
+              save(true);
+            });
+            scene.appendChild(addChoice);
+            box.appendChild(scene);
+          });
+          var addScene = document.createElement("button");
+          addScene.className = "add-item";
+          addScene.type = "button";
+          addScene.textContent = "+ Add scene";
+          addScene.addEventListener("click", function() {
+            activity.items.push({ scenario: "New scene\u2026", choices: [{ label: "Best", result: "best", feedback: "" }, { label: "Risky", result: "risk", feedback: "" }] });
+            save(true);
+          });
+          box.appendChild(addScene);
+        }
+      },
+      {
+        key: "hotspot",
+        match: function(type) {
+          return type.indexOf("hotspot") >= 0;
+        },
+        // Region-drawing UI (P5-4c). Author uploads/URLs an image, then click-drags directly on
+        // it to draw a rectangle; on mouseup the drawn pixel rectangle is converted to PERCENTAGES
+        // of the rendered <img>'s own displayed box via computeRegionPercentages() (hotspot-
+        // geometry.js) -- not the inspector panel's box -- so a region survives the image being
+        // shown at any size, matching the responsive contract renderHotspotActivity() relies on
+        // server-side. Deliberately out of scope for this first version: drag-to-move/resize an
+        // EXISTING region. Draw-new + delete covers the common authoring flow; the four number
+        // inputs per region below are the documented fallback for nudging an existing region's
+        // exact coordinates instead of building resize handles.
+        render: function(activity, box, refresh) {
+          activity.image = activity.image || { src: "", alt: "" };
+          activity.regions = activity.regions || [];
+          var image = activity.image;
+          box.appendChild(sectionLabel("Image"));
+          box.appendChild(field("Alt text", textInput(image.alt || "", function(value) {
+            image.alt = value;
+            save(true);
+          })));
+          function setImageSrc(src) {
+            image.src = src;
+            save(true);
+            refresh();
+          }
+          function uploadHotspotImage(file) {
+            if (!file) return;
+            var route = routeDroppedFile(file.name);
+            if (route.kind && route.kind !== "media") {
+              toast("That file looks like a source document (" + route.extension + "). Drop it on the Sources tab instead.");
+              return;
+            }
+            var reader = new FileReader();
+            reader.onload = function() {
+              fetch("/api/media/" + state.session, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: file.name, content_base64: reader.result })
+              }).then(function(res) {
+                return res.json();
+              }).then(function(data) {
+                if (!data.ok) throw new Error(data.error || "Upload failed");
+                setImageSrc(data.src);
+                toast("Image uploaded and attached.");
+              }).catch(function(error) {
+                toast(error.message);
+              });
+            };
+            reader.readAsDataURL(file);
+          }
+          var upload = document.createElement("label");
+          upload.className = "ghost file-button";
+          upload.innerHTML = 'Upload or drop image<input type="file" accept="image/*">';
+          upload.querySelector("input").addEventListener("change", function(event) {
+            uploadHotspotImage(event.target.files[0]);
+          });
+          wireFileDropZone(upload, "drag-active", uploadHotspotImage);
+          box.appendChild(upload);
+          box.appendChild(field("Image URL (https\u2026 or assets/media/\u2026)", textInput(image.src || "", function(value) {
+            setImageSrc(value);
+          }, "url")));
+          if (!image.src) {
+            var hint = document.createElement("p");
+            hint.className = "hint";
+            hint.textContent = "Upload or set an image URL to start drawing hotspot regions.";
+            box.appendChild(hint);
+            return;
+          }
+          box.appendChild(sectionLabel("Draw a region \u2014 click and drag on the image"));
+          var drawWrap = document.createElement("div");
+          drawWrap.className = "hotspot-draw-wrap";
+          drawWrap.style.position = "relative";
+          drawWrap.style.display = "inline-block";
+          drawWrap.style.maxWidth = "100%";
+          drawWrap.style.cursor = "crosshair";
+          drawWrap.style.userSelect = "none";
+          var img = document.createElement("img");
+          img.src = withToken("/course/" + state.session + "/" + image.src);
+          img.alt = "";
+          img.draggable = false;
+          img.style.display = "block";
+          img.style.width = "420px";
+          img.style.maxWidth = "100%";
+          img.style.height = "auto";
+          drawWrap.appendChild(img);
+          activity.regions.forEach(function(region) {
+            var marker = document.createElement("div");
+            marker.style.position = "absolute";
+            marker.style.left = (region.x_pct || 0) + "%";
+            marker.style.top = (region.y_pct || 0) + "%";
+            marker.style.width = (region.width_pct || 0) + "%";
+            marker.style.height = (region.height_pct || 0) + "%";
+            marker.style.border = "2px solid " + (region.tag === "correct" ? "#16a34a" : region.tag === "incorrect" ? "#dc2626" : "#2563eb");
+            marker.style.background = "rgba(37, 99, 235, .12)";
+            marker.style.boxSizing = "border-box";
+            marker.style.pointerEvents = "none";
+            drawWrap.appendChild(marker);
+          });
+          function updateDragBox(dragBox, startRect, start, current) {
+            var left = Math.min(start.x, current.x) - startRect.left;
+            var top = Math.min(start.y, current.y) - startRect.top;
+            dragBox.style.left = left + "px";
+            dragBox.style.top = top + "px";
+            dragBox.style.width = Math.abs(current.x - start.x) + "px";
+            dragBox.style.height = Math.abs(current.y - start.y) + "px";
+          }
+          drawWrap.addEventListener("mousedown", function(event) {
+            if (event.target !== img) return;
+            event.preventDefault();
+            var startRect = img.getBoundingClientRect();
+            var start = { x: event.clientX, y: event.clientY };
+            var dragBox = document.createElement("div");
+            dragBox.style.position = "absolute";
+            dragBox.style.border = "2px dashed #2563eb";
+            dragBox.style.background = "rgba(37, 99, 235, .15)";
+            dragBox.style.boxSizing = "border-box";
+            dragBox.style.pointerEvents = "none";
+            drawWrap.appendChild(dragBox);
+            updateDragBox(dragBox, startRect, start, start);
+            function onMove(moveEvent) {
+              updateDragBox(dragBox, startRect, start, { x: moveEvent.clientX, y: moveEvent.clientY });
+            }
+            function onUp(upEvent) {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+              var end = { x: upEvent.clientX, y: upEvent.clientY };
+              dragBox.remove();
+              var drawnRect = rectFromPoints(
+                { x: start.x - startRect.left, y: start.y - startRect.top },
+                { x: end.x - startRect.left, y: end.y - startRect.top }
+              );
+              if (!isRegionSizeUsable(drawnRect)) return;
+              var displayedRect = { left: 0, top: 0, width: startRect.width, height: startRect.height };
+              var pct = computeRegionPercentages(displayedRect, drawnRect);
+              activity.regions.push(Object.assign({ tag: "correct", feedback: "", label: "" }, pct));
+              save(true);
+              refresh();
+            }
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+          });
+          box.appendChild(drawWrap);
+          box.appendChild(sectionLabel("Regions (" + activity.regions.length + ")"));
+          activity.regions.forEach(function(region, index) {
+            var row = document.createElement("div");
+            row.className = "item-row";
+            var head = document.createElement("div");
+            head.className = "item-row-head";
+            head.innerHTML = "<span>Region " + (index + 1) + '</span><button type="button" title="Remove">\u2715</button>';
+            head.querySelector("button").addEventListener("click", function() {
+              activity.regions.splice(index, 1);
+              save(true);
+              refresh();
+            });
+            row.appendChild(head);
+            var labelInput = textInput(region.label || "", function(value) {
+              region.label = value;
+              save(true);
+            });
+            labelInput.placeholder = "Label (for screen readers / interaction log)";
+            row.appendChild(labelInput);
+            row.appendChild(selectInput(region.tag || "correct", ["correct", "incorrect", "informational"], function(value) {
+              region.tag = value;
+              save(true);
+            }));
+            var feedbackInput = textInput(region.feedback || "", function(value) {
+              region.feedback = value;
+              save(true);
+            }, "area");
+            feedbackInput.placeholder = "Feedback shown when this region is clicked";
+            row.appendChild(feedbackInput);
+            var coordsWrap = document.createElement("div");
+            coordsWrap.style.display = "grid";
+            coordsWrap.style.gridTemplateColumns = "repeat(4, 1fr)";
+            coordsWrap.style.gap = "6px";
+            [["x_pct", "X %"], ["y_pct", "Y %"], ["width_pct", "W %"], ["height_pct", "H %"]].forEach(function(pair) {
+              var key = pair[0];
+              var input = document.createElement("input");
+              input.type = "number";
+              input.min = "0";
+              input.max = "100";
+              input.step = "0.1";
+              input.title = pair[1];
+              input.value = Number(region[key] || 0).toFixed(1);
+              input.addEventListener("change", function() {
+                region[key] = Math.min(100, Math.max(0, Number(input.value) || 0));
+                save(true);
+              });
+              coordsWrap.appendChild(input);
+            });
+            row.appendChild(coordsWrap);
+            box.appendChild(row);
+          });
+        }
+      },
+      {
+        key: "sorting",
+        match: function(type) {
+          return type.indexOf("sorting") >= 0 || type.indexOf("ranking") >= 0;
+        },
+        // The list order here IS the answer key (no separate "correct order" field), so unlike
+        // itemListEditor()'s add/remove-only rows, each row needs its own move-up/move-down
+        // control -- reusing moveItem() (already used above for tree drag/keyboard reordering)
+        // rather than inventing a new reorder primitive. The row/head markup mirrors the "scenes"
+        // and "hotspot" entries' custom item-row layout above rather than itemListEditor's, since
+        // itemListEditor has no move affordance.
+        render: function(activity, box, refresh) {
+          box.appendChild(sectionLabel("Items, in correct order (the learner sees them shuffled)"));
+          var items = activity.items = activity.items || [];
+          items.forEach(function(item, index) {
+            var row = document.createElement("div");
+            row.className = "item-row";
+            var head = document.createElement("div");
+            head.className = "item-row-head";
+            head.innerHTML = "<span>#" + (index + 1) + "</span>";
+            var moveUp = document.createElement("button");
+            moveUp.type = "button";
+            moveUp.title = "Move up";
+            moveUp.textContent = "\u2191";
+            moveUp.disabled = index === 0;
+            moveUp.addEventListener("click", function() {
+              moveItem(items, index, index - 1);
+              save(true);
+              refresh();
+            });
+            var moveDown = document.createElement("button");
+            moveDown.type = "button";
+            moveDown.title = "Move down";
+            moveDown.textContent = "\u2193";
+            moveDown.disabled = index === items.length - 1;
+            moveDown.addEventListener("click", function() {
+              moveItem(items, index, index + 1);
+              save(true);
+              refresh();
+            });
+            var remove = document.createElement("button");
+            remove.type = "button";
+            remove.title = "Remove";
+            remove.textContent = "\u2715";
+            remove.addEventListener("click", function() {
+              items.splice(index, 1);
+              save(true);
+              refresh();
+            });
+            head.appendChild(moveUp);
+            head.appendChild(moveDown);
+            head.appendChild(remove);
+            row.appendChild(head);
+            var text = textInput(item.text || "", function(value) {
+              item.text = value;
+              save(true);
+            });
+            text.placeholder = "Item text";
+            row.appendChild(text);
+            box.appendChild(row);
+          });
+          var add = document.createElement("button");
+          add.className = "add-item";
+          add.type = "button";
+          add.textContent = "+ Add item";
+          add.addEventListener("click", function() {
+            items.push({ text: "" });
+            save(true);
+            refresh();
+          });
+          box.appendChild(add);
+        }
+      }
+    ];
+    function renderGenericActivityInspector(activity, box, refresh) {
+      box.appendChild(sectionLabel("Items (generic)"));
+      box.appendChild(itemListEditor(activity.items = activity.items || [], [
+        { key: "prompt", label: "Prompt" },
+        { key: "detail", label: "Detail", area: true }
+      ], refresh, "+ Add item", { prompt: "", detail: "" }));
+    }
     function activityEditor(activity) {
       var box = document.createElement("div");
       box.style.display = "grid";
@@ -23662,127 +25736,10 @@ img.ProseMirror-separator {
       var refresh = function() {
         save(true);
       };
-      if (type.indexOf("flashcard") >= 0) {
-        box.appendChild(sectionLabel("Cards"));
-        box.appendChild(itemListEditor(activity.items = activity.items || [], [
-          { key: "front", label: "Front (term)" },
-          { key: "back", label: "Back (answer)", area: true }
-        ], refresh, "+ Add card", { front: "", back: "" }));
-      } else if (type.indexOf("matching") >= 0) {
-        box.appendChild(sectionLabel("Pairs"));
-        box.appendChild(itemListEditor(activity.items = activity.items || [], [
-          { key: "prompt", label: "Prompt" },
-          { key: "match", label: "Match" }
-        ], refresh, "+ Add pair", { prompt: "", match: "" }));
-      } else if (type.indexOf("accordion") >= 0 || type.indexOf("tabs") >= 0) {
-        box.appendChild(sectionLabel("Sections"));
-        box.appendChild(itemListEditor(activity.items = activity.items || [], [
-          { key: "title", label: "Title" },
-          { key: "detail", label: "Detail", area: true }
-        ], refresh, "+ Add section", { title: "", detail: "" }));
-      } else if (type.indexOf("timeline") >= 0) {
-        box.appendChild(sectionLabel("Steps"));
-        box.appendChild(itemListEditor(activity.items = activity.items || [], [
-          { key: "label", label: "Step label" },
-          { key: "detail", label: "Detail", area: true }
-        ], refresh, "+ Add step", { label: "", detail: "" }));
-      } else if (type.indexOf("branching") >= 0 || type.indexOf("scenario") >= 0 || type.indexOf("decision") >= 0) {
-        if (type.indexOf("branching") >= 0) {
-          activity.persona = activity.persona || { name: "Alex", role: "Stakeholder" };
-          box.appendChild(sectionLabel("Character"));
-          box.appendChild(field("Name", textInput(activity.persona.name, function(value) {
-            activity.persona.name = value;
-            save(true);
-          })));
-          box.appendChild(field("Role", textInput(activity.persona.role, function(value) {
-            activity.persona.role = value;
-            save(true);
-          })));
-        }
-        box.appendChild(sectionLabel("Scenes"));
-        (activity.items = activity.items || []).forEach(function(item, index) {
-          var scene = document.createElement("div");
-          scene.className = "item-row";
-          var head = document.createElement("div");
-          head.className = "item-row-head";
-          head.innerHTML = "<span>Scene " + (index + 1) + '</span><button type="button">\u2715</button>';
-          head.querySelector("button").addEventListener("click", function() {
-            activity.items.splice(index, 1);
-            save(true);
-          });
-          scene.appendChild(head);
-          var scenario = textInput(item.scenario, function(value) {
-            item.scenario = value;
-            save(true);
-          }, "area");
-          scenario.placeholder = "Scenario text";
-          scene.appendChild(scenario);
-          (item.choices = item.choices || []).forEach(function(choice, choiceIndex) {
-            var row = document.createElement("div");
-            row.className = "option-row";
-            var best = document.createElement("input");
-            best.type = "radio";
-            best.name = "best-" + (activity.activity_id || "a") + "-" + index;
-            best.title = "Best choice";
-            best.checked = choice.result === "best";
-            best.addEventListener("change", function() {
-              item.choices.forEach(function(c) {
-                c.result = "risk";
-              });
-              choice.result = "best";
-              save(true);
-            });
-            var label = textInput(choice.label, function(value) {
-              choice.label = value;
-              save(true);
-            });
-            label.placeholder = "Choice label";
-            var del2 = document.createElement("button");
-            del2.type = "button";
-            del2.textContent = "\u2715";
-            del2.style.cssText = "background:none;border:0;color:var(--muted);cursor:pointer";
-            del2.addEventListener("click", function() {
-              item.choices.splice(choiceIndex, 1);
-              save(true);
-            });
-            row.appendChild(best);
-            row.appendChild(label);
-            row.appendChild(del2);
-            scene.appendChild(row);
-            var feedback = textInput(choice.feedback, function(value) {
-              choice.feedback = value;
-              save(true);
-            });
-            feedback.placeholder = "Feedback for this choice";
-            scene.appendChild(feedback);
-          });
-          var addChoice = document.createElement("button");
-          addChoice.className = "add-item";
-          addChoice.type = "button";
-          addChoice.textContent = "+ Add choice";
-          addChoice.addEventListener("click", function() {
-            item.choices.push({ label: "New choice", result: "risk", feedback: "" });
-            save(true);
-          });
-          scene.appendChild(addChoice);
-          box.appendChild(scene);
-        });
-        var addScene = document.createElement("button");
-        addScene.className = "add-item";
-        addScene.type = "button";
-        addScene.textContent = "+ Add scene";
-        addScene.addEventListener("click", function() {
-          activity.items.push({ scenario: "New scene\u2026", choices: [{ label: "Best", result: "best", feedback: "" }, { label: "Risky", result: "risk", feedback: "" }] });
-          save(true);
-        });
-        box.appendChild(addScene);
-      } else {
-        box.appendChild(sectionLabel("Items (generic)"));
-        box.appendChild(itemListEditor(activity.items = activity.items || [], [
-          { key: "prompt", label: "Prompt" },
-          { key: "detail", label: "Detail", area: true }
-        ], refresh, "+ Add item", { prompt: "", detail: "" }));
-      }
+      var entry = ACTIVITY_INSPECTORS.find(function(candidate) {
+        return candidate.match(type);
+      });
+      (entry ? entry.render : renderGenericActivityInspector)(activity, box, refresh);
       return box;
     }
     function renderInspector() {
@@ -23849,6 +25806,17 @@ img.ProseMirror-separator {
           options.timer_seconds = Number(value) || 20;
           save(true);
         }, "number")));
+        box.appendChild(translateActionsSection(
+          "course",
+          "Translate whole course",
+          function() {
+            var targets = [];
+            lessonsOf(course).forEach(function(row) {
+              targets = targets.concat(translatableBlocksOf(row.lesson));
+            });
+            runTranslateAiAction("course", "course", targets);
+          }
+        ));
         return;
       }
       if (sel.kind === "module") {
@@ -23880,6 +25848,31 @@ img.ProseMirror-separator {
           save(true);
         });
         box.appendChild(addLesson);
+        box.appendChild(lessonSkeletonPicker(module));
+        box.appendChild(outlineRegenerateActionsSection(
+          "module",
+          "module:" + sel.mi,
+          "Regenerate this module's outline",
+          function() {
+            var lessonCount = (module.lessons || []).length;
+            var confirmMessage = "This will REPLACE all " + lessonCount + " lesson" + (lessonCount === 1 ? "" : "s") + ' in "' + module.title + '" with a newly-generated outline (titles + block skeletons only). This cannot be undone except with Ctrl+Z. Continue?';
+            runOutlineRegenerateAiAction(
+              "module",
+              "module:" + sel.mi,
+              confirmMessage,
+              function() {
+                return { title: module.title, lessons: (module.lessons || []).map(function(l) {
+                  return { title: l.title };
+                }) };
+              },
+              function(result) {
+                var lessons = extractRegeneratedModuleOutline(result, uid, module.objective_ids || []);
+                module.lessons = lessons;
+                return lessons.length + " lesson" + (lessons.length === 1 ? "" : "s");
+              }
+            );
+          }
+        ));
         return;
       }
       if (sel.kind === "lesson") {
@@ -23910,6 +25903,54 @@ img.ProseMirror-separator {
         note.className = "palette-note";
         note.textContent = "Blocks, activities, and questions inside this lesson are listed in the Structure tab. Use the Insert tab to add more.";
         box.appendChild(note);
+        box.appendChild(quizFromContentActionsSection(
+          "lesson:" + sel.key,
+          "Generate quiz from this lesson",
+          function() {
+            runQuizFromContentAiAction("lesson", "lesson:" + sel.key, lesson, lesson.content_blocks || []);
+          }
+        ));
+        box.appendChild(branchingScenarioActionsSection(sel.key, lesson));
+        box.appendChild(translateActionsSection(
+          "lesson:" + sel.key,
+          "Translate this lesson",
+          function() {
+            runTranslateAiAction("lesson", "lesson:" + sel.key, translatableBlocksOf(lesson));
+          }
+        ));
+        box.appendChild(outlineRegenerateActionsSection(
+          "lesson",
+          "lesson:" + sel.key,
+          "Regenerate this lesson's outline",
+          function() {
+            var blockCount = (lesson.content_blocks || []).length;
+            var activityCount = (lesson.activities || []).length;
+            var questionCount = (lesson.quiz_questions || []).length;
+            var confirmMessage = "This will REPLACE all " + blockCount + " content block" + (blockCount === 1 ? "" : "s") + ' in "' + lesson.title + '" with a newly-generated outline (roles only), and CLEAR its ' + activityCount + " activit" + (activityCount === 1 ? "y" : "ies") + " and " + questionCount + " quiz question" + (questionCount === 1 ? "" : "s") + " (they no longer match the new outline). This cannot be undone except with Ctrl+Z. Continue?";
+            runOutlineRegenerateAiAction(
+              "lesson",
+              "lesson:" + sel.key,
+              confirmMessage,
+              function() {
+                return {
+                  title: lesson.title,
+                  objective: lesson.objective,
+                  blocks: (lesson.content_blocks || []).map(function(b) {
+                    return { role: b.type };
+                  })
+                };
+              },
+              function(result) {
+                var outline = extractRegeneratedLessonOutline(result, uid);
+                lesson.objective = outline.objective;
+                lesson.content_blocks = outline.content_blocks;
+                lesson.activities = [];
+                lesson.quiz_questions = [];
+                return outline.content_blocks.length + " block" + (outline.content_blocks.length === 1 ? "" : "s");
+              }
+            );
+          }
+        ));
         return;
       }
       if (sel.kind === "block") {
@@ -23932,8 +25973,23 @@ img.ProseMirror-separator {
           block.text = value;
           save(true);
         }, "area")));
+        box.appendChild(aiBlockActionsSection(block));
+        box.appendChild(quizFromContentActionsSection(
+          "block:" + block.id,
+          "Generate quiz from this block",
+          function() {
+            runQuizFromContentAiAction("block", "block:" + block.id, foundBlock.row.lesson, [block]);
+          }
+        ));
+        box.appendChild(translateActionsSection(
+          "block:" + block.id,
+          "Translate this block",
+          function() {
+            runTranslateAiAction("block", "block:" + block.id, [{ lesson: foundBlock.row.lesson, block }]);
+          }
+        ));
         box.appendChild(sectionLabel("Media"));
-        box.appendChild(mediaEditor(block));
+        box.appendChild(mediaEditor(block, foundBlock.row.lesson.title));
         return;
       }
       if (sel.kind === "activity") {
@@ -24151,8 +26207,10 @@ img.ProseMirror-separator {
         $("tab-templates").hidden = tab.dataset.tab !== "templates";
         $("tab-review").hidden = tab.dataset.tab !== "review";
         $("tab-sources").hidden = tab.dataset.tab !== "sources";
+        $("tab-ai").hidden = tab.dataset.tab !== "ai";
         if (tab.dataset.tab === "review") renderReview();
         if (tab.dataset.tab === "sources") renderSources();
+        if (tab.dataset.tab === "ai") renderAiSettings();
       });
     });
     ["zip-input", "zip-input-empty"].forEach(function(id) {
@@ -24168,7 +26226,10 @@ img.ProseMirror-separator {
       state.version = version || 1;
       state.conflicted = false;
       $("conflict-banner").hidden = true;
+      state.saveStatus = initialSaveStatus();
       setSaveStatus("Saved \xB7 revision " + state.version);
+      var retryBtn = $("btn-save-retry");
+      if (retryBtn) retryBtn.hidden = true;
       if (window.BroadcastChannel) {
         if (state.channel) state.channel.close();
         state.channel = new BroadcastChannel("course-studio:" + sid);
@@ -24180,8 +26241,7 @@ img.ProseMirror-separator {
           }
         };
       }
-      state.history = [];
-      state.historyIndex = -1;
+      state.undoStack = createUndoStack(50);
       pushHistory();
       $("empty-state").hidden = true;
       $("layout").hidden = false;
@@ -24209,6 +26269,10 @@ img.ProseMirror-separator {
     $("btn-reload").addEventListener("click", reloadCanvas);
     $("btn-undo").addEventListener("click", undo);
     $("btn-redo").addEventListener("click", redo);
+    $("btn-save-retry").addEventListener("click", retrySave);
+    setInterval(function() {
+      if (state.saveStatus.phase === "saved") renderSaveIndicator();
+    }, 3e4);
     document.addEventListener("keydown", function(event) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey) {
         event.preventDefault();

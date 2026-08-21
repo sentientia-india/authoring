@@ -346,6 +346,11 @@ button, input, select, textarea { font-family: inherit; font-size: 13.5px; color
 .review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
 .review-row { color: var(--ink-soft); line-height: 1.5; padding: 9px 0; margin: 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 
+.course-health { margin-bottom: 18px; }
+.course-health-results { margin-top: 8px; }
+.course-health-list { margin: 0 0 12px; padding-left: 18px; display: grid; gap: 4px; }
+.course-health-list li { color: var(--ink-soft); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+
 @media (max-width: 900px) {
   html, body { height: auto; min-height: 100%; }
   body { overflow: auto; }

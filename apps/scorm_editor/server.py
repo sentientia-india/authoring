@@ -24,10 +24,12 @@ import shutil
 import tempfile
 import threading
 import time
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path, PurePosixPath
+from typing import Any, Callable
 from urllib.parse import urlparse
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -167,6 +169,7 @@ _SESSION_ROUTE_PREFIXES = (
     "/api/accessibility/",
     "/api/localization/",
     "/api/generation/",
+    "/api/ai/",
 )
 
 
@@ -898,6 +901,196 @@ def add_media(sid: str, filename: str, blob: bytes) -> dict:
     return {"session": sid, "src": f"assets/media/{name}"}
 
 
+def _text_provider_factory(
+    provider_id: str, *, api_key: str | None, base_url: str | None, model: str | None
+):
+    """Indirection point for tests (monkeypatch this attribute rather than reaching into
+    course_mcp_server.text_providers.registry directly). Also keeps the import lazy, matching
+    every other course_mcp_server import in this file (see _read_secret's module docstring
+    note: this is a separate service with its own credentials/deploy, so it must not import
+    MCP-side config at module load time -- only inside the function that needs it)."""
+    from course_mcp_server.text_providers.registry import get_text_provider
+
+    return get_text_provider(provider_id, api_key=api_key, base_url=base_url, model=model)
+
+
+def generate_ai_content(sid: str, body: dict) -> dict:
+    """Transport for in-editor AI actions (P5-3: Course Studio <-> text-provider transport).
+
+    DESIGN DECISION: this calls course_mcp_server.text_providers.registry.get_text_provider()
+    with a plain in-process Python import rather than making a second network hop back to the
+    MCP server. Course Studio already imports course_mcp_server directly today --
+    _default_module_generator() above imports course_mcp_server.llm_openrouter, and
+    create_course() imports course_mcp_server.exporters.scorm -- so the two processes already
+    share the same installed package. A network round-trip through the MCP server would add
+    latency, a second auth boundary, and a second place for a bring-your-own-key to leak, for
+    no benefit: this process can call get_text_provider() itself.
+
+    Request body fields mirror schemas.py's BlueprintRequest/CourseOutlineRequest naming
+    (text_provider/text_provider_api_key/text_provider_base_url/text_provider_model) plus
+    system_prompt/user_payload/schema_name, matching TextProvider.generate_json()'s signature
+    (see text_providers/base.py) so callers of both the MCP tool and this route send the same
+    shape.
+
+    This function is ONLY the transport for one call: it does not implement any specific AI
+    action (rewrite/expand/quiz/translate) -- that is explicit future work (P5-3b onward).
+
+    Nothing here persists text_provider_api_key: it is read from `body`, forwarded once to
+    get_text_provider()/generate_json(), and then this function returns. It is never written to
+    the workspace, .editor-meta.json, course.json, or any other on-disk artifact -- compare
+    save_course() above, which is the only place course data is persisted, and which this
+    function never calls.
+    """
+    from course_mcp_server.text_providers.base import TextProviderError
+    from course_mcp_server.text_providers.registry import KNOWN_PROVIDER_IDS
+
+    _workspace(sid)  # validates the session exists and is not expired; result unused here
+
+    system_prompt = str(body.get("system_prompt") or "").strip()
+    schema_name = str(body.get("schema_name") or "").strip()
+    user_payload = body.get("user_payload")
+    provider_id = str(body.get("text_provider") or "openrouter")
+    if not system_prompt:
+        raise ValueError("system_prompt is required")
+    if not schema_name:
+        raise ValueError("schema_name is required")
+    if not isinstance(user_payload, dict):
+        raise ValueError("user_payload must be an object")
+    if provider_id not in KNOWN_PROVIDER_IDS:
+        raise ValueError(f"Unknown text provider_id: {provider_id!r} (expected one of {KNOWN_PROVIDER_IDS})")
+
+    try:
+        provider = _text_provider_factory(
+            provider_id,
+            api_key=body.get("text_provider_api_key") or None,
+            base_url=body.get("text_provider_base_url") or None,
+            model=body.get("text_provider_model") or None,
+        )
+        result = provider.generate_json(system_prompt, user_payload, schema_name)
+    except TextProviderError as exc:
+        # Translated into a clean 400 by do_POST's existing ValueError handler below -- never a
+        # raw 500/stack trace reaching the client.
+        raise ValueError(str(exc)) from exc
+    result = _validate_ai_result_schema(schema_name, result)
+    return {"provider": provider_id, "result": result}
+
+
+def _validate_ai_result_schema(schema_name: str, result: object) -> object:
+    """P5-3c gate: some AI actions produce structured data that gets inserted straight into the
+    course (as opposed to P5-3b's rewrite/expand/simplify, which only ever produces plain text --
+    see content-block-ai.js's WIRE FORMAT DECISION note -- and needs no schema check here). For
+    those, the model's raw JSON MUST validate against the real course_mcp_server.schemas Pydantic
+    model before generate_ai_content() ever returns it to the browser as a success -- client-side
+    JS cannot run Pydantic, so this is the only place that check can live, and it must run before
+    the `return` above, not after.
+
+    Gated schema_names so far:
+      - "quiz_from_content" (P5-3c: generate a quiz from a block/lesson), validated against
+        QuizBank/QuizQuestion -- the SAME model class course_mcp_server already uses for quiz-bank
+        generation elsewhere (course_generator.py), not an invented client-side re-implementation
+        of it.
+      - "branching_scenario_from_premise" (P5-3f: generate a multi-node branching dialogue tree
+        from an author-supplied premise), validated against BranchingScenario -- the SAME model
+        class built in P5-4e for scenario_decision_tree/branching_scenario activities elsewhere.
+        BranchingScenario's own `_validate_graph` model_validator is what enforces graph integrity
+        (no duplicate node ids, no `next_node_id` dangling to a node outside the response's own
+        `items`) -- this function reuses that validator by calling `model_validate`, it does not
+        reimplement graph-validity checking itself.
+    Every other schema_name (e.g. P5-3b's "content_block_rewrite") passes through unchanged, since
+    generate_ai_content() is deliberately a generic transport (see its own docstring) and most AI
+    actions don't need this gate.
+
+    Any failure -- wrong type, a required field missing, a question whose `answer` is not one of
+    its own `options` (Pydantic alone can't express that cross-field constraint, so it is checked
+    explicitly below), or a branching scenario with a duplicate/dangling node reference -- raises a
+    plain ValueError with a clean, user-facing message (never a raw pydantic.ValidationError/stack
+    trace; do_POST's existing except (ValueError, ...) handler above turns this into a normal 400
+    the same way every other input-validation error in this file already is turned into one).
+    """
+    spec = _AI_RESULT_SCHEMAS.get(schema_name)
+    if spec is None:
+        return result
+    return _validate_against_schema(spec, result)
+
+
+def _validate_quiz_answers(validated: Any) -> None:
+    """Extra cross-field check Pydantic alone can't express: each question's `answer` must be one
+    of its own `options`."""
+    for question in validated.questions:
+        if question.answer not in question.options:
+            raise ValueError(
+                "The generated quiz did not match the required schema: "
+                f"question {question.id!r}'s answer is not one of its own options."
+            )
+
+
+@dataclass(frozen=True)
+class _AiResultSchema:
+    """One dispatch-table entry: the Pydantic model that gates `schema_name`, the human-readable
+    label used in error messages, an optional extra cross-field validator (for checks Pydantic
+    alone can't express), and any extra `model_dump` kwargs the schema's response wire format
+    needs (e.g. BranchingScenario's `by_alias=True` -- see its own comment below)."""
+
+    model: type
+    label: str
+    extra_validate: Callable[[Any], None] | None = None
+    dump_kwargs: dict = field(default_factory=dict)
+
+
+def _validate_against_schema(spec: "_AiResultSchema", result: object) -> object:
+    """Shared helper behind every `_AI_RESULT_SCHEMAS` entry: isinstance guard, `model_validate`,
+    ValidationError-to-clean-message conversion, an optional extra validator, and the final
+    `model_dump`. Every schema_name gated here goes through this exact same sequence -- the only
+    per-schema differences are captured in the `_AiResultSchema` passed in, not in this function."""
+    from pydantic import ValidationError
+
+    if not isinstance(result, dict):
+        raise ValueError(
+            f"The generated {spec.label} did not match the required schema: response was not a JSON object."
+        )
+    try:
+        validated = spec.model.model_validate(result)
+    except ValidationError as exc:
+        first_error = exc.errors()[0]
+        location = ".".join(str(part) for part in first_error.get("loc", ()))
+        raise ValueError(
+            f"The generated {spec.label} did not match the required schema ({location}): {first_error.get('msg')}"
+        ) from exc
+
+    if spec.extra_validate is not None:
+        spec.extra_validate(validated)
+
+    return validated.model_dump(mode="json", **spec.dump_kwargs)
+
+
+def _ai_result_schemas() -> dict:
+    """Built lazily (called once at import time below) so the course_mcp_server.schemas import
+    stays local to this validation gate, matching the previous per-branch local imports."""
+    from course_mcp_server.schemas import BranchingScenario, QuizBank
+
+    return {
+        "quiz_from_content": _AiResultSchema(
+            model=QuizBank,
+            label="quiz",
+            extra_validate=_validate_quiz_answers,
+        ),
+        "branching_scenario_from_premise": _AiResultSchema(
+            model=BranchingScenario,
+            label="branching scenario",
+            # by_alias=True: `nodes` carries `serialization_alias="items"` so the client -- which
+            # only ever writes/reads the `items` key (see ACTIVITY_TEMPLATE_REGISTRY in editor.js)
+            # -- gets that same key back, not the Python-side field name. BranchingScenario's own
+            # `_validate_graph` model_validator (duplicate node ids / dangling next_node_id) runs
+            # as part of `model_validate` in `_validate_against_schema` above -- no separate
+            # graph-check code path here.
+            dump_kwargs={"by_alias": True},
+        ),
+    }
+
+
+_AI_RESULT_SCHEMAS = _ai_result_schemas()
+
+
 def _sync_manifest(workspace: Path) -> None:
     """Ensure every workspace file is declared in the manifest resource."""
     manifest_path = workspace / "imsmanifest.xml"
@@ -946,6 +1139,19 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, status: HTTPStatus, payload: dict) -> None:
         self._headers(status, "application/json; charset=utf-8")
         self.wfile.write(json.dumps(payload).encode("utf-8"))
+
+    @staticmethod
+    def _error_message(exc: BaseException) -> str:
+        """Redact any secret-shaped text before an exception message reaches the browser.
+
+        Mirrors the MCP-side audit path (course_mcp_server.security.redact_text), which this
+        HTTP-facing handler otherwise bypasses entirely. No current adapter is known to embed
+        raw secrets in error text, but this is defense-in-depth against a future one that does.
+        Imported lazily to match every other course_mcp_server import in this file.
+        """
+        from course_mcp_server.security import redact_text
+
+        return redact_text(str(exc))
 
     def _body(self) -> dict:
         length = int(self.headers.get("content-length", "0"))
@@ -1051,13 +1257,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, {"session": sid, "generation": generation_job_state(sid)})
                 return
         except AuthError as exc:
-            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized", "message": str(exc)})
+            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized", "message": self._error_message(exc)})
             return
         except SessionExpiredError as exc:
-            self._json(HTTPStatus.GONE, {"ok": False, "error": "session_expired", "message": str(exc)})
+            self._json(HTTPStatus.GONE, {"ok": False, "error": "session_expired", "message": self._error_message(exc)})
             return
         except (ValueError, FileNotFoundError) as exc:
-            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": self._error_message(exc)})
             return
         self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
 
@@ -1079,7 +1285,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, {"ok": True, **result})
                 return
         except AuthError as exc:
-            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized", "message": str(exc)})
+            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized", "message": self._error_message(exc)})
             return
         except EditConflictError as exc:
             self._json(
@@ -1088,10 +1294,10 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         except SessionExpiredError as exc:
-            self._json(HTTPStatus.GONE, {"ok": False, "error": "session_expired", "message": str(exc)})
+            self._json(HTTPStatus.GONE, {"ok": False, "error": "session_expired", "message": self._error_message(exc)})
             return
         except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
-            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": self._error_message(exc)})
             return
         self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
 
@@ -1165,11 +1371,17 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Invalid generation action")
                 self._json(HTTPStatus.ACCEPTED, {"ok": True, "generation": result})
                 return
+            if route.startswith("/api/ai/") and route.endswith("/generate"):
+                sid = route.removeprefix("/api/ai/").removesuffix("/generate")
+                body = self._body()
+                result = generate_ai_content(sid, body)
+                self._json(HTTPStatus.OK, {"ok": True, **result})
+                return
         except AuthError as exc:
-            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized", "message": str(exc)})
+            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized", "message": self._error_message(exc)})
             return
         except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
-            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": self._error_message(exc)})
             return
         self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
 

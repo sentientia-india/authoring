@@ -641,7 +641,25 @@ h2 { margin-top: 0; font-size: clamp(24px, 2.2vw, 30px); letter-spacing: -.025em
 .timeline-item span { color: var(--ink-soft); line-height: 1.55; }
 .fill-blank-row { display: grid; gap: 8px; max-width: 520px; }
 .fill-blank-row label { display: grid; gap: 6px; font-weight: 700; color: var(--muted); }
+.fill-blank-text { line-height: 2.4; color: var(--ink-soft); max-width: 640px; }
+.fill-blank-input { width: auto; display: inline-block; min-width: 110px; margin: 0 4px; padding: 6px 8px; font-size: 15px; }
+.fill-blank-input.is-correct { border-color: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 16%, transparent); }
+.fill-blank-input.is-incorrect { border-color: #dc2626; box-shadow: 0 0 0 3px color-mix(in srgb, #dc2626 16%, transparent); }
 .reflection-box { display: grid; gap: 8px; color: var(--muted); font-weight: 700; }
+.hotspot-image-wrap { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+.hotspot-image { display: block; max-width: 100%; height: auto; border-radius: var(--radius-m); border: 1px solid var(--line); }
+.hotspot-region {
+  position: absolute;
+  border: 2px solid color-mix(in srgb, var(--blue) 55%, transparent);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  border-radius: var(--radius-s);
+  padding: 0;
+  cursor: pointer;
+  transition: background .2s var(--ease-out), border-color .2s var(--ease-out);
+}
+.hotspot-region:hover { background: color-mix(in srgb, var(--blue) 22%, transparent); }
+.hotspot-region.is-selected.is-correct { border-color: var(--green); background: color-mix(in srgb, var(--green) 22%, transparent); }
+.hotspot-region.is-selected.is-incorrect { border-color: #dc2626; background: color-mix(in srgb, #dc2626 18%, transparent); }
 textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -708,6 +726,24 @@ textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px color-mix(in s
 }
 .match-row:hover { border-color: color-mix(in srgb, var(--green) 30%, var(--line)); }
 .match-result { color: var(--green); font-weight: 700; animation: rise .3s var(--ease-out); }
+.sorting-list { display: grid; gap: 8px; max-width: 560px; }
+.sorting-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: #f8fafc;
+  transition: border-color .2s var(--ease-out), background .2s var(--ease-out);
+}
+.sorting-item-index { font-weight: 700; color: var(--muted); min-width: 1.5em; }
+.sorting-item-text { color: var(--ink-soft); }
+.sorting-item-moves { display: flex; gap: 6px; }
+.sorting-item-moves button { padding: 4px 10px; }
+.sorting-item.is-correct { border-color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.sorting-item.is-incorrect { border-color: #dc2626; background: color-mix(in srgb, #dc2626 10%, transparent); }
 .habit { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-s); }
 .habit button, .primary, .complete {
   min-height: 42px;
@@ -1563,12 +1599,20 @@ function markLessonDone(course, state, lessonId) {
   renderCoursePlayer(course, awardedState);
 }
 
-function markActivityComplete(course, state, activityId, points = 35) {
+// `awardBadge` here is on by default (matches every genuine-completion caller below), but the
+// zero-{{blank}}-token fill-blank case (renderFillBlankActivity) auto-completes an activity the
+// learner never actually interacted with -- it must still track completedActivities/XP/card
+// styling like every other completion (so progress bars stay accurate), but must NOT trigger the
+// "Practice Pro" badge, since that badge is meant to reward genuine interaction (a click, a check,
+// a drag) and every other ACTIVITY_RENDERERS entry only reaches this function via such an action.
+// A simple positional flag matches this file's existing convention (see `points = 35` above)
+// rather than introducing a new options-object pattern that nothing else in this file uses.
+function markActivityComplete(course, state, activityId, points = 35, awardBadgeOnComplete = true) {
   const game = gameDefaults(state);
   if (!game.completedActivities.includes(activityId)) {
     game.completedActivities.push(activityId);
     game.xp += points;
-    awardBadge(game, "Practice Pro");
+    if (awardBadgeOnComplete) awardBadge(game, "Practice Pro");
     if (game.xp >= 120) awardBadge(game, "Momentum Builder");
   }
   const nextState = { ...state, ...game };
@@ -1626,6 +1670,43 @@ function renderLessonDeck(course, state) {
   setProgressRing(percent);
 }
 
+// Ordered dispatch table for renderNativeActivity(). Each entry's `match`
+// reproduces the exact substring test from the original if/else-if chain, in
+// the original chain's order -- the first matching entry wins, exactly as
+// the first true `else if` branch used to win. This is a pure dispatch
+// refactor: every renderer body below is the original branch body, verbatim,
+// just extracted into its own function. Do not "clean up" a renderer's
+// markup/logic here without re-running the golden-output comparison.
+const ACTIVITY_RENDERERS = [
+  { key: "flashcard", match: (type) => type.includes("flashcard"), render: renderFlashcardActivity },
+  { key: "accordion", match: (type) => type.includes("accordion") || type.includes("tabs"), render: renderAccordionActivity },
+  { key: "timeline", match: (type) => type.includes("timeline"), render: renderTimelineActivity },
+  { key: "roleplay", match: (type) => type.includes("roleplay") || type.includes("role-play"), render: renderRoleplayActivity },
+  // "fill_blank" is deliberately ordered *before* the legacy "fill" entry:
+  // both entries' match tests are substring tests on the same "fill" root
+  // ("fill_blank".includes("fill") is also true), so first-match-wins means
+  // the more specific fill_blank check has to come first or it would never
+  // be reached -- any fill_blank-typed activity would silently fall into
+  // the legacy single-answer renderer below. The legacy "fill" entry still
+  // matches every other historical fill-ish type string (e.g.
+  // "fill_in_blanks") exactly as before.
+  { key: "fill_blank", match: (type) => type.includes("fill_blank"), render: renderFillBlankActivity },
+  { key: "fill", match: (type) => type.includes("fill"), render: renderLegacyFillInActivity },
+  { key: "matching", match: (type) => type.includes("matching"), render: renderMatchingActivity },
+  { key: "scenario", match: (type) => type.includes("scenario") || type.includes("decision"), render: renderScenarioActivity },
+  { key: "reflection", match: (type) => type.includes("reflection"), render: renderReflectionActivity },
+  // "hotspot" does not collide with any match string above (none of flashcard/accordion/
+  // tabs/timeline/roleplay/role-play/fill_blank/fill/matching/scenario/decision/reflection
+  // contain the substring "hotspot"), so ordering relative to the others doesn't matter --
+  // placed last for locality with the newest renderer function below.
+  { key: "hotspot", match: (type) => type.includes("hotspot"), render: renderHotspotActivity },
+  // "sorting" does not collide with any match string above (none of flashcard/accordion/tabs/
+  // timeline/roleplay/role-play/fill_blank/fill/matching/scenario/decision/reflection/hotspot
+  // contain the substring "sorting" or "ranking", and vice versa), so ordering relative to the
+  // others doesn't matter -- placed last for locality with the newest renderer function below.
+  { key: "sorting", match: (type) => type.includes("sorting") || type.includes("ranking"), render: renderSortingActivity },
+];
+
 function renderNativeActivity(activity, course, index, state) {
   const card = document.createElement("article");
   const activityId = activity.activity_id || `activity-${index}`;
@@ -1644,11 +1725,19 @@ function renderNativeActivity(activity, course, index, state) {
   `;
   const body = card.querySelector(".activity-body");
   const feedback = card.querySelector(".activity-feedback");
-  if (type.includes("flashcard")) {
-    const cards = items.length ? items : [
-      { front: activity.objective || "Key idea", back: activity.instructions || "Explain it in your own words." },
-    ];
-    body.innerHTML = `<div class="flashcard-grid">
+  const ctx = { activity, course, index, state, card, body, feedback, items, type, activityId };
+  const entry = ACTIVITY_RENDERERS.find((candidate) => candidate.match(type));
+  (entry ? entry.render : renderDefaultActionActivity)(ctx);
+  return card;
+}
+
+function renderFlashcardActivity(ctx) {
+  const { activity, course, index, card, body, feedback, items, activityId } = ctx;
+  let { state } = ctx;
+  const cards = items.length ? items : [
+    { front: activity.objective || "Key idea", back: activity.instructions || "Explain it in your own words." },
+  ];
+  body.innerHTML = `<div class="flashcard-grid">
       ${cards.map((item, itemIndex) => `
         <button type="button" class="flashcard" data-card="${itemIndex}">
           <strong>${escapeHtml(item.front || item.term || item.prompt || `Card ${itemIndex + 1}`)}</strong>
@@ -1656,21 +1745,26 @@ function renderNativeActivity(activity, course, index, state) {
         </button>
       `).join("")}
     </div>`;
-    body.querySelectorAll(".flashcard").forEach((button) => {
-      button.addEventListener("click", () => {
-        button.classList.toggle("is-flipped");
-        feedback.textContent = "Flashcard flipped. Say the answer before revealing it.";
-        card.classList.add("completed");
-        card.querySelector(".activity-status").textContent = "Completed";
-        state = markActivityComplete(course, state, activityId, 20);
-        CourseScorm.recordInteraction?.(`activity-${index}`, "flashcard", button.textContent, "neutral", activity.title || "Flashcard");
-      });
+  body.querySelectorAll(".flashcard").forEach((button) => {
+    button.addEventListener("click", () => {
+      button.classList.toggle("is-flipped");
+      feedback.textContent = "Flashcard flipped. Say the answer before revealing it.";
+      card.classList.add("completed");
+      card.querySelector(".activity-status").textContent = "Completed";
+      state = markActivityComplete(course, state, activityId, 20);
+      CourseScorm.recordInteraction?.(`activity-${index}`, "flashcard", button.textContent, "neutral", activity.title || "Flashcard");
     });
-  } else if (type.includes("accordion") || type.includes("tabs")) {
-    const rows = items.length ? items : [
-      { title: activity.objective || "Review point", detail: activity.instructions || "Open each item and connect it to the lesson." },
-    ];
-    body.innerHTML = `<div class="accordion-list">
+  });
+}
+
+function renderAccordionActivity(ctx) {
+  const { activity, card, body, feedback, items } = ctx;
+  let { state } = ctx;
+  const { course, index, activityId } = ctx;
+  const rows = items.length ? items : [
+    { title: activity.objective || "Review point", detail: activity.instructions || "Open each item and connect it to the lesson." },
+  ];
+  body.innerHTML = `<div class="accordion-list">
       ${rows.map((item, itemIndex) => `
         <div class="accordion-item" data-accordion="${itemIndex}">
           <button type="button">${escapeHtml(item.title || item.label || item.front || `Item ${itemIndex + 1}`)}</button>
@@ -1678,24 +1772,27 @@ function renderNativeActivity(activity, course, index, state) {
         </div>
       `).join("")}
     </div>`;
-    body.querySelectorAll(".accordion-item button").forEach((button) => {
-      button.addEventListener("click", () => {
-        const item = button.closest(".accordion-item");
-        item.classList.toggle("is-open");
-        feedback.textContent = "Section opened. Compare the detail with the lesson objective.";
-        card.classList.add("completed");
-        card.querySelector(".activity-status").textContent = "Completed";
-        state = markActivityComplete(course, state, activityId, 20);
-        CourseScorm.recordInteraction?.(`activity-${index}`, "accordion", button.textContent, "neutral", activity.title || "Accordion");
-      });
+  body.querySelectorAll(".accordion-item button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = button.closest(".accordion-item");
+      item.classList.toggle("is-open");
+      feedback.textContent = "Section opened. Compare the detail with the lesson objective.";
+      card.classList.add("completed");
+      card.querySelector(".activity-status").textContent = "Completed";
+      state = markActivityComplete(course, state, activityId, 20);
+      CourseScorm.recordInteraction?.(`activity-${index}`, "accordion", button.textContent, "neutral", activity.title || "Accordion");
     });
-  } else if (type.includes("timeline")) {
-    const rows = items.length ? items : [
-      { label: "Learn", detail: "Read the core idea." },
-      { label: "Practice", detail: "Apply it in a scenario." },
-      { label: "Prove", detail: "Answer the assessment item." },
-    ];
-    body.innerHTML = `<div class="timeline-list">
+  });
+}
+
+function renderTimelineActivity(ctx) {
+  const { items, body, feedback } = ctx;
+  const rows = items.length ? items : [
+    { label: "Learn", detail: "Read the core idea." },
+    { label: "Practice", detail: "Apply it in a scenario." },
+    { label: "Prove", detail: "Answer the assessment item." },
+  ];
+  body.innerHTML = `<div class="timeline-list">
       ${rows.map((item, itemIndex) => `
         <div class="timeline-item">
           <strong>${escapeHtml(item.label || item.title || `Step ${item.step || itemIndex + 1}`)}</strong>
@@ -1703,8 +1800,14 @@ function renderNativeActivity(activity, course, index, state) {
         </div>
       `).join("")}
     </div>`;
-    feedback.textContent = "Timeline ready. Move through the steps in order.";
-  } else if (type.includes("roleplay") || type.includes("role-play")) {
+  feedback.textContent = "Timeline ready. Move through the steps in order.";
+}
+
+function renderRoleplayActivity(ctx) {
+  const { activity, card, body, feedback } = ctx;
+  let { state } = ctx;
+  const { course, index, activityId } = ctx;
+  {
     const persona = activity.persona || {};
     const roleName = persona.name || activity.persona_name || activity.role || "Scenario stakeholder";
     const roleTitle = persona.role || activity.persona_role || activity.counterpart_role || "Stakeholder";
@@ -1760,107 +1863,393 @@ function renderNativeActivity(activity, course, index, state) {
       }
       CourseScorm.recordInteraction?.(`activity-${index}`, "roleplay", response, score >= 70 ? "correct" : "neutral", activity.title || "Role-play");
     });
-  } else if (type.includes("fill")) {
-    const prompt = activity.prompt || activity.objective || "Complete the missing term.";
-    const answer = String(activity.answer || activity.correct_answer || activity.correct || "").trim().toLowerCase();
-    body.innerHTML = `
+  }
+}
+
+// Legacy single-answer "fill" renderer (original type string family:
+// "fill_in_blanks"). Unchanged from before the P5-4 dispatch refactor --
+// only the function name changed (was renderFillBlankActivity), to free that
+// name up for the new multi-blank "fill_blank" type below without colliding
+// with it.
+function renderLegacyFillInActivity(ctx) {
+  const { activity, card, body, feedback } = ctx;
+  let { state } = ctx;
+  const { course, index, activityId } = ctx;
+  const prompt = activity.prompt || activity.objective || "Complete the missing term.";
+  const answer = String(activity.answer || activity.correct_answer || activity.correct || "").trim().toLowerCase();
+  body.innerHTML = `
       <div class="fill-blank-row">
         <label>${escapeHtml(prompt)}<input type="text" autocomplete="off"></label>
         <button type="button" class="primary">Check answer</button>
       </div>
     `;
-    body.querySelector("button").addEventListener("click", () => {
-      const value = body.querySelector("input").value.trim().toLowerCase();
-      const correct = answer ? value === answer : value.length > 2;
-      feedback.textContent = correct ? "Accepted. Continue to the next item." : "Not yet. Recheck the lesson wording and try again.";
-      if (correct) {
-        card.classList.add("completed");
-        card.querySelector(".activity-status").textContent = "Completed";
-        state = markActivityComplete(course, state, activityId, 35);
-      }
-      CourseScorm.recordInteraction?.(`activity-${index}`, "fill-in", value, correct ? "correct" : "wrong", activity.title || "Fill in the blank");
+  body.querySelector("button").addEventListener("click", () => {
+    const value = body.querySelector("input").value.trim().toLowerCase();
+    const correct = answer ? value === answer : value.length > 2;
+    feedback.textContent = correct ? "Accepted. Continue to the next item." : "Not yet. Recheck the lesson wording and try again.";
+    if (correct) {
+      card.classList.add("completed");
+      card.querySelector(".activity-status").textContent = "Completed";
+      state = markActivityComplete(course, state, activityId, 35);
+    }
+    CourseScorm.recordInteraction?.(`activity-${index}`, "fill-in", value, correct ? "correct" : "wrong", activity.title || "Fill in the blank");
+  });
+}
+
+// New "fill_blank" type (P5-4b): a text passage with one or more `{{blank}}`
+// placeholder tokens, each backed by a `blanks[i]` entry (in text order, one
+// entry per `{{blank}}` occurrence). `blanks[i].answers` is the accepted-
+// answers list; it may be a real array (`["Paris", "paris, france"]`) or --
+// since the Course Studio inspector edits it as one plain-text field -- a
+// single comma-separated string ("Paris, capital of France"), which is split
+// on commas at render time. `blanks[i].answer` (singular) is also accepted
+// as a one-answer shorthand. Matching is case-insensitive and trims
+// whitespace. Multiple acceptable answers per blank ARE supported, so
+// authors can list synonyms/spelling variants -- this is different from the
+// legacy "fill" type above, which only ever accepted one canonical answer.
+// Completion fires (via the same markActivityComplete convention every other type
+// uses) only once every blank is answered CORRECTLY, matching the legacy
+// fill renderer's "correct, not just attempted" convention -- "Check
+// answers" can be pressed repeatedly and gives per-blank correct/incorrect
+// feedback each time.
+function renderFillBlankActivity(ctx) {
+  const { activity, card, body, feedback } = ctx;
+  let { state } = ctx;
+  const { course, index, activityId } = ctx;
+  const text = String(activity.text || activity.prompt || activity.objective || "Complete the missing term: {{blank}}.");
+  const blanks = Array.isArray(activity.blanks) && activity.blanks.length
+    ? activity.blanks
+    : [{ answers: [String(activity.answer || activity.correct_answer || "")] }];
+  const segments = text.split("{{blank}}");
+  let markup = escapeHtml(segments[0] || "");
+  for (let i = 1; i < segments.length; i++) {
+    markup += `<input type="text" class="fill-blank-input" data-blank-index="${i - 1}" autocomplete="off" aria-label="Blank ${i}">`;
+    markup += escapeHtml(segments[i] || "");
+  }
+  // If the authored text has zero {{blank}} tokens (e.g. an edit accidentally stripped the
+  // token while `activity.blanks` metadata still has entries), zero <input> elements would be
+  // created and this activity could never be answered, let alone answered correctly -- it would
+  // be permanently stuck showing "Some blanks are incorrect" with nothing on screen to fix. That
+  // is a misconfigured/degenerate content state, not a learner failure, so we treat it the same
+  // way renderHotspotActivity treats an untagged/"informational" region: no correctness check is
+  // possible, so none is attempted, and we don't block the learner's progress on content that
+  // gives them nothing to interact with. We skip the "Check answers" button entirely (there is
+  // nothing to check) and auto-complete the card as informational.
+  if (segments.length < 2) {
+    body.innerHTML = `
+        <div class="fill-blank-text">${markup}</div>
+        <p class="hint">This activity has no fill-in blanks configured -- nothing to complete here.</p>
+      `;
+    feedback.textContent = "No blanks to fill in for this activity.";
+    card.classList.add("completed");
+    card.querySelector(".activity-status").textContent = "Completed";
+    state = markActivityComplete(course, state, activityId, 0, false);
+    return;
+  }
+  body.innerHTML = `
+      <div class="fill-blank-text">${markup}</div>
+      <button type="button" class="primary">Check answers</button>
+    `;
+  body.querySelector("button").addEventListener("click", () => {
+    const inputs = Array.from(body.querySelectorAll(".fill-blank-input"));
+    let allCorrect = inputs.length > 0;
+    const values = [];
+    inputs.forEach((input, blankIndex) => {
+      const config = blanks[blankIndex] || {};
+      const rawAnswers = Array.isArray(config.answers)
+        ? config.answers
+        : String(config.answers ?? config.answer ?? "").split(",");
+      const accepted = rawAnswers
+        .filter((entry) => entry !== undefined && entry !== null)
+        .map((entry) => String(entry).trim().toLowerCase())
+        .filter(Boolean);
+      const value = input.value.trim().toLowerCase();
+      values.push(input.value.trim());
+      // An unconfigured blank (no accepted answers authored) can never be judged correct --
+      // it must NOT fall back to accepting any non-empty text, or a blank that was never given
+      // a correct answer would trivially "pass" no matter what the learner types.
+      const correct = accepted.length ? accepted.includes(value) : false;
+      input.classList.toggle("is-correct", correct);
+      input.classList.toggle("is-incorrect", !correct);
+      if (!correct) allCorrect = false;
     });
-  } else if (type.includes("matching")) {
-    body.innerHTML = (items || []).map((item, itemIndex) => `
+    feedback.textContent = allCorrect
+      ? "All blanks correct. Nice work."
+      : "Some blanks are incorrect. Review the highlighted inputs and try again.";
+    if (allCorrect) {
+      card.classList.add("completed");
+      card.querySelector(".activity-status").textContent = "Completed";
+      state = markActivityComplete(course, state, activityId, 35);
+    }
+    CourseScorm.recordInteraction?.(`activity-${index}`, "fill-blank", values.join(" | "), allCorrect ? "correct" : "wrong", activity.title || "Fill in the blanks");
+  });
+}
+
+function renderMatchingActivity(ctx) {
+  const { activity, card, body, feedback, items } = ctx;
+  let { state } = ctx;
+  const { course, index, activityId } = ctx;
+  body.innerHTML = (items || []).map((item, itemIndex) => `
       <div class="match-row" data-item="${itemIndex}">
         <span>${escapeHtml(item.left || item.front || item.prompt || `Item ${itemIndex + 1}`)}</span>
         <button type="button" class="secondary">Reveal</button>
         <span class="match-result"></span>
       </div>
     `).join("");
-    body.querySelectorAll(".match-row button").forEach((button) => {
-      button.addEventListener("click", () => {
-        const row = button.closest(".match-row");
-        const result = row.querySelector(".match-result");
-        const itemIndex = Number(row.dataset.item);
-        const item = items?.[itemIndex] || {};
-        result.textContent = item.right || item.back || item.match || "Matched";
-        button.textContent = "Revealed";
-        feedback.textContent = "Match revealed. Compare the pair before moving on.";
-        card.classList.add("completed");
-        card.querySelector(".activity-status").textContent = "Completed";
-        state = markActivityComplete(course, state, activityId, 30);
-        CourseScorm.recordInteraction?.(`activity-${index}`, "matching", item.left || item.front || item.prompt || "", "correct", activity.title || "Matching");
-      });
+  body.querySelectorAll(".match-row button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = button.closest(".match-row");
+      const result = row.querySelector(".match-result");
+      const itemIndex = Number(row.dataset.item);
+      const item = items?.[itemIndex] || {};
+      result.textContent = item.right || item.back || item.match || "Matched";
+      button.textContent = "Revealed";
+      feedback.textContent = "Match revealed. Compare the pair before moving on.";
+      card.classList.add("completed");
+      card.querySelector(".activity-status").textContent = "Completed";
+      state = markActivityComplete(course, state, activityId, 30);
+      CourseScorm.recordInteraction?.(`activity-${index}`, "matching", item.left || item.front || item.prompt || "", "correct", activity.title || "Matching");
     });
-  } else if (type.includes("scenario") || type.includes("decision")) {
-    const scenarioItem = items.find((item) => item && (item.choices || item.options)) || {};
-    const choices = activity.choices || activity.options || scenarioItem.choices || scenarioItem.options || ["Choose the safest action", "Choose the fastest action", "Skip the check"];
-    body.innerHTML = `
+  });
+}
+
+function renderScenarioActivity(ctx) {
+  const { activity, card, body, feedback, items } = ctx;
+  let { state } = ctx;
+  const { course, index, activityId } = ctx;
+  const scenarioItem = items.find((item) => item && (item.choices || item.options)) || {};
+  const choices = activity.choices || activity.options || scenarioItem.choices || scenarioItem.options || ["Choose the safest action", "Choose the fastest action", "Skip the check"];
+  body.innerHTML = `
       <p class="scenario-prompt">${escapeHtml(scenarioItem.scenario || activity.scenario || "Choose the best response for this workplace situation.")}</p>
       <div class="scenario-options">
         ${choices.map((choice, choiceIndex) => `<button type="button" class="primary" data-choice="${choiceIndex}">${escapeHtml(choice.label || choice.text || choice)}</button>`).join("")}
       </div>
       <div class="scenario-consequence" hidden></div>
     `;
-    body.querySelectorAll("button").forEach((button) => {
-      button.addEventListener("click", () => {
-        body.querySelectorAll("button").forEach((item) => item.classList.remove("is-selected"));
-        button.classList.add("is-selected");
-        const choice = choices[Number(button.dataset.choice)] || {};
-        const result = choice.feedback || choice.consequence || choice.result || "Compare this decision with the lesson standard before continuing.";
-        const consequence = body.querySelector(".scenario-consequence");
-        consequence.hidden = false;
-        consequence.textContent = result;
-        feedback.textContent = `Decision saved: ${button.textContent}.`;
-        card.classList.add("completed");
-        card.querySelector(".activity-status").textContent = "Completed";
-        state = markActivityComplete(course, state, activityId, 35);
-        CourseScorm.recordInteraction?.(`activity-${index}`, "choice", button.textContent, choice.result === "risk" ? "wrong" : "neutral", activity.title || "Scenario");
-      });
+  body.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      body.querySelectorAll("button").forEach((item) => item.classList.remove("is-selected"));
+      button.classList.add("is-selected");
+      const choice = choices[Number(button.dataset.choice)] || {};
+      const result = choice.feedback || choice.consequence || choice.result || "Compare this decision with the lesson standard before continuing.";
+      const consequence = body.querySelector(".scenario-consequence");
+      consequence.hidden = false;
+      consequence.textContent = result;
+      feedback.textContent = `Decision saved: ${button.textContent}.`;
+      card.classList.add("completed");
+      card.querySelector(".activity-status").textContent = "Completed";
+      state = markActivityComplete(course, state, activityId, 35);
+      CourseScorm.recordInteraction?.(`activity-${index}`, "choice", button.textContent, choice.result === "risk" ? "wrong" : "neutral", activity.title || "Scenario");
     });
-  } else if (type.includes("reflection")) {
-    body.innerHTML = `
+  });
+}
+
+function renderReflectionActivity(ctx) {
+  const { card, body, feedback } = ctx;
+  let { state } = ctx;
+  const { index } = ctx;
+  const { course, activityId } = ctx;
+  body.innerHTML = `
       <label class="reflection-box">
         <span>Your reflection</span>
         <textarea rows="4" placeholder="Write your answer here"></textarea>
       </label>
       <button type="button" class="primary">Save reflection</button>
     `;
-    body.querySelector("button").addEventListener("click", () => {
-      feedback.textContent = "Reflection saved in this session.";
-      card.classList.add("completed");
-      card.querySelector(".activity-status").textContent = "Completed";
-      state = markActivityComplete(course, state, activityId, 25);
-      CourseScorm.setSuspendData({ ...state, [`reflection-${index}`]: body.querySelector("textarea").value });
+  body.querySelector("button").addEventListener("click", () => {
+    feedback.textContent = "Reflection saved in this session.";
+    card.classList.add("completed");
+    card.querySelector(".activity-status").textContent = "Completed";
+    state = markActivityComplete(course, state, activityId, 25);
+    CourseScorm.setSuspendData({ ...state, [`reflection-${index}`]: body.querySelector("textarea").value });
+  });
+}
+
+// Completion rule: an image-hotspot activity marks complete as soon as the learner clicks ANY
+// region tagged "correct" -- not all correct regions. Rationale: hotspot activities are
+// typically framed as "find the X" (locate one target on the image), matching the "at least
+// one correct click" pattern already used by renderScenarioActivity/renderMatchingActivity
+// above (a single right choice completes those too), rather than an exhaustive checklist like
+// renderFillBlankActivity's "every blank must be right". If a course author wants an
+// exhaustive "find every X" hotspot, they can tag every intended target "correct" and this
+// still completes on the first one found -- documented here as the accepted first-version
+// trade-off rather than tracked as a partial-progress state.
+function renderHotspotActivity(ctx) {
+  const { activity, card, body, feedback } = ctx;
+  let { state } = ctx;
+  const { course, index, activityId } = ctx;
+  const image = activity.image || {};
+  const regions = Array.isArray(activity.regions) ? activity.regions : [];
+  body.innerHTML = `
+      <div class="hotspot-image-wrap">
+        ${image.src
+          ? `<img class="hotspot-image" src="${escapeHtml(image.src)}" alt="${escapeHtml(image.alt || "")}">`
+          : '<p class="hint">No image set for this hotspot activity.</p>'}
+        ${regions.map((region, regionIndex) => `
+          <button type="button" class="hotspot-region" data-region-index="${regionIndex}"
+            style="left:${Number(region.x_pct) || 0}%; top:${Number(region.y_pct) || 0}%; width:${Number(region.width_pct) || 0}%; height:${Number(region.height_pct) || 0}%;"
+            aria-label="${escapeHtml(region.label || `Hotspot ${regionIndex + 1}`)}"></button>
+        `).join("")}
+      </div>
+    `;
+  body.querySelectorAll(".hotspot-region").forEach((el) => {
+    el.addEventListener("click", () => {
+      const regionIndex = Number(el.dataset.regionIndex);
+      const region = regions[regionIndex] || {};
+      const tag = region.tag || "informational";
+      el.classList.add("is-selected");
+      el.classList.toggle("is-correct", tag === "correct");
+      el.classList.toggle("is-incorrect", tag === "incorrect");
+      feedback.textContent = region.feedback || (
+        tag === "correct" ? "Correct." : tag === "incorrect" ? "Not quite -- try another area." : "Noted."
+      );
+      if (tag === "correct") {
+        card.classList.add("completed");
+        card.querySelector(".activity-status").textContent = "Completed";
+        state = markActivityComplete(course, state, activityId, 35);
+      }
+      CourseScorm.recordInteraction?.(
+        `activity-${index}`,
+        "hotspot",
+        region.label || `region-${regionIndex + 1}`,
+        tag === "correct" ? "correct" : tag === "incorrect" ? "wrong" : "neutral",
+        activity.title || "Image hotspot"
+      );
     });
-  } else {
+  });
+}
+
+// Fisher-Yates shuffle of `list` using an injectable random source (defaults to Math.random)
+// -- mirrors apps/scorm_editor/frontend/src/sorting.js's shuffleItems() closely enough to keep
+// the two in lockstep, without importing across the Python-string/npm-bundle boundary (same
+// split fill-blank.js documents for renderFillBlankActivity). If the shuffle happens to land
+// back on the original order (a real possibility for short lists), the result is reversed as a
+// guaranteed-different fallback -- an unshuffled-looking start would silently make the sorting
+// activity trivial.
+function shuffleWithRandom(list, randomSource) {
+  const rng = typeof randomSource === "function" ? randomSource : Math.random;
+  if (!Array.isArray(list) || list.length < 2) return Array.isArray(list) ? list.slice() : [];
+  const shuffled = list.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = shuffled[i];
+    shuffled[i] = shuffled[j];
+    shuffled[j] = tmp;
+  }
+  if (shuffled.every((value, i) => value === list[i])) shuffled.reverse();
+  return shuffled;
+}
+
+function isOrderCorrect(currentOrder, correctOrder) {
+  if (!Array.isArray(currentOrder) || !Array.isArray(correctOrder)) return false;
+  if (currentOrder.length !== correctOrder.length) return false;
+  return currentOrder.every((value, i) => value === correctOrder[i]);
+}
+
+// Sorting/ranking activity (P5-4d). The AUTHOR-DEFINED order of activity.items IS the correct
+// order -- there is no separate "correct_order" field. Items are shown shuffled; the learner
+// reorders them with per-row up/down move buttons (not drag-and-drop): this is a static
+// exported HTML/JS player, not a rich framework, and up/down buttons work without native
+// drag-and-drop APIs and are keyboard/screen-reader friendly, unlike a drag-only interaction --
+// the right choice for a learner-facing exported player even though the AUTHORING side
+// elsewhere in this codebase uses drag interactions for its own, different, editing context.
+// "Check" compares the current order against the authored order per position (mirroring
+// renderFillBlankActivity's per-blank is-correct/is-incorrect highlighting, rather than a single
+// pass/fail message, since knowing *which* rows are misplaced is more actionable for a
+// reordering task): a full match marks completion; a partial match highlights the
+// out-of-place rows and does NOT auto-complete. Partial credit (XP for a partially-correct
+// order) is explicitly out of scope for this first version.
+function renderSortingActivity(ctx) {
+  const { activity, card, body, feedback, items } = ctx;
+  let { state } = ctx;
+  const { course, index, activityId } = ctx;
+  const orderedItems = items.length ? items : [
+    { text: "First step" },
+    { text: "Second step" },
+    { text: "Third step" },
+  ];
+  const itemText = (item, itemIndex) => item.text || item.label || item.prompt || `Item ${itemIndex + 1}`;
+  const correctOrder = orderedItems.map((_, i) => i);
+  // currentOrder holds ORIGINAL INDICES into orderedItems, in the order currently displayed to
+  // the learner -- not the item objects/text themselves -- so items with duplicate display text
+  // are still tracked unambiguously.
+  let currentOrder = shuffleWithRandom(correctOrder, Math.random);
+
+  function renderList() {
     body.innerHTML = `
+        <ol class="sorting-list">
+          ${currentOrder.map((itemIndex, position) => `
+            <li class="sorting-item" data-position="${position}">
+              <span class="sorting-item-index">${position + 1}.</span>
+              <span class="sorting-item-text">${escapeHtml(itemText(orderedItems[itemIndex], itemIndex))}</span>
+              <span class="sorting-item-moves">
+                <button type="button" class="secondary" data-move="up" data-position="${position}" ${position === 0 ? "disabled" : ""} aria-label="Move up">&uarr;</button>
+                <button type="button" class="secondary" data-move="down" data-position="${position}" ${position === currentOrder.length - 1 ? "disabled" : ""} aria-label="Move down">&darr;</button>
+              </span>
+            </li>
+          `).join("")}
+        </ol>
+        <button type="button" class="primary sorting-check">Check order</button>
+      `;
+    body.querySelectorAll("[data-move]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const position = Number(button.dataset.position);
+        const target = button.dataset.move === "up" ? position - 1 : position + 1;
+        if (target < 0 || target >= currentOrder.length) return;
+        const tmp = currentOrder[position];
+        currentOrder[position] = currentOrder[target];
+        currentOrder[target] = tmp;
+        renderList();
+      });
+    });
+    body.querySelector(".sorting-check").addEventListener("click", () => {
+      const rows = Array.from(body.querySelectorAll(".sorting-item"));
+      const allCorrect = isOrderCorrect(currentOrder, correctOrder);
+      rows.forEach((row, position) => {
+        const correctHere = currentOrder[position] === correctOrder[position];
+        row.classList.toggle("is-correct", correctHere);
+        row.classList.toggle("is-incorrect", !correctHere);
+      });
+      feedback.textContent = allCorrect
+        ? "Correct order. Nice work."
+        : "Not quite -- the highlighted rows are out of place. Keep reordering and check again.";
+      if (allCorrect) {
+        card.classList.add("completed");
+        card.querySelector(".activity-status").textContent = "Completed";
+        state = markActivityComplete(course, state, activityId, 35);
+      }
+      CourseScorm.recordInteraction?.(
+        `activity-${index}`,
+        "sorting",
+        currentOrder.map((itemIndex) => itemText(orderedItems[itemIndex], itemIndex)).join(" | "),
+        allCorrect ? "correct" : "wrong",
+        activity.title || "Sorting"
+      );
+    });
+  }
+
+  renderList();
+}
+
+function renderDefaultActionActivity(ctx) {
+  const { card, body, feedback } = ctx;
+  let { state } = ctx;
+  const { index } = ctx;
+  const { course, activityId } = ctx;
+  body.innerHTML = `
       <label class="reflection-box">
         <span>Action commitment</span>
         <textarea rows="3" placeholder="Write the action you would take after this lesson"></textarea>
       </label>
       <button type="button" class="primary">Save action</button>
     `;
-    body.querySelector("button").addEventListener("click", () => {
-      feedback.textContent = "Action saved. Use it as your next workplace practice step.";
-      card.classList.add("completed");
-      card.querySelector(".activity-status").textContent = "Completed";
-      state = markActivityComplete(course, state, activityId, 25);
-      CourseScorm.setSuspendData({ ...state, [`activity-action-${index}`]: body.querySelector("textarea").value });
-    });
-  }
-  return card;
+  body.querySelector("button").addEventListener("click", () => {
+    feedback.textContent = "Action saved. Use it as your next workplace practice step.";
+    card.classList.add("completed");
+    card.querySelector(".activity-status").textContent = "Completed";
+    state = markActivityComplete(course, state, activityId, 25);
+    CourseScorm.setSuspendData({ ...state, [`activity-action-${index}`]: body.querySelector("textarea").value });
+  });
 }
 
 function renderActivityDeck(course, state) {

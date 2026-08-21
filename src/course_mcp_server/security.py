@@ -81,6 +81,12 @@ SECRET_PATTERNS = [
     re.compile(r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+"),
     re.compile(r"sk-[A-Za-z0-9_\-]{12,}"),
     re.compile(r"/app/(src|secrets|config)[^\s,;]*"),
+    # Some provider APIs (e.g. Google Gemini's generateContent endpoint) put the credential in
+    # the URL query string as a bare `key=` parameter rather than a header or an
+    # api_key/token/secret/password-prefixed field -- the pattern above does not match a bare
+    # "key". Match it only when introduced by `?` or `&` (i.e. actually a query-string
+    # parameter) so this doesn't over-redact unrelated prose containing the word "key".
+    re.compile(r"(?i)[?&]key=[^\s,;&]+"),
 ]
 
 

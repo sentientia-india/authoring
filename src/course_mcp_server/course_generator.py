@@ -15,6 +15,19 @@ from .schemas import (
     RoleplayScenario,
     RoleplayScenarioRequest,
 )
+from .text_providers import TextProvider, TextProviderError, get_text_provider
+
+# Fields on CourseOutlineRequest that select/configure which text provider handles this one
+# request (see text_providers/registry.py's get_text_provider()). These are stripped out of
+# the payload sent to the LLM below -- they are call-routing metadata, not course content, and
+# text_provider_api_key in particular must never reach the provider's prompt/user_payload or any
+# persisted artifact.
+_PROVIDER_SELECTION_FIELDS = (
+    "text_provider",
+    "text_provider_api_key",
+    "text_provider_base_url",
+    "text_provider_model",
+)
 
 OUTLINE_SYSTEM_PROMPT = """
 You generate safe e-learning course outlines.
@@ -114,22 +127,77 @@ def _deterministic_outline(req: CourseOutlineRequest) -> CourseOutline:
     )
 
 
-def _provider_outline(req: CourseOutlineRequest, client: OpenRouterClient) -> CourseOutline | None:
-    if not client.config.enabled:
-        return None
+def _provider_enabled(provider: TextProvider) -> bool:
+    """Best-effort "is this provider actually configured" check.
+
+    Every adapter under text_providers/ exposes a `.config.enabled` property backed by
+    "was an api_key resolved" (see e.g. openrouter.py's OpenRouterConfig.enabled). A generic
+    adapter built directly with an explicit api_key (e.g. the openai_compatible provider) may
+    not follow that exact shape, so fall back to assuming enabled rather than raising.
+    """
+    config = getattr(provider, "config", None)
+    enabled = getattr(config, "enabled", None)
+    if isinstance(enabled, bool):
+        return enabled
+    return True
+
+
+def _outline_user_payload(req: CourseOutlineRequest) -> dict[str, Any]:
+    payload = req.model_dump(mode="json")
+    for field in _PROVIDER_SELECTION_FIELDS:
+        payload.pop(field, None)
+    return payload
+
+
+def _explicit_provider_requested(req: CourseOutlineRequest) -> bool:
+    """True when the caller signaled real intent to use a specific text provider.
+
+    The default path (text_provider == "openrouter" and no BYO key) must keep degrading to the
+    deterministic outline silently on any failure -- that's the normal/expected "no provider
+    configured at all" case (see generate_outline()'s docstring/module notes). But a caller who
+    either (a) explicitly picked a non-default provider family, or (b) supplied their own
+    text_provider_api_key (even for the default provider), has signaled they actually want a
+    real generation to happen and needs to be able to tell whether it did.
+    """
+    return req.text_provider != "openrouter" or bool(req.text_provider_api_key)
+
+
+def _provider_outline(
+    req: CourseOutlineRequest, provider: TextProvider, provider_id: str
+) -> tuple[CourseOutline | None, str | None]:
+    """Attempt one provider generation. Returns (outline, error_message).
+
+    Exactly one of the two is non-None on return: a successful generation yields
+    (CourseOutline, None); any failure yields (None, <human-readable reason>). The error message
+    is always computed here (never swallowed) so generate_outline() can decide -- based on
+    whether the caller explicitly asked for this provider -- whether it is worth surfacing via
+    CourseOutline.generation_provider_error, without this function needing to know that policy.
+    """
+    if not _provider_enabled(provider):
+        return None, f"text_provider {provider_id!r} is not configured (no API key available)"
     try:
-        payload = client.generate_json(
+        payload = provider.generate_json(
             system_prompt=OUTLINE_SYSTEM_PROMPT,
-            user_payload=req.model_dump(mode="json"),
+            user_payload=_outline_user_payload(req),
             schema_name="CourseOutline",
         )
         payload.setdefault("source_used", req.source_text is not None)
         payload["source_risk_flags"] = _source_risk_flags(req.source_text)
         payload.setdefault("instructional_design_notes", [])
-        payload["generation_provider"] = f"openrouter:{client.config.model}"
-        return CourseOutline.model_validate(payload)
-    except (OpenRouterError, ValidationError):
-        return None
+        payload["generation_provider"] = provider_id
+        # The adapter's resolved config.model already reflects any per-request model override
+        # (see text_providers/registry.py's get_text_provider(), which applies
+        # req.text_provider_model onto the adapter's config at construction time) -- since
+        # nothing here passes an explicit `model=` to generate_json(), config.model IS the
+        # model that actually produced this content.
+        payload["generation_model"] = getattr(getattr(provider, "config", None), "model", None)
+        # Every text_providers/ adapter sets .key_source ("env" vs "request") on construction --
+        # see text_providers/registry.py's get_text_provider(). Mirror it onto the outline so
+        # callers can tell which key actually authenticated this generation.
+        payload["generation_key_source"] = getattr(provider, "key_source", None)
+        return CourseOutline.model_validate(payload), None
+    except (TextProviderError, OpenRouterError, ValidationError) as exc:
+        return None, f"{provider_id} provider call failed: {exc}"
 
 
 def _provider_lesson(req: LessonDraftRequest, client: OpenRouterClient) -> LessonDraft | None:
@@ -178,10 +246,66 @@ def _outline_to_json(outline: CourseOutline) -> dict[str, Any]:
     return outline.model_dump(mode="json")
 
 
+def _truncate_for_field(value: str, max_length: int) -> str:
+    """Truncate `value` to fit within `max_length`, matching CourseOutline.generation_provider_error's
+    declared max_length=500 (schemas.py). Truncated strings end in "..." so it's visible in the
+    output that the message was cut short; the ellipsis itself counts against max_length.
+    """
+    if len(value) <= max_length:
+        return value
+    if max_length <= 3:
+        return value[:max_length]
+    return value[: max_length - 3] + "..."
+
+
+def _fallback_outline_with_error(req: CourseOutlineRequest, explicit: bool, error: str | None) -> dict[str, Any]:
+    """Build the deterministic-fallback outline dict, attaching a (length-limited) provider error
+    when the caller explicitly requested a provider and it genuinely failed. Shared by both
+    generate_outline() degrade paths -- provider construction failure and provider call failure --
+    so there is exactly one place that assembles the fallback response.
+    """
+    data = _outline_to_json(_deterministic_outline(req))
+    if explicit and error:
+        max_length = CourseOutline.model_fields["generation_provider_error"].metadata[0].max_length
+        data["generation_provider_error"] = _truncate_for_field(error, max_length)
+    # No real provider was used on the fallback path, so there is no key source to report.
+    data["generation_key_source"] = None
+    return data
+
+
 def generate_outline(req: CourseOutlineRequest) -> dict:
-    """Generate an outline through the configured provider, with safe deterministic fallback."""
-    provider_output = _provider_outline(req, OpenRouterClient())
-    return _outline_to_json(provider_output or _deterministic_outline(req))
+    """Generate an outline through the caller-selected provider, with safe deterministic fallback.
+
+    req.text_provider (default "openrouter") drives which text_providers/ adapter handles this
+    call -- see text_providers/registry.py's get_text_provider(). This is the one real course-
+    plan-generation call site: previously it hardcoded OpenRouterClient() unconditionally.
+
+    Any failure (bad key, wrong endpoint, network error, provider not configured, malformed
+    openai_compatible args, ...) degrades to _deterministic_outline() -- that part of the
+    behavior is unchanged. What's new: when the caller EXPLICITLY asked for a specific provider
+    (see _explicit_provider_requested()) and it genuinely failed, the returned dict's
+    generation_provider_error field carries a human-readable reason instead of silently reading
+    "deterministic" with no trace of what went wrong. The ordinary "no provider configured at
+    all" degrade path (default provider, no BYO key) leaves that field None, exactly as before.
+    """
+    explicit = _explicit_provider_requested(req)
+    try:
+        provider = get_text_provider(
+            req.text_provider,
+            api_key=req.text_provider_api_key,
+            base_url=req.text_provider_base_url,
+            model=req.text_provider_model,
+        )
+    except TextProviderError as exc:
+        return _fallback_outline_with_error(
+            req, explicit, f"text_provider {req.text_provider!r} setup failed: {exc}"
+        )
+
+    outline, error = _provider_outline(req, provider, req.text_provider)
+    if outline is not None:
+        return _outline_to_json(outline)
+
+    return _fallback_outline_with_error(req, explicit, error)
 
 
 def generate_lesson(req: LessonDraftRequest) -> dict:

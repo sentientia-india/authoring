@@ -49,6 +49,7 @@ from .schemas import (
     ArtifactListResult,
     AssessmentBankResult,
     AssessmentRequest,
+    BranchingScenario,
     CodexGenerationContractResult,
     BlueprintRequest,
     CourseBriefSaveRequest,
@@ -1148,6 +1149,34 @@ def _media_requests_for_content(content: dict[str, Any]) -> list[dict[str, Any]]
     return requests
 
 
+_BRANCHING_ACTIVITY_TYPES = {"decision_tree", "branching_scenario"}
+
+
+def _branching_activity_errors(course: CourseProjectV2) -> list[str]:
+    """Validate every decision-tree/branching-scenario activity's `data` against BranchingScenario.
+
+    Returns one human-readable error string per malformed activity (e.g. a
+    choice whose `next_node_id` does not name any node in the same tree), or
+    an empty list if every branching/decision activity in the course is
+    structurally sound.
+    """
+    errors: list[str] = []
+    for module in course.modules:
+        activity_sources = [("module", module.id, activity) for activity in module.activities]
+        for lesson in module.lessons:
+            activity_sources.extend(("lesson", lesson.id, activity) for activity in lesson.activities)
+        for scope, owner_id, activity in activity_sources:
+            if activity.type not in _BRANCHING_ACTIVITY_TYPES:
+                continue
+            try:
+                BranchingScenario.model_validate(activity.data)
+            except ValidationError as exc:
+                errors.append(
+                    f"{scope} {owner_id} / activity {activity.id} ({activity.type}): {exc.errors()[0]['msg']}"
+                )
+    return errors
+
+
 def submit_course_content(payload: dict, context: RequestContext) -> dict[str, Any]:
     """Store the full course authored by the calling agent (Claude Code / Codex).
 
@@ -1174,6 +1203,15 @@ def submit_course_content(payload: dict, context: RequestContext) -> dict[str, A
             "final_assessment": req.final_assessment,
         }
     )
+    branching_errors = _branching_activity_errors(course)
+    if branching_errors:
+        return _error_return(
+            tool_name,
+            context,
+            {"project_id": req.project_id},
+            "invalid_branching_scenario",
+            {"errors": branching_errors},
+        )
     content = course.model_dump(mode="json")
     if req.theme:
         content["theme"] = req.theme
@@ -1660,6 +1698,10 @@ def generate_course_blueprint(payload: dict, context: RequestContext) -> dict[st
             difficulty=req.difficulty,
             language=project["language"],
             source_text=_source_text(project) or None,
+            text_provider=req.text_provider,
+            text_provider_api_key=req.text_provider_api_key,
+            text_provider_base_url=req.text_provider_base_url,
+            text_provider_model=req.text_provider_model,
         )
     )
     output = {
@@ -1672,10 +1714,19 @@ def generate_course_blueprint(payload: dict, context: RequestContext) -> dict[st
         "source_citation_policy": "Every lesson should cite source_id and page/line references when available.",
         "recommended_interactions": list(template.recommended_interactions),
         "quality_rules": template.quality_rules,
+        "generation_provider": outline["generation_provider"],
+        "generation_model": outline["generation_model"],
+        "generation_provider_error": outline["generation_provider_error"],
+        "generation_key_source": outline["generation_key_source"],
     }
     add_artifact(project, "blueprint", output)
     _record(context, tool_name, req.project_id, "Course blueprint generated.")
-    return _safe_return(tool_name, context, req.model_dump(), output)
+    # req.model_dump() is only ever hashed (see security.audit_event/hash_payload), never stored
+    # raw or echoed back in the response body -- but strip the BYO-key field here too, defense in
+    # depth, so a future change to how the request is logged/returned can't accidentally leak it.
+    safe_request = req.model_dump()
+    safe_request.pop("text_provider_api_key", None)
+    return _safe_return(tool_name, context, safe_request, output)
 
 
 def generate_module_pack(payload: dict, context: RequestContext) -> dict[str, Any]:

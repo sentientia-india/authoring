@@ -1,8 +1,14 @@
+import shutil
+import subprocess
 from pathlib import Path
 from zipfile import ZipFile
 
-from course_mcp_server.exporters.scorm import build_scorm_package, validate_scorm_package
+import pytest
+
+from course_mcp_server.exporters.scorm import _player_js, build_scorm_package, validate_scorm_package
 from course_mcp_server.schemas import ScormPackageRequest
+
+_JS_HARNESS_DIR = Path(__file__).parent / "js_harness"
 
 
 def test_scorm_package_creates_zip_with_manifest_and_module_pages(tmp_path):
@@ -705,3 +711,33 @@ def test_scorm_package_supports_reference_output_styles(tmp_path):
         assert 'adlcp:scormType="sco"' in manifest
         assert "2004 4th Edition" in manifest
         assert validate_scorm_package(result["package_path"], result["files"])["valid"] is True
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not available in this environment")
+def test_activity_renderers_have_no_dispatch_collisions(tmp_path):
+    """Guard against the "fill_blank" vs "fill" collision class recurring.
+
+    ACTIVITY_RENDERERS in the exported player.js is a first-match-wins,
+    substring-matching dispatch table. It already happened once this session
+    that a narrower entry (fill_blank) had to be deliberately ordered before a
+    broader one (fill) sharing the same substring, or it would never be
+    reached. This test loads the REAL exported player.js in Node, and for
+    every entry asserts that entry's own canonical type string (its `key`) is
+    matched by itself first when scanning the array in its real declared
+    order -- i.e. no earlier, broader entry silently steals it.
+    """
+    player_js_path = tmp_path / "player.js"
+    player_js_path.write_text(_player_js(), encoding="utf-8")
+
+    result = subprocess.run(
+        ["node", str(_JS_HARNESS_DIR / "activity_renderers_collision_harness.js"), str(player_js_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, (
+        f"ACTIVITY_RENDERERS collision check failed (exit {result.returncode}).\n"
+        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
+    )
+    assert "OK" in result.stdout

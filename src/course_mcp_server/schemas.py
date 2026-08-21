@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 
 class Difficulty(str, Enum):
@@ -19,6 +19,20 @@ class CourseOutlineRequest(BaseModel):
     difficulty: Difficulty = Difficulty.beginner
     source_text: str | None = Field(default=None, max_length=60_000)
     language: str = Field(default="English", max_length=60)
+    # Provider-selection + per-request bring-your-own-key plumbing (see
+    # text_providers/registry.py's get_text_provider()). The default preserves today's
+    # hardcoded-OpenRouter behavior for every caller that never sets these fields.
+    text_provider: Literal["openrouter", "deepseek", "openai", "anthropic", "gemini", "openai_compatible"] = (
+        "openrouter"
+    )
+    # Per-request BYO-key. This value must NEVER be persisted to disk or included in any
+    # serialized project/audit artifact -- see course_generator.py's generate_outline(), which
+    # strips it (and the other text_provider_* fields) out of the payload sent to the LLM and
+    # keeps it out of anything written back to the caller or to project_store.py.
+    text_provider_api_key: str | None = Field(default=None, max_length=400)
+    # Only meaningful when text_provider == "openai_compatible".
+    text_provider_base_url: str | None = Field(default=None, max_length=500)
+    text_provider_model: str | None = Field(default=None, max_length=200)
 
 
 class LessonDraftRequest(BaseModel):
@@ -286,6 +300,14 @@ class BlueprintRequest(BaseModel):
     project_id: str = Field(pattern=r"^course_[a-z0-9]{8,20}$")
     duration_minutes: int = Field(default=60, ge=3, le=480)
     difficulty: Difficulty = Difficulty.beginner
+    # See CourseOutlineRequest above for field semantics -- generate_course_blueprint threads
+    # these straight through to the CourseOutlineRequest it builds internally.
+    text_provider: Literal["openrouter", "deepseek", "openai", "anthropic", "gemini", "openai_compatible"] = (
+        "openrouter"
+    )
+    text_provider_api_key: str | None = Field(default=None, max_length=400)
+    text_provider_base_url: str | None = Field(default=None, max_length=500)
+    text_provider_model: str | None = Field(default=None, max_length=200)
 
 
 class CourseBlueprintResult(BaseModel):
@@ -699,7 +721,31 @@ class CourseOutline(BaseModel):
     source_used: bool = False
     source_risk_flags: list[str] = Field(default_factory=list, max_length=20)
     instructional_design_notes: list[str] = Field(default_factory=list, max_length=20)
+    # "deterministic" when no LLM provider produced this outline (the offline fallback path in
+    # course_generator.py's generate_outline()); otherwise the real provider_id that was
+    # actually used (e.g. "openrouter", "deepseek"), set in _provider_outline().
     generation_provider: str = Field(default="deterministic", max_length=80)
+    # The specific model string actually used within generation_provider's family (e.g.
+    # "nvidia/nemotron-3-ultra-550b-a55b:free" for provider "openrouter"). generation_provider
+    # alone only names the provider FAMILY, not which model of that family produced the
+    # content -- this recovers that granularity. Only set when a real (non-deterministic)
+    # provider call succeeded; None on the deterministic fallback path. See
+    # course_generator.py's _provider_outline().
+    generation_model: str | None = Field(default=None, max_length=200)
+    # Populated only when the caller EXPLICITLY requested a non-default text_provider (or
+    # supplied their own text_provider_api_key) and that provider attempt genuinely failed
+    # (not configured, HTTP/network error, malformed response), causing generate_outline() to
+    # silently fall back to the deterministic outline above. Left None on every other path,
+    # including the normal/expected "no provider configured at all" graceful degradation --
+    # see course_generator.py's generate_outline()/_provider_outline().
+    generation_provider_error: str | None = Field(default=None, max_length=500)
+    # Which key source (env var vs. per-request BYO key) the provider actually used to
+    # authenticate, mirrored from the constructed provider's own `.key_source` attribute (set by
+    # every text_providers/ adapter -- see text_providers/registry.py's get_text_provider() and
+    # base.py's ProviderKeySource). Only set when a real (non-deterministic) provider call
+    # succeeded; None on the deterministic fallback path, since no provider was actually used.
+    # See course_generator.py's _provider_outline().
+    generation_key_source: Literal["env", "request"] | None = Field(default=None)
 
 
 class ContentBlock(BaseModel):
@@ -747,6 +793,143 @@ class RoleplayScenario(BaseModel):
     setup: str = Field(min_length=1, max_length=1500)
     expected_behaviors: list[str] = Field(min_length=1, max_length=20)
     rubric: list[RubricCriterion] = Field(min_length=1, max_length=10)
+
+
+class BranchingChoice(BaseModel):
+    """One selectable option inside a branching-scenario/decision-tree node.
+
+    Mirrors the ``{label, result, feedback}`` shape the Course Studio editor
+    already produces for every choice (see ``ACTIVITY_TEMPLATE_REGISTRY.decision``
+    / ``.branching`` and the shared "scenes" inspector in
+    ``apps/scorm_editor/frontend/src/editor.js``). A choice is terminal --
+    it ends the scene, with ``feedback`` as the outcome text the learner
+    sees -- unless it names another node via ``next_node_id``, in which case
+    the scenario continues there instead. ``result`` is the existing
+    best/risk grading marker the editor writes and is preserved as-is;
+    ``is_terminal`` is derived (not user-authoritative) from whether
+    ``next_node_id`` is set.
+    """
+
+    label: str = Field(min_length=1, max_length=300)
+    result: Literal["best", "risk"] | None = None
+    feedback: str = Field(default="", max_length=1000)
+    next_node_id: str | None = Field(default=None, max_length=80)
+    is_terminal: bool = True
+
+    @model_validator(mode="after")
+    def _derive_terminal(self) -> "BranchingChoice":
+        self.is_terminal = self.next_node_id is None
+        return self
+
+
+class BranchingNode(BaseModel):
+    """One scene/step of a branching or decision-tree activity.
+
+    ``scenario`` matches the field name the client already writes for every
+    entry in ``items[]`` -- both ``scenario_decision_tree`` and
+    ``branching_scenario`` activities share this exact shape today (the
+    "scenes" inspector in editor.js is deliberately shared by both template
+    ids). ``id`` is optional on input: today's editor.js never assigns scene
+    ids, so a missing id is back-filled from list position by
+    ``BranchingScenario`` before the node graph is checked for dangling
+    references.
+    """
+
+    id: str | None = Field(default=None, max_length=80)
+    scenario: str = Field(min_length=1, max_length=2000)
+    choices: list[BranchingChoice] = Field(min_length=1, max_length=10)
+
+
+class BranchingScenarioPersona(BaseModel):
+    """Optional character the learner talks to; only ``branching_scenario`` sets this."""
+
+    name: str = Field(min_length=1, max_length=120)
+    role: str = Field(min_length=1, max_length=120)
+
+
+class BranchingScenario(BaseModel):
+    """Server-side validated tree for ``scenario_decision_tree`` /
+    ``branching_scenario`` activities.
+
+    These two activity-type labels are the SAME data shape today, not two
+    distinct structures: editor.js's ``ACTIVITY_TEMPLATE_REGISTRY`` builds
+    both from ``{activity_type, title, objective, items: [{scenario,
+    choices}]}``, and its "scenes" inspector (``ACTIVITY_INSPECTORS``) is
+    deliberately shared between them -- the only difference is that
+    ``branching_scenario`` also carries an optional ``persona`` (a character
+    name/role) for the dialogue framing. This model validates the shared
+    activity-data shape (the ``items``/``persona`` portion); the surrounding
+    ``activity_id``/``activity_type``/``title``/``objective`` fields are
+    validated separately as generic activity fields.
+
+    ``nodes`` accepts the wire key ``items`` (what the client already sends)
+    via alias, and round-trips back out under the same ``items`` key so
+    consumers see no shape change.
+
+    ``title`` is optional and round-trips as-is: the AI generation system
+    prompt (see ``branching-scenario-ai.js``) asks for a ``title`` string
+    alongside ``persona``/``items``, and without declaring it here Pydantic's
+    default ``extra="ignore"`` would silently drop it during
+    ``_validate_ai_result_schema``'s validate/re-dump round trip in
+    ``apps/scorm_editor/server.py``.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str | None = Field(default=None, max_length=200)
+    persona: BranchingScenarioPersona | None = None
+    nodes: list[BranchingNode] = Field(
+        min_length=1,
+        max_length=40,
+        validation_alias=AliasChoices("items", "nodes"),
+        serialization_alias="items",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _wrap_legacy_single_scene(cls, data: object) -> object:
+        """Normalize the flat single-scene `{scenario, choices}` shape into `items`.
+
+        Some already-accepted `decision_tree` activities (see
+        `tests/fixtures/agile_course_content.json`) were authored with a
+        single scene written directly at the top level -- `{"scenario": ...,
+        "choices": [...]}` -- rather than wrapped in an `items` list the way
+        `branching_scenario` (and editor.js's own decision-template default)
+        do. Both are the same underlying node concept (one scene with
+        choices); this normalizes the flat legacy form to a one-node `items`
+        list so both write conventions validate against one schema.
+        """
+        if isinstance(data, dict) and "items" not in data and "nodes" not in data and "scenario" in data:
+            wrapped = dict(data)
+            scene = {"scenario": wrapped.pop("scenario", None), "choices": wrapped.pop("choices", [])}
+            wrapped["items"] = [scene]
+            return wrapped
+        return data
+
+    @model_validator(mode="after")
+    def _validate_graph(self) -> "BranchingScenario":
+        for index, node in enumerate(self.nodes):
+            if not node.id:
+                node.id = f"node_{index}"
+        ids = [node.id for node in self.nodes]
+        duplicate_ids = sorted({node_id for node_id in ids if ids.count(node_id) > 1})
+        if duplicate_ids:
+            raise ValueError(
+                f"BranchingScenario has duplicate node id(s): {', '.join(duplicate_ids)}"
+            )
+        id_set = set(ids)
+        dangling = [
+            f"{node.id} -> {choice.next_node_id}"
+            for node in self.nodes
+            for choice in node.choices
+            if choice.next_node_id is not None and choice.next_node_id not in id_set
+        ]
+        if dangling:
+            raise ValueError(
+                "BranchingScenario choice next_node_id references a node that does not "
+                f"exist in nodes: {', '.join(dangling)}"
+            )
+        return self
 
 
 class CourseValidationResult(BaseModel):
